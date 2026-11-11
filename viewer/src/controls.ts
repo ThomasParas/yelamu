@@ -31,6 +31,7 @@ export function attachControls(
   };
 
   canvas.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 2) {
@@ -42,6 +43,11 @@ export function attachControls(
   canvas.addEventListener("pointermove", (e) => {
     const prev = pointers.get(e.pointerId);
     if (!prev) return;
+    if (e.pointerType === "mouse" && e.buttons === 0) {
+      // The button was released outside the window; treat the drag as over.
+      pointers.delete(e.pointerId);
+      return;
+    }
     const next = { x: e.clientX, y: e.clientY };
     pointers.set(e.pointerId, next);
     if (pointers.size === 1) {
@@ -54,7 +60,16 @@ export function attachControls(
     place();
   });
 
-  const release = (e: PointerEvent) => pointers.delete(e.pointerId);
+  const release = (e: PointerEvent) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 2) {
+      // A third finger lifted: restart the pinch from the two that remain.
+      pinchStart = pinchDistance();
+      zoomStart = camera.zoom;
+    } else if (pointers.size < 2) {
+      pinchStart = 0;
+    }
+  };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
 

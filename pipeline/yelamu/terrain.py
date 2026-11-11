@@ -6,33 +6,45 @@ import numpy as np
 
 from yelamu.geo import Grid
 
+# One source of truth for the vertical datum the viewer relies on. The viewer draws a
+# water plane at WATER_LEVEL_M (it reads the value from meta.json), so everything is
+# placed relative to it: marsh sits just BELOW the water level so it reads as shallow
+# water, and dry land sits ABOVE it so it can never be drawn as water.
+WATER_LEVEL_M = 0.6
+MARSH_LEVEL_M = 0.5
+LAND_FLOOR_M = 1.0
+BAY_FLOOR_M = -3.0
+
 
 def apply_historical_water(
     dem: np.ndarray,
     bay: np.ndarray,
     marsh: np.ndarray,
-    bay_floor: float = -3.0,
-    marsh_level: float = 0.5,
+    bay_floor: float = BAY_FLOOR_M,
+    marsh_level: float = MARSH_LEVEL_M,
 ) -> np.ndarray:
     """Overwrite reclaimed ground with its historical water level.
 
-    Bay wins over marsh where the masks overlap. Dry land is clamped to >= 0 m so
-    survey noise can't dig phantom pits below sea level. NaN (missing data) is fine:
+    Bay wins over marsh where the masks overlap. Dry land is clamped to >=
+    LAND_FLOOR_M, which is above WATER_LEVEL_M, so survey noise can't dig phantom pits
+    and dry land is never drawn as water. Marsh is set to MARSH_LEVEL_M, just below
+    WATER_LEVEL_M, so it reads as shallow water. NaN (missing data) is fine:
     under water it is overwritten, and on dry land it stays NaN for fill_missing_land.
     """
     out = dem.astype("float32", copy=True)
     land = ~(bay | marsh)
-    out[land] = np.maximum(out[land], 0.0)
+    # Known simplification: real coast land between 0 and 1 m is flattened up to 1 m.
+    out[land] = np.maximum(out[land], LAND_FLOOR_M)
     out[marsh & ~bay] = marsh_level
     out[bay] = bay_floor
     return out
 
 
 def fill_missing_land(dem: np.ndarray, max_missing_fraction: float = 0.02) -> np.ndarray:
-    """Replace leftover NaN with 0 m, unless too much of the grid is missing.
+    """Replace leftover NaN with LAND_FLOOR_M, unless too much of the grid is missing.
 
     Call this after apply_historical_water: every remaining NaN is then dry land with
-    no elevation data. A few cells (voids, tile seams) are filled with sea level; a
+    no elevation data. A few cells (voids, tile seams) are filled with the land floor (just above the water plane); a
     large fraction means the DEM doesn't cover the area or the nodata value is wrong.
     """
     out = np.asarray(dem, dtype="float32")
@@ -47,7 +59,7 @@ def fill_missing_land(dem: np.ndarray, max_missing_fraction: float = 0.02) -> np
             "box and that its nodata value is right (see the --dem-nodata option)."
         )
     out = out.copy()
-    out[missing] = 0.0
+    out[missing] = LAND_FLOOR_M
     return out
 
 

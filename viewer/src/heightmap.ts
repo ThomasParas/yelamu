@@ -13,46 +13,56 @@ export interface HeightmapMeta {
   cell_m: number;
   min_m: number;
   max_m: number;
+  heights_file: string;
+  heights_format: string;
+  water_level_m: number;
   layers: LayerInfo[];
 }
 
 /**
- * Decode heights (metres) from RGBA pixel bytes. The pipeline packs a 16-bit height
- * into R (high byte) and G (low byte); see pipeline/yelamu/export.py.
+ * Turn quantized 16-bit values into heights (metres). The pipeline maps [min_m, max_m]
+ * onto 0..65535; see pipeline/yelamu/export.py.
  */
 export function decodeHeights(
-  rgba: ArrayLike<number>,
+  q: ArrayLike<number>,
   meta: Pick<HeightmapMeta, "width" | "height" | "min_m" | "max_m">,
 ): Float32Array {
   const count = meta.width * meta.height;
-  if (rgba.length !== count * 4) {
-    throw new Error(`expected ${count * 4} bytes for ${meta.width}x${meta.height}, got ${rgba.length}`);
+  if (q.length !== count) {
+    throw new Error(`expected ${count} values for ${meta.width}x${meta.height}, got ${q.length}`);
   }
   const span = meta.max_m - meta.min_m;
   const out = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    const q = rgba[i * 4] * 256 + rgba[i * 4 + 1];
-    out[i] = meta.min_m + (q / 65535) * span;
+    out[i] = meta.min_m + (q[i] / 65535) * span;
   }
   return out;
+}
+
+async function fetchChecked(url: string): Promise<Response> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`failed to fetch ${url}: HTTP ${res.status}`);
+  return res;
 }
 
 export async function loadHeightmap(
   baseUrl: string,
 ): Promise<{ meta: HeightmapMeta; heights: Float32Array }> {
-  const meta: HeightmapMeta = await (await fetch(`${baseUrl}/meta.json`)).json();
-  const blob = await (await fetch(`${baseUrl}/heightmap.png`)).blob();
-  // 'none' matters: any colour management or alpha premultiplication would change
-  // the bytes, and the bytes ARE the data.
-  const bitmap = await createImageBitmap(blob, {
-    colorSpaceConversion: "none",
-    premultiplyAlpha: "none",
-  });
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.drawImage(bitmap, 0, 0);
-  const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-  return { meta, heights: decodeHeights(data, meta) };
+  const meta: HeightmapMeta = await (await fetchChecked(`${baseUrl}/meta.json`)).json();
+  if (meta.heights_format !== "uint16-le") {
+    throw new Error(`unsupported heights_format ${JSON.stringify(meta.heights_format)}`);
+  }
+  const url = `${baseUrl}/${meta.heights_file}`;
+  const buffer = await (await fetchChecked(url)).arrayBuffer();
+  const count = meta.width * meta.height;
+  if (buffer.byteLength !== count * 2) {
+    throw new Error(
+      `${url}: expected ${count * 2} bytes for ${meta.width}x${meta.height}, got ${buffer.byteLength}`,
+    );
+  }
+  // Read little-endian explicitly rather than trusting the platform's byte order.
+  const view = new DataView(buffer);
+  const q = new Uint16Array(count);
+  for (let i = 0; i < count; i++) q[i] = view.getUint16(i * 2, true);
+  return { meta, heights: decodeHeights(q, meta) };
 }

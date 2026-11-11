@@ -31,7 +31,7 @@ def build(
     dem = load_dem(dem_path, grid, nodata=dem_nodata)
 
     # Landforms first, so a stamp near the shore can't raise the bay floor or dig
-    # dry land below sea level: the water edit and the clamp come last.
+    # dry land below the land floor: the water edit and the clamp come last.
     if landforms_path:
         for lf in json.loads(Path(landforms_path).read_text()):
             x, y = lonlat_to_utm(lf["lon"], lf["lat"])

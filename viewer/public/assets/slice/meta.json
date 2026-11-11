@@ -9,6 +9,9 @@
   "south": 4180000,
   "east": 553000,
   "north": 4183000,
+  "heights_file": "heightmap.u16",
+  "heights_format": "uint16-le",
+  "water_level_m": 0.6,
   "layers": [
     {
       "id": "terrain",

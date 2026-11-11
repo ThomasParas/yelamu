@@ -1,8 +1,10 @@
-"""Write the static assets the viewer loads: heightmap PNG + meta.json.
+"""Write the static assets the viewer loads: a raw heightmap + meta.json.
 
-Heights are packed into an ordinary 8-bit RGB PNG (R = high byte, G = low byte of a
-16-bit value). Browsers decode 16-bit PNGs down to 8 bits through <canvas>, which
-would silently flatten the terrain into 256 height steps; two 8-bit channels survive.
+Heights are quantized to 16 bits and written as a raw little-endian uint16 file
+(row-major, row 0 = north), not as an image. Reading PNG pixels back through a browser
+<canvas> can be silently altered by privacy features that randomize canvas reads
+(Brave, Safari, Firefox resistFingerprinting), which would corrupt the terrain. A raw
+binary file never touches a canvas, so the bytes the viewer sees are the bytes we wrote.
 """
 
 from __future__ import annotations
@@ -13,9 +15,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from yelamu.geo import UTM_CRS, Grid
+from yelamu.terrain import WATER_LEVEL_M
 
 CONFIDENCE_LEVELS = ("documented", "inferred", "illustrative")
 
@@ -34,19 +36,15 @@ class Layer:
             )
 
 
-def encode_heights(dem: np.ndarray, min_m: float, max_m: float) -> np.ndarray:
-    """Pack metres into an (H, W, 3) uint8 array: R = high byte, G = low byte."""
+def quantize_heights(dem: np.ndarray, min_m: float, max_m: float) -> np.ndarray:
+    """Map metres onto 0..65535 across [min_m, max_m]; returns an (H, W) uint16 array."""
     span = max_m - min_m
     unit = np.clip((dem - min_m) / span, 0.0, 1.0)
-    q = np.rint(unit * 65535.0).astype(np.uint32)
-    rgb = np.zeros((*dem.shape, 3), dtype=np.uint8)
-    rgb[..., 0] = (q >> 8).astype(np.uint8)
-    rgb[..., 1] = (q & 0xFF).astype(np.uint8)
-    return rgb
+    return np.rint(unit * 65535.0).astype(np.uint16)
 
 
-def decode_heights(rgb: np.ndarray, min_m: float, max_m: float) -> np.ndarray:
-    q = rgb[..., 0].astype(np.uint32) * 256 + rgb[..., 1].astype(np.uint32)
+def dequantize_heights(q: np.ndarray, min_m: float, max_m: float) -> np.ndarray:
+    """Inverse of quantize_heights; returns float32 metres."""
     return (min_m + q.astype(np.float64) / 65535.0 * (max_m - min_m)).astype("float32")
 
 
@@ -64,9 +62,8 @@ def write_assets(dem: np.ndarray, grid: Grid, layers: list[Layer], out_dir: Path
     if max_m <= min_m:
         max_m = min_m + 1.0
 
-    Image.fromarray(encode_heights(dem, min_m, max_m), mode="RGB").save(
-        out_dir / "heightmap.png"
-    )
+    q = quantize_heights(dem, min_m, max_m)
+    q.astype("<u2").tofile(out_dir / "heightmap.u16")
     meta = {
         "width": grid.width,
         "height": grid.height,
@@ -78,6 +75,9 @@ def write_assets(dem: np.ndarray, grid: Grid, layers: list[Layer], out_dir: Path
         "south": grid.south,
         "east": grid.east,
         "north": grid.north,
+        "heights_file": "heightmap.u16",
+        "heights_format": "uint16-le",
+        "water_level_m": WATER_LEVEL_M,
         "layers": [asdict(layer) for layer in layers],
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))

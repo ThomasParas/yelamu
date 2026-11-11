@@ -5,18 +5,23 @@ import json
 import numpy as np
 import pytest
 import rasterio
-from PIL import Image
 from rasterio.transform import from_origin
 from shapely.geometry import Point
 
 from yelamu.checks import Expectation, run_checks
 from yelamu.cli import main
-from yelamu.export import decode_heights
+from yelamu.export import dequantize_heights
 from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
+from yelamu.terrain import WATER_LEVEL_M
 from yelamu.sources import load_dem, load_polygons
 from yelamu.water import water_mask
 
 BBOX = (-122.42, 37.755, -122.37, 37.805)
+
+
+def _read_heights(out, meta) -> np.ndarray:
+    q = np.fromfile(out / "heightmap.u16", dtype="<u2").reshape(meta["height"], meta["width"])
+    return dequantize_heights(q, meta["min_m"], meta["max_m"])
 
 
 def _write_dem(path, grid: Grid, value: float) -> None:
@@ -72,9 +77,7 @@ def test_cli_end_to_end_lowers_reclaimed_land(tmp_path):
     assert code == 0
     meta = json.loads((out / "meta.json").read_text())
     assert meta["min_m"] == -3.0 and meta["max_m"] == 5.0
-    heights = decode_heights(
-        np.asarray(Image.open(out / "heightmap.png")), meta["min_m"], meta["max_m"]
-    )
+    heights = _read_heights(out, meta)
     x, y = lonlat_to_utm(-122.39, 37.78)  # inside the bay polygon
     row, col = grid.pixel_of(x, y)
     assert abs(heights[row, col] - (-3.0)) < 0.01
@@ -217,9 +220,7 @@ def test_nodata_inside_the_bay_is_harmless(tmp_path):
 
     assert code == 0
     meta = json.loads((out / "meta.json").read_text())
-    heights = decode_heights(
-        np.asarray(Image.open(out / "heightmap.png")), meta["min_m"], meta["max_m"]
-    )
+    heights = _read_heights(out, meta)
     row, col = _pixel(grid, -122.39, 37.78)
     assert abs(heights[row, col] - (-3.0)) < 0.01
     assert np.isfinite(heights).all()
@@ -308,10 +309,8 @@ def test_landform_near_shore_cannot_alter_water_or_dig_land(tmp_path, delta_m):
           "--bay", str(tmp_path / "bay.geojson"), "--landforms", str(tmp_path / "lf.json")])
 
     meta = json.loads((out / "meta.json").read_text())
-    heights = decode_heights(
-        np.asarray(Image.open(out / "heightmap.png")), meta["min_m"], meta["max_m"]
-    )
+    heights = _read_heights(out, meta)
     bay = water_mask(load_polygons(tmp_path / "bay.geojson"), grid)
     assert bay.any()
     assert np.abs(heights[bay] - (-3.0)).max() < 0.01  # the bay floor is untouched
-    assert heights[~bay].min() > -0.01  # no dry land dug below sea level
+    assert heights[~bay].min() > WATER_LEVEL_M  # no dry land dug into water

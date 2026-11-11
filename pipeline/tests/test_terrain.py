@@ -2,7 +2,20 @@ import numpy as np
 import pytest
 
 from yelamu.geo import Grid
-from yelamu.terrain import apply_historical_water, fill_missing_land, stamp_landform
+from yelamu.terrain import (
+    BAY_FLOOR_M,
+    LAND_FLOOR_M,
+    MARSH_LEVEL_M,
+    WATER_LEVEL_M,
+    apply_historical_water,
+    fill_missing_land,
+    stamp_landform,
+)
+
+
+def test_level_constants_keep_land_above_water_and_marsh_below_it():
+    assert LAND_FLOOR_M > WATER_LEVEL_M > MARSH_LEVEL_M > BAY_FLOOR_M
+
 
 
 def test_fill_inside_bay_is_lowered_to_bay_floor():
@@ -25,11 +38,20 @@ def test_marsh_is_set_to_marsh_level_and_bay_wins_overlap():
     assert out[1, 0] == 4.0 and out[1, 1] == 4.0
 
 
-def test_dry_land_is_never_below_sea_level():
-    dem = np.array([[-2.0, 3.0]], dtype="float32")
-    none = np.zeros((1, 2), dtype=bool)
+def test_dry_land_is_never_below_the_land_floor():
+    dem = np.array([[-2.0, 0.5, 3.0]], dtype="float32")
+    none = np.zeros((1, 3), dtype=bool)
     out = apply_historical_water(dem, none, none)
-    assert out[0, 0] == 0.0 and out[0, 1] == 3.0
+    assert out[0, 0] == LAND_FLOOR_M and out[0, 1] == LAND_FLOOR_M and out[0, 2] == 3.0
+    assert (out > WATER_LEVEL_M).all()  # dry land can never render as water
+
+
+def test_defaults_use_the_shared_constants():
+    dem = np.full((1, 3), 4.0, dtype="float32")
+    bay = np.array([[True, False, False]])
+    marsh = np.array([[False, True, False]])
+    out = apply_historical_water(dem, bay, marsh)
+    assert out[0, 0] == BAY_FLOOR_M and out[0, 1] == MARSH_LEVEL_M and out[0, 2] == 4.0
 
 
 def test_stamp_raises_centre_and_leaves_far_cells_alone():
@@ -68,11 +90,11 @@ def test_fill_missing_land_without_nan_is_unchanged():
     assert np.array_equal(out, dem.astype("float32"))
 
 
-def test_fill_missing_land_fills_small_gaps_with_zero_and_copies():
+def test_fill_missing_land_fills_small_gaps_with_land_floor_and_copies():
     dem = np.full((10, 10), 5.0, dtype="float32")
     dem[0, 0] = np.nan  # 1 %
     out = fill_missing_land(dem)
-    assert out[0, 0] == 0.0 and out[1, 1] == 5.0
+    assert out[0, 0] == LAND_FLOOR_M and out[1, 1] == 5.0
     assert np.isnan(dem[0, 0])  # input not mutated
 
 

@@ -38,3 +38,23 @@ export function createIsoCamera(viewSize: number, aspect: number): THREE.Orthogr
   // Huge near/far: an orthographic camera does not care, and the terrain is tall.
   return new THREE.OrthographicCamera(-half * aspect, half * aspect, half, -half, -1e5, 1e5);
 }
+
+/**
+ * Orthographic view HEIGHT (world units) that fits the whole map in the isometric view,
+ * with a 10% margin. The map's footprint is projected at azimuth 45 degrees: its
+ * horizontal screen extent is (width + depth) / sqrt(2); vertically that footprint is
+ * foreshortened by sin(elevation) and the tallest terrain adds height * cos(elevation).
+ * The result is the larger of the vertical need and the horizontal need divided by aspect.
+ */
+export function fitViewSize(
+  widthM: number,
+  depthM: number,
+  maxHeightM: number,
+  aspect: number,
+): number {
+  const horizontalExtent = (widthM + depthM) / Math.SQRT2;
+  const verticalExtent =
+    ((widthM + depthM) / Math.SQRT2) * Math.sin(ISO_ELEVATION) +
+    maxHeightM * Math.cos(ISO_ELEVATION);
+  return Math.max(verticalExtent, horizontalExtent / aspect) * 1.1;
+}

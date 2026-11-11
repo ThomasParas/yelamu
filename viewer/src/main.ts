@@ -1,13 +1,11 @@
 import * as THREE from "three";
-import { createIsoCamera } from "./camera";
+import { createIsoCamera, fitViewSize } from "./camera";
 import { attachControls } from "./controls";
 import { loadHeightmap } from "./heightmap";
 import { buildTerrainGeometry } from "./terrainMesh";
 
 // Real hills are gentle at this scale; a diorama needs them exaggerated to read.
 const VERTICAL_EXAGGERATION = 3;
-// Slightly above sea level so the 0.5 m marsh reads as shallow water, not dry land.
-const WATER_LEVEL = 0.6;
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/slice`;
 
 async function start() {
@@ -36,10 +34,16 @@ async function start() {
     new THREE.PlaneGeometry(extent * 4, extent * 4).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: 0x3f7fa6, transparent: true, opacity: 0.8 }),
   );
-  water.position.y = WATER_LEVEL * VERTICAL_EXAGGERATION;
+  water.position.y = meta.water_level_m * VERTICAL_EXAGGERATION;
   scene.add(water);
 
-  const camera = createIsoCamera(extent * 0.9, canvas.clientWidth / canvas.clientHeight);
+  const widthM = meta.width * meta.cell_m;
+  const depthM = meta.height * meta.cell_m;
+  const maxHeightM = (meta.max_m - meta.min_m) * VERTICAL_EXAGGERATION;
+  const camera = createIsoCamera(
+    fitViewSize(widthM, depthM, maxHeightM, canvas.clientWidth / canvas.clientHeight),
+    canvas.clientWidth / canvas.clientHeight,
+  );
   const render = () => renderer.render(scene, camera);
   const controls = attachControls(canvas, camera, render);
 
@@ -48,7 +52,10 @@ async function start() {
     const h = canvas.clientHeight;
     renderer.setSize(w, h, false);
     const aspect = w / h;
-    const half = (camera.top - camera.bottom) / 2;
+    // Refit to the current aspect so the whole map stays in view; zoom is left alone.
+    const half = fitViewSize(widthM, depthM, maxHeightM, aspect) / 2;
+    camera.top = half;
+    camera.bottom = -half;
     camera.left = -half * aspect;
     camera.right = half * aspect;
     controls.place();
