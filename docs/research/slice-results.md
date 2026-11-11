@@ -49,21 +49,34 @@ cd ../viewer && npx vite     # then open http://localhost:5173/?data=real
 
 1. **Unmapped strip handled by a rule, not data.** SFEI's layer maps only the northern part of the city, and has no polygons east of about lon -122.377 (open bay). Without a fix the whole eastern strip rendered as flat land. `--coverage` now treats a cell as open bay where **no** SFEI polygon exists **and** the modern DEM is at or below 0.5 m (open water on today's DEM reads 0 to -1 m). Tagged `inferred`.
 2. **The south is unmapped.** About a third of the cells SFEI does not map are real land (Potrero Hill, Dogpatch); they correctly stay land. But the historical marsh and creek mouth there (Islais Creek and the south end of Mission Bay) are missing until that area is mapped, which the Mapping Yelamu's Historical Landscape project says it will do.
-3. **The modern city is baked into the terrain.** The lidar "bare earth" DEM still contains graded streets and building pads. At zoom, the street grid shows as a lattice on the hillsides. A low-pass filter on land cells would reduce this; not yet tried.
-4. **Hard coast edges.** Land is clamped to at least 1.0 m next to a -3.0 m bay floor, so a 4 m step (12 m on screen at 3x exaggeration) shows as a wall along the shoreline. A sloped shelf near the coast would look right.
+3. ~~**The modern city is baked into the terrain.**~~ **Fixed** by the realism pass below (30 m low-pass on land).
+4. ~~**Hard coast edges.**~~ **Mostly fixed** by the realism pass below (sloped bay shelf plus a land-side slope cap). A faint one-cell ledge remains at the waterline, which is about what a 10 m grid allows.
 5. **Lost landforms are missing.** Rincon Hill, the east face of Telegraph Hill and the Market Street dune ridge were graded away, and `landforms.json` is empty. I did **not** invent numbers: they need the 1850s Coast Survey sheets (CC BY-NC-SA scan, view-only reference; not downloaded).
 6. **Approximate shoreline near Montgomery Street.** The Transamerica Pyramid site (about 600 Montgomery St) reads as bay. That is near the 1847 shoreline, so it may or may not be right at 10 m resolution; check against the T-sheet.
 7. **'Tidal coastal lagoon'** (2 polygons in the box) is in neither water list, so it stays dry land. Undecided; needs a look at the T-sheets.
 8. **Vertical datum.** DEM heights are NAVD88 while the water plane is a flat 0.6 m; no tidal datum offset was modelled.
 9. **Water plane.** The bay floor of the data square is visibly darker than the surrounding plane in the viewer.
-10. **Single-cell speck** of land in the middle of the bay (a one-cell artifact).
+10. ~~**Single-cell speck** of land in the middle of the bay.~~ Modern piers and thin specks in unmapped areas are now removed (108 cells in this box). One small speck of a few cells remains.
+
+## Terrain realism pass (commits `cb5983e`, `7fb0789`, `2c9b003`)
+
+Defaults were tuned by comparing renders of the same zoomed view on the real data. All parameters are recorded in `meta.json` under `processing`.
+
+| Parameter | Default | What it does | Tuning result |
+|---|---|---|---|
+| `--smooth-m` | 30 | Gaussian low-pass on dry land only (water cells never pull land values) | 30 m removes the street-grid lattice and keeps the hills' character; 60 m turned them into blobs |
+| `--shelf-m` | 150 | Bay depth ramps from the water surface to the -3 m floor over 150 m from shore | Removes the wall on the water side |
+| `--shore-slope` | 0.30 | Land may rise at most 0.30 m per metre from the water | 0.15 flattened Telegraph Hill (Coit Tower 38.9 m, fails the 60 m check, because the hill really rises ~90 m within ~250 m of the old shore); 0.25 passed narrowly; 0.30 passes with margin and looks the same |
+| `--shore-open-cells` | 2 | Morphological opening, applied only where the shoreline came from the DEM (not SFEI-mapped coast), removes piers and specks | Removed 108 cells |
+
+The sanity check caught the 0.15 mistake, which is the reason `checks.json` exists.
 
 ## Decision: **Go to Phase 2, with these first**
 
 The slice proves the approach: a de-developed 1769 shoreline can be built from modern lidar plus SFEI's mapped water, with a transparent fallback where SFEI has no map, and it renders recognisably in the isometric viewer. Before or during Phase 2:
 
 1. **SFEI license** (blocking for any public release).
-2. Smooth urban artifacts out of the DEM and add a sloped coastal shelf.
+2. ~~Smooth urban artifacts out of the DEM and add a sloped coastal shelf.~~ Done (see the realism pass).
 3. Hand-sculpt lost landforms from the 1850s sheets, with sources recorded.
 4. Decide the 'Tidal coastal lagoon' polygons.
 5. Plan how to cover the unmapped south (wait for the Yelamu mapping project, or reconstruct from the T-sheets).
