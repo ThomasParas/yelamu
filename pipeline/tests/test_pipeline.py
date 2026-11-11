@@ -306,7 +306,8 @@ def test_landform_near_shore_cannot_alter_water_or_dig_land(tmp_path, delta_m):
     out = tmp_path / "out"
 
     main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), "--out", str(out),
-          "--bay", str(tmp_path / "bay.geojson"), "--landforms", str(tmp_path / "lf.json")])
+          "--bay", str(tmp_path / "bay.geojson"), "--landforms", str(tmp_path / "lf.json"),
+          "--smooth-m", "0", "--shelf-m", "0", "--shore-open-cells", "0"])
 
     meta = json.loads((out / "meta.json").read_text())
     heights = _read_heights(out, meta)
@@ -420,3 +421,71 @@ def test_empty_landforms_file_adds_no_landforms_layer(tmp_path):
     ))
     main([*base, "--out", str(tmp_path / "n"), "--landforms", str(tmp_path / "one.json")])
     assert "landforms" in _layer_ids(tmp_path / "n")
+
+
+# ------------------------------------------------ smoothing, shelf, cleanup ---
+
+_FLAT = ["--smooth-m", "0", "--shelf-m", "0", "--shore-open-cells", "0"]
+
+
+def _bay_run(tmp_path, *extra):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 5.0)
+    _write_bay_geojson(tmp_path / "bay.geojson", -122.40, 37.77, -122.38, 37.79)
+    out = tmp_path / "out"
+    code = main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+                 "--out", str(out), "--bay", str(tmp_path / "bay.geojson"), *extra])
+    assert code == 0
+    meta = json.loads((out / "meta.json").read_text())
+    return grid, meta, _read_heights(out, meta)
+
+
+def test_zero_flags_reproduce_the_flat_bay_floor(tmp_path):
+    grid, meta, heights = _bay_run(tmp_path, *_FLAT)
+    bay = water_mask(load_polygons(tmp_path / "bay.geojson"), grid)
+    assert np.abs(heights[bay] - (-3.0)).max() < 0.01  # flat floor up to the shore
+    assert np.abs(heights[~bay] - 5.0).max() < 0.01
+    assert meta["processing"]["smooth_m"] == 0 and meta["processing"]["shelf_m"] == 0
+
+
+def test_defaults_slope_the_bay_floor_from_the_shore(tmp_path):
+    grid, meta, heights = _bay_run(tmp_path)
+    # Deep inside the polygon (~1 km from any shore) the floor is the full depth.
+    assert abs(heights[_pixel(grid, -122.39, 37.78)] - (-3.0)) < 0.01
+    # One cell in from the western edge (lon -122.40): shallow, but below the water plane.
+    x, y = lonlat_to_utm(-122.40, 37.78)
+    row, col = grid.pixel_of(x + 10.0, y)
+    assert heights[row, col] < WATER_LEVEL_M
+    assert heights[row, col] > -1.0
+    # Dry land (flat 5 m) is unchanged by smoothing.
+    assert abs(heights[_pixel(grid, -122.415, 37.76)] - 5.0) < 0.01
+
+
+def test_meta_records_processing_parameters(tmp_path):
+    _, meta, _ = _bay_run(tmp_path, "--smooth-m", "20", "--shelf-m", "90",
+                          "--shore-open-cells", "3", "--open-water-max-m", "0.25")
+    assert meta["processing"] == {
+        "smooth_m": 20.0, "shelf_m": 90.0, "shore_open_cells": 3,
+        "open_water_max_m": 0.25, "coverage": False,
+    }
+    assert "layers" in meta and "water_level_m" in meta
+
+
+def test_thin_unmapped_pier_is_removed_when_enabled(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    # A 20 m wide, 300 m long 'pier' (2 cells wide) of 5 m land in an otherwise 0 m bay.
+    _write_dem_with_block(tmp_path / "dem.tif", grid, 0.0, (-122.38200, 37.780, -122.38175, 37.783),
+                          5.0, tag_nodata=None)
+    # SFEI covers only the west, so the pier (east) is in the unmapped region.
+    _write_bay_geojson(tmp_path / "cov.geojson", -122.43, 37.74, -122.395, 37.84)
+    base = ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+            "--coverage", str(tmp_path / "cov.geojson")]
+    probe = _pixel(grid, -122.381875, 37.7815)
+
+    main([*base, "--out", str(tmp_path / "off"), "--shore-open-cells", "0"])
+    off = _read_heights(tmp_path / "off", json.loads((tmp_path / "off" / "meta.json").read_text()))
+    assert off[probe] > WATER_LEVEL_M  # the pier is land when cleanup is off
+
+    main([*base, "--out", str(tmp_path / "on")])
+    on = _read_heights(tmp_path / "on", json.loads((tmp_path / "on" / "meta.json").read_text()))
+    assert on[probe] < WATER_LEVEL_M  # removed and turned into water

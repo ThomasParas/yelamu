@@ -48,7 +48,13 @@ def dequantize_heights(q: np.ndarray, min_m: float, max_m: float) -> np.ndarray:
     return (min_m + q.astype(np.float64) / 65535.0 * (max_m - min_m)).astype("float32")
 
 
-def write_assets(dem: np.ndarray, grid: Grid, layers: list[Layer], out_dir: Path) -> dict:
+def write_assets(
+    dem: np.ndarray,
+    grid: Grid,
+    layers: list[Layer],
+    out_dir: Path,
+    processing: dict | None = None,
+) -> dict:
     if not np.isfinite(dem).all():
         raise ValueError(
             "dem contains NaN or infinite values; fill or mask missing data before "
@@ -80,5 +86,7 @@ def write_assets(dem: np.ndarray, grid: Grid, layers: list[Layer], out_dir: Path
         "water_level_m": WATER_LEVEL_M,
         "layers": [asdict(layer) for layer in layers],
     }
+    if processing is not None:
+        meta["processing"] = processing
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     return meta

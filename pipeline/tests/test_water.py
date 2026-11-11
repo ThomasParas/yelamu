@@ -2,7 +2,7 @@ import numpy as np
 from shapely.geometry import box
 
 from yelamu.geo import Grid
-from yelamu.water import unmapped_open_water, water_mask
+from yelamu.water import remove_thin_unmapped_land, unmapped_open_water, water_mask
 
 GRID = Grid(west=0, south=0, east=100, north=100, cell=10)  # 10 x 10 cells
 
@@ -66,3 +66,60 @@ def test_unmapped_open_water_respects_threshold():
     assert unmapped_open_water(dem, none_covered, max_m=-2.0).tolist() == [
         [False, False, False, False]
     ]
+
+
+# ------------------------------------------------- remove_thin_unmapped_land ---
+
+
+def _land_with_pier():
+    """30 x 30: a big landmass (rows 15-29) and a 2-cell-wide pier going north."""
+    land = np.zeros((30, 30), dtype=bool)
+    land[15:, :] = True
+    land[5:15, 10:12] = True  # the pier, rows 5-14, cols 10-11
+    return land
+
+
+def test_thin_pier_in_unmapped_region_is_removed_but_landmass_is_not():
+    land = _land_with_pier()
+    unmapped = np.ones_like(land)
+    removed = remove_thin_unmapped_land(land, unmapped, 2)
+    assert removed[5:14, 10:12].all()
+    assert not removed[15:, :].any()  # the big landmass survives
+
+
+def test_thin_pier_in_covered_region_is_not_returned():
+    land = _land_with_pier()
+    unmapped = np.ones_like(land)
+    unmapped[:15, :] = False  # SFEI mapped the pier's area
+    assert not remove_thin_unmapped_land(land, unmapped, 2).any()
+
+
+def test_single_cell_speck_is_removed():
+    land = np.zeros((20, 20), dtype=bool)
+    land[10, 10] = True
+    removed = remove_thin_unmapped_land(land, np.ones_like(land), 2)
+    assert removed[10, 10] and removed.sum() == 1
+
+
+def test_radius_zero_removes_nothing():
+    land = _land_with_pier()
+    removed = remove_thin_unmapped_land(land, np.ones_like(land), 0)
+    assert removed.dtype == bool and not removed.any()
+
+
+def test_large_land_straddling_covered_boundary_is_not_eroded():
+    land = np.zeros((40, 40), dtype=bool)
+    land[10:30, 10:30] = True
+    unmapped = np.zeros_like(land)
+    unmapped[:, 20:] = True  # boundary runs through the middle of the land
+    removed = remove_thin_unmapped_land(land, unmapped, 2)
+    # Only the rounded outer corners (which a disk opening always trims) may go; the
+    # boundary itself, mid-way along the land, is left alone.
+    assert not removed[:, 16:24].any()
+    assert removed.sum() <= 6
+
+
+def test_large_land_touching_the_grid_edge_is_not_eroded():
+    land = np.zeros((30, 30), dtype=bool)
+    land[:, :15] = True  # land runs right off the west, north and south edges
+    assert not remove_thin_unmapped_land(land, np.ones_like(land), 2).any()

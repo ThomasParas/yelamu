@@ -7,8 +7,10 @@ from yelamu.terrain import (
     LAND_FLOOR_M,
     MARSH_LEVEL_M,
     WATER_LEVEL_M,
+    apply_bay_shelf,
     apply_historical_water,
     fill_missing_land,
+    smooth_land,
     stamp_landform,
 )
 
@@ -105,3 +107,113 @@ def test_fill_missing_land_rejects_large_gaps():
         fill_missing_land(dem)
     assert "--dem-nodata" in str(exc.value)
     fill_missing_land(dem, max_missing_fraction=0.5)  # a looser limit accepts it
+
+
+# ------------------------------------------------------------- smooth_land ---
+
+
+def test_smooth_land_removes_a_narrow_trench_but_keeps_a_broad_hill():
+    plain = np.full((100, 100), 10.0, dtype="float32")
+    plain[:, 20] = 5.0  # a one-cell-wide, 5 m deep 'street'
+    out = smooth_land(plain, 3.0)
+    assert 10.0 - out[50, 20] < 0.2 * 5.0  # trench lost most (>80%) of its depth
+
+    hill = np.zeros((100, 100), dtype="float32")
+    hill[30:70, 30:70] = 20.0  # a 40-cell-wide hill
+    out = smooth_land(hill, 3.0)
+    assert out[50, 50] > 0.95 * 20.0
+
+
+def test_smooth_land_constant_field_stays_constant():
+    dem = np.full((30, 30), 7.25, dtype="float32")
+    out = smooth_land(dem, 4.0)
+    assert out.dtype == np.float32
+    assert np.abs(out - 7.25).max() <= np.finfo("float32").eps * 8
+
+
+def test_smooth_land_sigma_zero_is_a_copy():
+    dem = np.random.default_rng(0).uniform(0, 10, (12, 12)).astype("float32")
+    out = smooth_land(dem, 0.0)
+    assert out.dtype == np.float32
+    assert np.array_equal(out, dem) and out is not dem
+    assert np.array_equal(smooth_land(dem, -1.0), dem)
+
+
+def test_smooth_land_nan_stays_nan_and_does_not_leak():
+    rng = np.random.default_rng(1)
+    dem = rng.uniform(0, 10, (20, 20)).astype("float32")
+    dem[5:8, 5:8] = np.nan
+    out = smooth_land(dem, 2.0)
+    assert np.isnan(out[5:8, 5:8]).all()
+    assert np.isfinite(out[~np.isnan(dem)]).all()
+    # Same result as explicitly declaring the NaN cells invalid.
+    explicit = smooth_land(np.where(np.isnan(dem), 0.0, dem).astype("float32"), 2.0,
+                           valid=~np.isnan(dem))
+    ok = ~np.isnan(dem)
+    assert np.allclose(out[ok], explicit[ok], atol=1e-5)
+
+
+def test_smooth_land_cells_outside_valid_are_untouched_and_do_not_contaminate():
+    dem = np.full((20, 20), 10.0, dtype="float32")
+    dem[:, 10:] = -50.0  # 'water' with a very low value
+    valid = np.zeros((20, 20), dtype=bool)
+    valid[:, :10] = True
+    out = smooth_land(dem, 3.0, valid=valid)
+    assert np.array_equal(out[~valid], dem[~valid])  # bit-identical
+    assert np.abs(out[valid] - 10.0).max() < 1e-5  # nothing pulled down near the shore
+
+
+# --------------------------------------------------------- apply_bay_shelf ---
+
+
+def _shore_strip(width=60):
+    """Land in the first 5 columns, bay everywhere else (3 rows)."""
+    dem = np.full((3, width), 4.0, dtype="float32")
+    bay = np.ones((3, width), dtype=bool)
+    bay[:, :5] = False
+    return dem, bay
+
+
+def test_bay_shelf_deepens_monotonically_away_from_shore():
+    dem, bay = _shore_strip()
+    out = apply_bay_shelf(dem, bay, cell_m=10.0, shelf_m=150.0)
+    row = out[1, 5:]
+    assert (np.diff(row) <= 1e-6).all()
+    assert row[0] > row[-1]
+
+
+def test_bay_shelf_first_cell_is_near_the_water_surface():
+    dem, bay = _shore_strip()
+    out = apply_bay_shelf(dem, bay, cell_m=10.0, shelf_m=150.0)
+    assert abs(out[1, 5] - WATER_LEVEL_M) < 0.5
+    assert out[1, 5] < WATER_LEVEL_M  # but still below the plane, so it is drawn as water
+
+
+def test_bay_shelf_reaches_the_floor_beyond_shelf_distance():
+    dem, bay = _shore_strip(width=60)
+    out = apply_bay_shelf(dem, bay, cell_m=10.0, shelf_m=150.0)
+    # Last land cell is col 4; col 19 is 15 cells = 150 m from it.
+    assert (out[:, 19:] == BAY_FLOOR_M).all()
+    assert out[1, 18] > BAY_FLOOR_M
+
+
+def test_bay_shelf_leaves_non_bay_cells_untouched():
+    dem, bay = _shore_strip()
+    out = apply_bay_shelf(dem, bay, cell_m=10.0)
+    assert out.dtype == np.float32
+    assert np.array_equal(out[~bay], dem[~bay])
+
+
+def test_bay_shelf_edge_cases():
+    dem = np.full((4, 4), 3.0, dtype="float32")
+    all_bay = np.ones((4, 4), dtype=bool)
+    assert (apply_bay_shelf(dem, all_bay, 10.0) == BAY_FLOOR_M).all()
+
+    none = np.zeros((4, 4), dtype=bool)
+    out = apply_bay_shelf(dem, none, 10.0)
+    assert np.array_equal(out, dem) and out is not dem
+
+    dem2, bay2 = _shore_strip()
+    flat = apply_bay_shelf(dem2, bay2, 10.0, shelf_m=0.0)
+    assert (flat[bay2] == BAY_FLOOR_M).all()
+    assert np.array_equal(flat[~bay2], dem2[~bay2])

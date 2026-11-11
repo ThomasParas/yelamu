@@ -6,6 +6,7 @@ from typing import Sequence
 
 import numpy as np
 from rasterio.features import rasterize
+from scipy import ndimage
 from shapely.geometry.base import BaseGeometry
 
 from yelamu.geo import Grid
@@ -43,3 +44,31 @@ def unmapped_open_water(
     """
     raw = np.asarray(raw_dem)
     return ~np.asarray(coverage, dtype=bool) & (np.isnan(raw) | (raw <= max_m))
+
+
+def _disk(radius: int) -> np.ndarray:
+    y, x = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    return x * x + y * y <= radius * radius
+
+
+def remove_thin_unmapped_land(
+    land: np.ndarray, unmapped: np.ndarray, radius_cells: int
+) -> np.ndarray:
+    """Cells of thin land to turn into water, only where SFEI mapped nothing.
+
+    Where the shoreline came from the modern DEM (areas the SFEI layer doesn't map),
+    modern piers a few cells wide and one-cell specks show up as land. A morphological
+    opening with a disk of `radius_cells` drops anything narrower than the disk; the
+    returned mask is those dropped cells that are also `unmapped`, so SFEI-mapped
+    coast is never touched. Pass the FULL land mask (not just unmapped land) so large
+    landmasses are not eroded at the mapped/unmapped boundary. The mask is edge-padded
+    first so land running off the grid is not eroded at the grid border.
+    radius_cells <= 0 returns an all-False mask.
+    """
+    land = np.asarray(land, dtype=bool)
+    if radius_cells <= 0:
+        return np.zeros_like(land)
+    r = int(radius_cells)
+    padded = np.pad(land, r, mode="edge")
+    opened = ndimage.binary_opening(padded, structure=_disk(r))[r:-r, r:-r]
+    return land & ~opened & np.asarray(unmapped, dtype=bool)
