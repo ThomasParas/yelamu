@@ -7,5 +7,5 @@ viewer/node_modules/
 viewer/dist/
 
 # Derived from SFEI data with no stated license: keep out of git until SFEI confirms terms
-viewer/public/assets/real/
+viewer/public/assets/real*/
 docs/research/local/

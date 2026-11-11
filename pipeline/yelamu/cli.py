@@ -39,7 +39,7 @@ def build(
     smooth_m: float = 30.0,
     shelf_m: float = 150.0,
     shore_open_cells: int = 2,
-    shore_slope: float = 0.15,
+    shore_slope: float = 0.30,
 ) -> list[str]:
     """Run the pipeline. Returns the list of failed sanity checks (empty is good)."""
     grid = Grid.from_lonlat_bbox(*bbox, cell=cell)
@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--shore-open-cells", type=int, default=2,
                    help="radius (cells) of the opening that removes thin piers and specks "
                         "from DEM-derived shoreline; 0 disables")
-    p.add_argument("--shore-slope", type=float, default=0.15,
+    p.add_argument("--shore-slope", type=float, default=0.30,
                    help="maximum land slope (metres of rise per metre) away from the "
                         "historical shoreline, so modern fill doesn't form a wall; 0 disables")
     p.add_argument("--landforms", type=Path, help="JSON list of hand-sculpted landforms")

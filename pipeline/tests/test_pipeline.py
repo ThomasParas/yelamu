@@ -467,7 +467,7 @@ def test_meta_records_processing_parameters(tmp_path):
                           "--shore-open-cells", "3", "--open-water-max-m", "0.25")
     assert meta["processing"] == {
         "smooth_m": 20.0, "shelf_m": 90.0, "shore_open_cells": 3,
-        "open_water_max_m": 0.25, "coverage": False, "shore_slope": 0.15,
+        "open_water_max_m": 0.25, "coverage": False, "shore_slope": 0.30,
     }
     assert "layers" in meta and "water_level_m" in meta
 
@@ -509,7 +509,7 @@ def test_default_shore_slope_ramps_fill_next_to_the_bay(tmp_path):
     main([*base, "--out", str(tmp_path / "ramp")])
     ramp = _read_heights(tmp_path / "ramp",
                          json.loads((tmp_path / "ramp" / "meta.json").read_text()))
-    assert LAND_FLOOR_M <= ramp[probe] <= LAND_FLOOR_M + 0.15 * 10.0 + 0.05
+    assert LAND_FLOOR_M <= ramp[probe] <= LAND_FLOOR_M + 0.30 * 10.0 + 0.05
     assert abs(ramp[_pixel(grid, -122.415, 37.76)] - 8.0) < 0.01  # far inland untouched
 
     main([*base, "--out", str(tmp_path / "off"), "--shore-slope", "0"])
