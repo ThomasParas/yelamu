@@ -47,3 +47,12 @@ def test_write_assets_creates_png_and_meta(tmp_path):
     assert img.shape == (3, 4, 3)
     back = decode_heights(img, meta["min_m"], meta["max_m"])
     assert np.abs(back - dem).max() < 0.001
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_write_assets_rejects_non_finite_heights(tmp_path, bad):
+    grid = Grid(west=500000, south=4180000, east=500020, north=4180020, cell=10)
+    dem = np.array([[1.0, bad], [2.0, 3.0]], dtype="float32")
+    with pytest.raises(ValueError, match="NaN or infinite"):
+        write_assets(dem, grid, [Layer("terrain", "s", "inferred", "a")], tmp_path)
+    assert not (tmp_path / "heightmap.png").exists()

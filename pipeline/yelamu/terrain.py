@@ -17,13 +17,37 @@ def apply_historical_water(
     """Overwrite reclaimed ground with its historical water level.
 
     Bay wins over marsh where the masks overlap. Dry land is clamped to >= 0 m so
-    survey noise can't dig phantom pits below sea level.
+    survey noise can't dig phantom pits below sea level. NaN (missing data) is fine:
+    under water it is overwritten, and on dry land it stays NaN for fill_missing_land.
     """
     out = dem.astype("float32", copy=True)
     land = ~(bay | marsh)
     out[land] = np.maximum(out[land], 0.0)
     out[marsh & ~bay] = marsh_level
     out[bay] = bay_floor
+    return out
+
+
+def fill_missing_land(dem: np.ndarray, max_missing_fraction: float = 0.02) -> np.ndarray:
+    """Replace leftover NaN with 0 m, unless too much of the grid is missing.
+
+    Call this after apply_historical_water: every remaining NaN is then dry land with
+    no elevation data. A few cells (voids, tile seams) are filled with sea level; a
+    large fraction means the DEM doesn't cover the area or the nodata value is wrong.
+    """
+    out = np.asarray(dem, dtype="float32")
+    missing = np.isnan(out)
+    if not missing.any():
+        return out
+    fraction = float(missing.mean())
+    if fraction > max_missing_fraction:
+        raise ValueError(
+            f"{fraction:.1%} of the grid is dry land with no elevation data "
+            f"(limit {max_missing_fraction:.1%}). Check that the DEM covers the bounding "
+            "box and that its nodata value is right (see the --dem-nodata option)."
+        )
+    out = out.copy()
+    out[missing] = 0.0
     return out
 
 

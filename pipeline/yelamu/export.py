@@ -51,6 +51,11 @@ def decode_heights(rgb: np.ndarray, min_m: float, max_m: float) -> np.ndarray:
 
 
 def write_assets(dem: np.ndarray, grid: Grid, layers: list[Layer], out_dir: Path) -> dict:
+    if not np.isfinite(dem).all():
+        raise ValueError(
+            "dem contains NaN or infinite values; fill or mask missing data before "
+            "writing assets (see fill_missing_land)"
+        )
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 

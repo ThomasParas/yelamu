@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from yelamu.geo import Grid
-from yelamu.terrain import apply_historical_water, stamp_landform
+from yelamu.terrain import apply_historical_water, fill_missing_land, stamp_landform
 
 
 def test_fill_inside_bay_is_lowered_to_bay_floor():
@@ -48,3 +48,38 @@ def test_negative_delta_lowers_ground():
     out = stamp_landform(dem, grid, x=105, y=95, radius_m=50, delta_m=-20)
     assert out[10, 10] == pytest.approx(10.0, abs=1e-4)
     assert out[0, 0] == 30.0
+
+
+def test_apply_historical_water_overwrites_nan_under_water_and_keeps_land_nan():
+    dem = np.array([[np.nan, np.nan, np.nan, 4.0]], dtype="float32")
+    bay = np.array([[True, False, False, False]])
+    marsh = np.array([[False, True, False, False]])
+    out = apply_historical_water(dem, bay, marsh, bay_floor=-3.0, marsh_level=0.5)
+    assert out[0, 0] == -3.0
+    assert out[0, 1] == 0.5
+    assert np.isnan(out[0, 2])  # dry land with no data stays missing
+    assert out[0, 3] == 4.0
+
+
+def test_fill_missing_land_without_nan_is_unchanged():
+    dem = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float64")
+    out = fill_missing_land(dem)
+    assert out.dtype == np.float32
+    assert np.array_equal(out, dem.astype("float32"))
+
+
+def test_fill_missing_land_fills_small_gaps_with_zero_and_copies():
+    dem = np.full((10, 10), 5.0, dtype="float32")
+    dem[0, 0] = np.nan  # 1 %
+    out = fill_missing_land(dem)
+    assert out[0, 0] == 0.0 and out[1, 1] == 5.0
+    assert np.isnan(dem[0, 0])  # input not mutated
+
+
+def test_fill_missing_land_rejects_large_gaps():
+    dem = np.full((10, 10), 5.0, dtype="float32")
+    dem[:3, :] = np.nan  # 30 %
+    with pytest.raises(ValueError, match=r"30\.0%") as exc:
+        fill_missing_land(dem)
+    assert "--dem-nodata" in str(exc.value)
+    fill_missing_land(dem, max_missing_fraction=0.5)  # a looser limit accepts it

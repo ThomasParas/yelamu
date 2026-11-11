@@ -26,8 +26,14 @@ def _to_utm(geom: BaseGeometry) -> BaseGeometry:
     return shapely.transform(geom, project)
 
 
-def load_dem(path: Path, grid: Grid) -> np.ndarray:
-    """Resample a DEM (any CRS) onto the grid. Cells with no data become 0 m."""
+def load_dem(path: Path, grid: Grid, nodata: float | None = None) -> np.ndarray:
+    """Resample a DEM (any CRS) onto the grid.
+
+    Cells with no data come back as NaN; they are NOT filled here. Over open water a
+    bare-earth DEM is often nodata, which is fine because the historical-water edit
+    overwrites those cells. `nodata` overrides the file's own nodata tag (use it when
+    the tag is missing or wrong, e.g. an untagged -9999).
+    """
     dst = np.full((grid.height, grid.width), np.nan, dtype="float32")
     with rasterio.open(path) as src:
         reproject(
@@ -36,18 +42,40 @@ def load_dem(path: Path, grid: Grid) -> np.ndarray:
             dst_transform=grid.transform(),
             dst_crs=UTM_CRS,
             resampling=Resampling.bilinear,
-            src_nodata=src.nodata,
+            src_nodata=nodata if nodata is not None else src.nodata,
             dst_nodata=np.nan,
         )
-    return np.nan_to_num(dst, nan=0.0).astype("float32")
+    return dst
+
+
+def _polygonal_parts(geom: BaseGeometry | None) -> list[BaseGeometry]:
+    """Every Polygon inside geom (exploding Multi* and collections); all else dropped."""
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Polygon":
+        return [geom]
+    if hasattr(geom, "geoms"):  # MultiPolygon, GeometryCollection, other Multi*
+        return [p for part in geom.geoms for p in _polygonal_parts(part)]
+    return []  # Point, LineString, LinearRing
 
 
 def load_polygons(path: Path) -> list[BaseGeometry]:
-    """Read a GeoJSON FeatureCollection in lon/lat (EPSG:4326); return UTM geometries."""
+    """Read GeoJSON in lon/lat (EPSG:4326); return valid UTM polygons.
+
+    Features with no geometry are skipped. Only polygonal parts are kept: points and
+    lines (also inside collections) are dropped so they can never reach the water mask.
+    Raises ValueError if no polygon geometry is found at all.
+    """
     data = json.loads(Path(path).read_text())
     features = data["features"] if data.get("type") == "FeatureCollection" else [data]
-    geoms = []
+    geoms: list[BaseGeometry] = []
     for feature in features:
-        geom = shape(feature["geometry"] if "geometry" in feature else feature)
-        geoms.append(_to_utm(geom))
+        raw = feature.get("geometry") if feature.get("type") == "Feature" else feature
+        if not raw:
+            continue
+        for part in _polygonal_parts(shape(raw)):
+            for poly in _polygonal_parts(shapely.make_valid(part)):
+                geoms.append(_to_utm(poly))
+    if not geoms:
+        raise ValueError(f"{path}: no usable polygon geometry was found")
     return geoms
