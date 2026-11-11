@@ -12,7 +12,7 @@ from yelamu.checks import Expectation, run_checks
 from yelamu.cli import main
 from yelamu.export import dequantize_heights
 from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
-from yelamu.terrain import WATER_LEVEL_M
+from yelamu.terrain import LAND_FLOOR_M, WATER_LEVEL_M
 from yelamu.sources import load_dem, load_polygons
 from yelamu.water import water_mask
 
@@ -425,7 +425,8 @@ def test_empty_landforms_file_adds_no_landforms_layer(tmp_path):
 
 # ------------------------------------------------ smoothing, shelf, cleanup ---
 
-_FLAT = ["--smooth-m", "0", "--shelf-m", "0", "--shore-open-cells", "0"]
+_FLAT = ["--smooth-m", "0", "--shelf-m", "0", "--shore-open-cells", "0",
+         "--shore-slope", "0"]
 
 
 def _bay_run(tmp_path, *extra):
@@ -466,7 +467,7 @@ def test_meta_records_processing_parameters(tmp_path):
                           "--shore-open-cells", "3", "--open-water-max-m", "0.25")
     assert meta["processing"] == {
         "smooth_m": 20.0, "shelf_m": 90.0, "shore_open_cells": 3,
-        "open_water_max_m": 0.25, "coverage": False,
+        "open_water_max_m": 0.25, "coverage": False, "shore_slope": 0.15,
     }
     assert "layers" in meta and "water_level_m" in meta
 
@@ -489,3 +490,29 @@ def test_thin_unmapped_pier_is_removed_when_enabled(tmp_path):
     main([*base, "--out", str(tmp_path / "on")])
     on = _read_heights(tmp_path / "on", json.loads((tmp_path / "on" / "meta.json").read_text()))
     assert on[probe] < WATER_LEVEL_M  # removed and turned into water
+
+
+def test_default_shore_slope_ramps_fill_next_to_the_bay(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 8.0)  # 8 m 'fill' right up to the bay
+    _write_bay_geojson(tmp_path / "bay.geojson", -122.40, 37.77, -122.38, 37.79)
+    bay = water_mask(load_polygons(tmp_path / "bay.geojson"), grid)
+    base = ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+            "--bay", str(tmp_path / "bay.geojson"), "--smooth-m", "0"]
+    # One cell east of the polygon's eastern edge, mid-latitude.
+    x, y = lonlat_to_utm(-122.38, 37.78)
+    row, col = grid.pixel_of(x, y)
+    while bay[row, col]:
+        col += 1
+    probe = (row, col)
+
+    main([*base, "--out", str(tmp_path / "ramp")])
+    ramp = _read_heights(tmp_path / "ramp",
+                         json.loads((tmp_path / "ramp" / "meta.json").read_text()))
+    assert LAND_FLOOR_M <= ramp[probe] <= LAND_FLOOR_M + 0.15 * 10.0 + 0.05
+    assert abs(ramp[_pixel(grid, -122.415, 37.76)] - 8.0) < 0.01  # far inland untouched
+
+    main([*base, "--out", str(tmp_path / "off"), "--shore-slope", "0"])
+    off = _read_heights(tmp_path / "off",
+                        json.loads((tmp_path / "off" / "meta.json").read_text()))
+    assert abs(off[probe] - 8.0) < 0.01  # old behaviour: a wall at the shore

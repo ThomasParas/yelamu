@@ -9,6 +9,7 @@ from yelamu.terrain import (
     WATER_LEVEL_M,
     apply_bay_shelf,
     apply_historical_water,
+    apply_land_ramp,
     fill_missing_land,
     smooth_land,
     stamp_landform,
@@ -217,3 +218,90 @@ def test_bay_shelf_edge_cases():
     flat = apply_bay_shelf(dem2, bay2, 10.0, shelf_m=0.0)
     assert (flat[bay2] == BAY_FLOOR_M).all()
     assert np.array_equal(flat[~bay2], dem2[~bay2])
+
+
+# --------------------------------------------------------- apply_land_ramp ---
+
+
+def _plateau(width=120, plateau=12.0):
+    """Bay in the first 10 columns, a flat `plateau` m of land east of it (3 rows)."""
+    dem = np.full((3, width), plateau, dtype="float32")
+    water = np.zeros((3, width), dtype=bool)
+    water[:, :10] = True
+    dem[water] = -3.0
+    return dem, water
+
+
+def test_land_ramp_caps_height_by_distance_from_water():
+    dem, water = _plateau()
+    out = apply_land_ramp(dem, water, cell_m=10.0, slope_cap=0.15)
+    assert out.dtype == np.float32
+    dist = (np.arange(dem.shape[1]) - 9) * 10.0  # metres from the last water column
+    row = out[1]
+    land = ~water[1]
+    assert (row[land] <= LAND_FLOOR_M + 0.15 * dist[land] + 1e-4).all()
+    # Rises monotonically with distance until it meets the plateau.
+    on_ramp = land & (row < 12.0 - 1e-6)
+    assert on_ramp.sum() > 3
+    assert (np.diff(row[land]) >= -1e-6).all()
+    assert row[10] == pytest.approx(LAND_FLOOR_M + 0.15 * 10.0, abs=1e-4)
+
+
+def test_land_ramp_leaves_far_inland_cells_untouched():
+    dem, water = _plateau()
+    out = apply_land_ramp(dem, water, cell_m=10.0, slope_cap=0.15)
+    reach_m = (12.0 - LAND_FLOOR_M) / 0.15  # ~73 m
+    dist = (np.arange(dem.shape[1]) - 9) * 10.0
+    far = (dist > reach_m) & ~water[1]
+    assert far.any()
+    assert (out[:, far] == 12.0).all()
+
+
+def test_land_ramp_never_raises_a_low_land_cell():
+    dem, water = _plateau()
+    dem[:, 10:14] = 1.0  # already below the cap at 10 m (2.5 m)
+    out = apply_land_ramp(dem, water, cell_m=10.0, slope_cap=0.15)
+    assert (out[:, 10:14] == 1.0).all()
+
+
+def test_land_ramp_water_cells_are_unchanged():
+    dem, water = _plateau()
+    out = apply_land_ramp(dem, water, cell_m=10.0, slope_cap=0.15)
+    assert np.array_equal(out[water], dem[water])
+
+
+def test_land_ramp_treats_marsh_as_water_when_mask_includes_it():
+    dem = np.full((3, 40), 12.0, dtype="float32")
+    bay = np.zeros((3, 40), dtype=bool)
+    marsh = np.zeros((3, 40), dtype=bool)
+    marsh[:, :5] = True
+    dem[marsh] = 0.5
+    out = apply_land_ramp(dem, bay | marsh, cell_m=10.0, slope_cap=0.15)
+    assert out[1, 5] == pytest.approx(LAND_FLOOR_M + 0.15 * 10.0, abs=1e-4)
+    assert (out[:, :5] == 0.5).all()
+
+
+def test_land_ramp_preserves_nan():
+    dem, water = _plateau()
+    dem[1, 20] = np.nan
+    out = apply_land_ramp(dem, water, cell_m=10.0, slope_cap=0.15)
+    assert np.isnan(out[1, 20])
+    assert int(np.isnan(out).sum()) == 1
+
+
+@pytest.mark.parametrize("slope_cap", [0.0, -1.0])
+def test_land_ramp_disabled_returns_unchanged_copy(slope_cap):
+    dem, water = _plateau()
+    out = apply_land_ramp(dem, water, cell_m=10.0, slope_cap=slope_cap)
+    assert out.dtype == np.float32
+    assert np.array_equal(out, dem) and out is not dem
+
+
+def test_land_ramp_edge_cases_no_water_and_all_water():
+    dem = np.full((4, 4), 9.0, dtype="float32")
+    none = np.zeros((4, 4), dtype=bool)
+    out = apply_land_ramp(dem, none, 10.0, 0.15)
+    assert np.array_equal(out, dem) and out is not dem
+    everything = np.ones((4, 4), dtype=bool)
+    out = apply_land_ramp(dem, everything, 10.0, 0.15)
+    assert np.array_equal(out, dem) and out is not dem

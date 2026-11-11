@@ -137,3 +137,30 @@ def apply_bay_shelf(
     s = t * t * (3.0 - 2.0 * t)
     out[bay] = (WATER_LEVEL_M + (BAY_FLOOR_M - WATER_LEVEL_M) * s).astype("float32")
     return out
+
+
+def apply_land_ramp(
+    dem: np.ndarray, water: np.ndarray, cell_m: float, slope_cap: float
+) -> np.ndarray:
+    """Limit how steeply dry land may rise away from the historical shoreline.
+
+    Modern fill and grading near the 1769 shoreline sit several metres above the
+    water, so without this the land would drop straight into the water as a wall.
+    Land is therefore limited to rise at most `slope_cap` metres per metre from the
+    nearest water cell: height <= LAND_FLOOR_M + slope_cap * distance. Real steep
+    bluffs further inland are untouched, because the cap grows past their height.
+    `water` is a bool mask of bay | marsh cells; water cells and NaN are unchanged and
+    land is only ever lowered, never raised. slope_cap <= 0 (disabled), a grid with
+    no water cell (nothing to measure from) or an all-water grid gives an unchanged
+    float32 copy. Call it after apply_historical_water and fill_missing_land.
+    """
+    out = np.asarray(dem, dtype="float32").copy()
+    water = np.asarray(water, dtype=bool)
+    if slope_cap <= 0 or not water.any() or water.all():
+        return out
+    dist_m = ndimage.distance_transform_edt(~water) * cell_m
+    cap = (LAND_FLOOR_M + slope_cap * dist_m).astype("float32")
+    land = ~water
+    # np.minimum propagates NaN, so missing data stays missing.
+    out[land] = np.minimum(out[land], cap[land])
+    return out

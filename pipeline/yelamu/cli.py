@@ -16,6 +16,7 @@ from yelamu.sources import load_dem, load_polygons
 from yelamu.terrain import (
     apply_bay_shelf,
     apply_historical_water,
+    apply_land_ramp,
     fill_missing_land,
     smooth_land,
     stamp_landform,
@@ -38,6 +39,7 @@ def build(
     smooth_m: float = 30.0,
     shelf_m: float = 150.0,
     shore_open_cells: int = 2,
+    shore_slope: float = 0.15,
 ) -> list[str]:
     """Run the pipeline. Returns the list of failed sanity checks (empty is good)."""
     grid = Grid.from_lonlat_bbox(*bbox, cell=cell)
@@ -77,6 +79,9 @@ def build(
 
     dem = apply_historical_water(dem, bay, marsh)
     dem = fill_missing_land(dem)
+    # Fill and grading by the old shore would form a wall: cap how steeply land rises
+    # from the water (shore_slope m per m; 0 disables).
+    dem = apply_land_ramp(dem, bay | marsh, grid.cell, shore_slope)
     # Slope the bay floor up to the shore (shelf_m <= 0 keeps it flat), so no cliff.
     dem = apply_bay_shelf(dem, bay, cell, shelf_m)
 
@@ -99,6 +104,7 @@ def build(
     processing = {
         "smooth_m": smooth_m,
         "shelf_m": shelf_m,
+        "shore_slope": shore_slope,
         "shore_open_cells": shore_open_cells,
         "open_water_max_m": open_water_max_m,
         "coverage": coverage_path is not None,
@@ -135,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--shore-open-cells", type=int, default=2,
                    help="radius (cells) of the opening that removes thin piers and specks "
                         "from DEM-derived shoreline; 0 disables")
+    p.add_argument("--shore-slope", type=float, default=0.15,
+                   help="maximum land slope (metres of rise per metre) away from the "
+                        "historical shoreline, so modern fill doesn't form a wall; 0 disables")
     p.add_argument("--landforms", type=Path, help="JSON list of hand-sculpted landforms")
     p.add_argument("--checks", type=Path, help="JSON list of height expectations")
     args = p.parse_args(argv)
@@ -143,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         args.dem, tuple(args.bbox), args.cell, args.out,
         args.bay, args.marsh, args.landforms, args.checks, args.dem_nodata,
         args.coverage, args.open_water_max_m,
-        args.smooth_m, args.shelf_m, args.shore_open_cells,
+        args.smooth_m, args.shelf_m, args.shore_open_cells, args.shore_slope,
     )
     if failures:
         print("Sanity checks FAILED:", file=sys.stderr)
