@@ -314,3 +314,109 @@ def test_landform_near_shore_cannot_alter_water_or_dig_land(tmp_path, delta_m):
     assert bay.any()
     assert np.abs(heights[bay] - (-3.0)).max() < 0.01  # the bay floor is untouched
     assert heights[~bay].min() > WATER_LEVEL_M  # no dry land dug into water
+
+
+# ------------------------------------------------------------- gap fill ---
+
+
+def _write_split_dem(path, grid: Grid, north_value: float, south_value: float) -> None:
+    """UTM DEM: northern half `north_value`, southern half `south_value`."""
+    margin = 200
+    width = grid.width + 2 * margin // int(grid.cell)
+    height = grid.height + 2 * margin // int(grid.cell)
+    data = np.full((height, width), south_value, dtype="float32")
+    data[: height // 2, :] = north_value
+    with rasterio.open(
+        path, "w", driver="GTiff", height=height, width=width, count=1,
+        dtype="float32", crs=UTM_CRS,
+        transform=from_origin(grid.west - margin, grid.north + margin, grid.cell, grid.cell),
+    ) as dst:
+        dst.write(data, 1)
+
+
+# Probe points well away from the polygon edge (lon -122.395) and the DEM split (lat ~37.78).
+_COVERED_N, _COVERED_S = (-122.41, 37.79), (-122.41, 37.77)
+_UNCOVERED_N, _UNCOVERED_S = (-122.38, 37.79), (-122.38, 37.77)
+
+
+def _gap_args(tmp_path, out, *extra):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    # North half 0 m (modern bay), south half 10 m (modern hill); coverage = west part only.
+    _write_split_dem(tmp_path / "dem.tif", grid, 0.0, 10.0)
+    _write_bay_geojson(tmp_path / "cov.geojson", -122.43, 37.74, -122.395, 37.84)
+    return grid, ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+                  "--out", str(out), *extra]
+
+
+def _layer_ids(out) -> list[str]:
+    return [l["id"] for l in json.loads((out / "meta.json").read_text())["layers"]]
+
+
+def test_coverage_gap_fills_unmapped_open_water(tmp_path, capsys):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"))
+
+    assert main(args) == 0
+
+    meta = json.loads((out / "meta.json").read_text())
+    heights = _read_heights(out, meta)
+    assert abs(heights[_pixel(grid, *_UNCOVERED_N)] - (-3.0)) < 0.01  # gap-filled bay
+    assert abs(heights[_pixel(grid, *_UNCOVERED_S)] - 10.0) < 0.01  # unmapped land stays
+    # Covered cells are never gap-filled: SFEI mapped them (here as no water at all).
+    assert heights[_pixel(grid, *_COVERED_N)] > WATER_LEVEL_M
+    assert abs(heights[_pixel(grid, *_COVERED_S)] - 10.0) < 0.01
+    assert "open_water_gap_fill" in _layer_ids(out)
+    assert "Gap-filled" in capsys.readouterr().out
+
+
+def test_without_coverage_nothing_is_gap_filled(tmp_path):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out)
+
+    assert main(args) == 0
+
+    heights = _read_heights(out, json.loads((out / "meta.json").read_text()))
+    assert heights[_pixel(grid, *_UNCOVERED_N)] > WATER_LEVEL_M
+    assert "open_water_gap_fill" not in _layer_ids(out)
+
+
+def test_open_water_max_m_option_raises_the_threshold(tmp_path):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"),
+                           "--open-water-max-m", "20")
+
+    assert main(args) == 0
+
+    heights = _read_heights(out, json.loads((out / "meta.json").read_text()))
+    assert abs(heights[_pixel(grid, *_UNCOVERED_S)] - (-3.0)) < 0.01  # 10 m now counts
+    assert heights[_pixel(grid, *_COVERED_S)] > WATER_LEVEL_M  # still never covered cells
+
+
+def test_gap_fill_uses_the_raw_dem_not_the_stamped_one(tmp_path):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"))
+    # A big raise over the unmapped bay must not hide it from the gap fill.
+    (tmp_path / "lf.json").write_text(json.dumps(
+        [{"lon": -122.38, "lat": 37.79, "radius_m": 400, "delta_m": 25.0}]
+    ))
+
+    assert main([*args, "--landforms", str(tmp_path / "lf.json")]) == 0
+
+    heights = _read_heights(out, json.loads((out / "meta.json").read_text()))
+    assert abs(heights[_pixel(grid, *_UNCOVERED_N)] - (-3.0)) < 0.01
+
+
+def test_empty_landforms_file_adds_no_landforms_layer(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 5.0)
+    base = ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX)]
+
+    (tmp_path / "empty.json").write_text("[]")
+    main([*base, "--out", str(tmp_path / "e"), "--landforms", str(tmp_path / "empty.json")])
+    assert "landforms" not in _layer_ids(tmp_path / "e")
+
+    (tmp_path / "one.json").write_text(json.dumps(
+        [{"lon": -122.39, "lat": 37.78, "radius_m": 300, "delta_m": 5.0}]
+    ))
+    main([*base, "--out", str(tmp_path / "n"), "--landforms", str(tmp_path / "one.json")])
+    assert "landforms" in _layer_ids(tmp_path / "n")
