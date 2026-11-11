@@ -12,6 +12,8 @@
 
 **Out of scope for this plan** (later plans): full-city terrain, habitat splat-map and vegetation, modern overlay, search, hotspots, the provenance UI panel, and the cultural layer.
 
+> **Read Addendum A (end of this file) first.** Code review after Tasks 6 and 11 changed the asset format (raw `uint16` instead of a packed PNG), added NaN/nodata handling, and fixed viewer bugs. Where Tasks 5, 8 and 11 below differ from Addendum A, the addendum wins. Task 12 was revised after the research spike.
+
 **How this plan was verified:** all code in Tasks 2-11 was run before being written here. The Python suite (20 tests) and TypeScript suite (14 tests) pass, `tsc` typechecks cleanly, `vite build` succeeds, and the viewer was loaded in a browser against synthetic assets (pan and zoom work, no console errors). Tasks 1 and 12 depend on real external data that has not been downloaded, so they are research and judgment tasks, not copy-and-run ones.
 
 ---
@@ -1720,12 +1722,18 @@ This task needs the outputs of Task 1 and depends on judgment. Its purpose is to
 - Create: `pipeline/data/slice/checks.json`
 - Create: `pipeline/data/slice/landforms.json`
 - Create: `docs/research/slice-results.md`
-- Modify (generated): `viewer/public/assets/slice/heightmap.png`, `meta.json`
+- Create: `pipeline/yelamu/habitats.py` and `pipeline/tests/test_habitats.py` (Step 3)
+- Modify (generated): `viewer/public/assets/slice/heightmap.u16`, `meta.json` (see Addendum A: the heightmap is now a raw uint16 file)
 
-- [ ] **Step 1: Install GDAL tools for format conversion**
+> **Revised after Task 1.** The research found that the SFEI layer downloads directly as GeoJSON in EPSG:4326, so **GDAL is not needed** and the original `ogr2ogr` steps are replaced by a small tested splitter (Step 3). **Licensing gate:** the habitat layer has no stated license. Processing it locally is fine, but **do not publish or push anything derived from it** (the generated heightmap included) until SFEI confirms terms in writing. See the Decision in `docs/research/2026-data-sources.md`.
 
-Run: `brew install gdal` then `ogr2ogr --version`
-Expected: a version string (`GDAL 3.x ...`). SFEI data is likely a shapefile or geodatabase; the pipeline reads GeoJSON.
+- [ ] **Step 1: Ask the user to approve the downloads (do not skip)**
+
+Say exactly what will be fetched and wait for a clear yes:
+- USGS 3DEP DEM tile `USGS_13_n38w123.tif`, about 223 MB (222,936,410 bytes), from `prd-tnm.s3.amazonaws.com` (public domain; credit "U.S. Geological Survey").
+- SFEI "San Francisco Historical Habitats" GeoJSON, about 3.9 MB, from `services1.arcgis.com` (no stated license; see the gate above).
+
+Do not download the Rumsey/Stanford Coast Survey scan (about 139 MB, CC BY-NC-SA). It is used only as a private reference, viewed in a browser, never fetched into the repo.
 
 - [ ] **Step 2: Download the inputs**
 
@@ -1733,29 +1741,152 @@ Expected: a version string (`GDAL 3.x ...`). SFEI data is likely a shapefile or 
 cd pipeline && mkdir -p data/raw data/slice
 source ../docs/research/slice.env
 curl -L -o data/raw/dem.tif "$DEM_URL"
-curl -L -o data/raw/sfei.zip "$SFEI_URL"
-unzip -o data/raw/sfei.zip -d data/raw/sfei
+curl -L -o data/raw/sf_habitats.geojson "$SFEI_URL"
 ```
-Expected: `data/raw/dem.tif` and unzipped SFEI files. `data/raw/` is gitignored. If a download is not a direct link (Task 1 will have said), follow the manual route recorded in `docs/research/2026-data-sources.md` and place the files at these same paths. Confirm the DEM's CRS: `gdalinfo data/raw/dem.tif | grep -i -A2 "coordinate system"`.
+Expected: `data/raw/dem.tif` is 222936410 bytes (`ls -l`), and `python3 -c "import json; print(len(json.load(open('data/raw/sf_habitats.geojson'))['features']))"` prints `450`. `data/raw/` is gitignored.
 
-- [ ] **Step 3: Convert the water layers to GeoJSON**
+- [ ] **Step 3: Split the habitat layer into bay and marsh polygons**
 
-Use the field and values recorded in Task 1. `-t_srs EPSG:4326` is required, because the pipeline reads lon/lat. Adjust the path to the real shapefile or gdb name found in `data/raw/sfei`.
+Write the failing test `pipeline/tests/test_habitats.py`:
+
+```python
+import json
+
+import pytest
+
+from yelamu.habitats import main, split_features
+
+
+def _feature(habitat):
+    return {"type": "Feature", "properties": {"HabitatCla": habitat},
+            "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}}
+
+
+COLLECTION = {"type": "FeatureCollection", "features": [
+    _feature("Deep ocean/bay"), _feature("Tidal flat"), _feature("Tidal marsh"),
+    _feature("Coast live oak woodland"),
+    {"type": "Feature", "properties": None, "geometry": None},
+]}
+
+
+def test_split_features_routes_by_class_and_ignores_the_rest():
+    bay, marsh = split_features(
+        COLLECTION, "HabitatCla", ["Deep ocean/bay", "Tidal flat"], ["Tidal marsh"]
+    )
+    assert [f["properties"]["HabitatCla"] for f in bay] == ["Deep ocean/bay", "Tidal flat"]
+    assert [f["properties"]["HabitatCla"] for f in marsh] == ["Tidal marsh"]
+
+
+def test_class_listed_in_both_goes_to_bay():
+    bay, marsh = split_features(COLLECTION, "HabitatCla", ["Tidal marsh"], ["Tidal marsh"])
+    assert len(bay) == 1 and marsh == []
+
+
+def test_cli_writes_both_files(tmp_path):
+    src = tmp_path / "in.geojson"
+    src.write_text(json.dumps(COLLECTION))
+    code = main([str(src), "--field", "HabitatCla", "--bay", "Deep ocean/bay",
+                 "--marsh", "Tidal marsh", "--out", str(tmp_path / "out")])
+    assert code == 0
+    assert len(json.loads((tmp_path / "out" / "bay.geojson").read_text())["features"]) == 1
+    assert len(json.loads((tmp_path / "out" / "marsh.geojson").read_text())["features"]) == 1
+
+
+def test_cli_fails_loudly_when_nothing_matches(tmp_path):
+    src = tmp_path / "in.geojson"
+    src.write_text(json.dumps(COLLECTION))
+    with pytest.raises(SystemExit, match="No features matched"):
+        main([str(src), "--field", "HabitatCla", "--bay", "Nope", "--marsh", "Nada",
+              "--out", str(tmp_path / "out")])
+```
+
+Run: `cd pipeline && uv run pytest tests/test_habitats.py -v` — Expected: ERROR `No module named 'yelamu.habitats'`.
+
+Implement `pipeline/yelamu/habitats.py`:
+
+```python
+"""Split SFEI's habitat GeoJSON into bay and marsh polygon files for the pipeline.
+
+    uv run python -m yelamu.habitats data/raw/sf_habitats.geojson \
+        --field HabitatCla \
+        --bay "Deep ocean/bay" "Shallow ocean/bay" "Tidal flat" \
+        --marsh "Tidal marsh" "Tidal slough" \
+        --out data/raw
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+def split_features(
+    collection: dict, field: str, bay: list[str], marsh: list[str]
+) -> tuple[list[dict], list[dict]]:
+    """Return (bay_features, marsh_features). A class listed in both goes to bay."""
+    bay_features, marsh_features = [], []
+    for feature in collection["features"]:
+        habitat = (feature.get("properties") or {}).get(field)
+        if habitat in bay:
+            bay_features.append(feature)
+        elif habitat in marsh:
+            marsh_features.append(feature)
+    return bay_features, marsh_features
+
+
+def _write(path: Path, features: list[dict]) -> None:
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="habitats")
+    p.add_argument("source", type=Path, help="GeoJSON FeatureCollection (EPSG:4326)")
+    p.add_argument("--field", required=True, help="attribute holding the habitat class")
+    p.add_argument("--bay", nargs="+", required=True, help="class values that are open bay")
+    p.add_argument("--marsh", nargs="+", required=True, help="class values that are marsh")
+    p.add_argument("--out", type=Path, required=True, help="directory for bay/marsh files")
+    args = p.parse_args(argv)
+
+    collection = json.loads(args.source.read_text())
+    bay, marsh = split_features(collection, args.field, args.bay, args.marsh)
+    if not bay and not marsh:
+        raise SystemExit(
+            f"No features matched field {args.field!r} with the given values; "
+            "check the spelling against the data."
+        )
+    args.out.mkdir(parents=True, exist_ok=True)
+    _write(args.out / "bay.geojson", bay)
+    _write(args.out / "marsh.geojson", marsh)
+    print(f"bay: {len(bay)} polygons, marsh: {len(marsh)} polygons -> {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Run the tests: `cd pipeline && uv run pytest tests/test_habitats.py -v` — Expected: 4 passed.
+
+Then run it on the real data. The values below come from the research note (verified against the live service); this layer has no per-polygon certainty fields.
 
 ```bash
-source ../docs/research/slice.env
-ogr2ogr -f GeoJSON -t_srs EPSG:4326 \
-  -where "$HABITAT_FIELD IN ($BAY_VALUES)" \
-  -clipsrc -122.42 37.755 -122.37 37.805 \
-  data/raw/bay.geojson "data/raw/sfei/<file>" "$SFEI_LAYER"
-ogr2ogr -f GeoJSON -t_srs EPSG:4326 \
-  -where "$HABITAT_FIELD IN ($MARSH_VALUES)" \
-  -clipsrc -122.42 37.755 -122.37 37.805 \
-  data/raw/marsh.geojson "data/raw/sfei/<file>" "$SFEI_LAYER"
+cd pipeline && uv run python -m yelamu.habitats data/raw/sf_habitats.geojson \
+  --field HabitatCla \
+  --bay "Deep ocean/bay" "Shallow ocean/bay" "Tidal flat" \
+  --marsh "Tidal marsh" "Tidal slough" \
+  --out data/raw
 ```
-(`<file>` is the one path component that depends on what the SFEI archive contains.)
+Expected: `bay: N polygons, marsh: M polygons`, both above 0 (the research counted 29 polygons across these five classes in the test box; the layer-wide total will be higher).
 
-Expected: both files exist and are non-empty: `python3 -c "import json; print(len(json.load(open('data/raw/bay.geojson'))['features']))"` prints a number above 0. If either is empty, the field values from Task 1 are wrong; re-check them rather than loosening the filter.
+**Decision for you to make, with the user:** `Tidal coastal lagoon` (2 polygons in the test box) is deliberately in neither list, so it stays dry land. Look at it in Step 7 and decide whether it should be water. If so, add it to `--marsh` (or `--bay`) and re-run, and record why in `docs/research/slice-results.md`.
+
+Commit the splitter (the generated `data/raw` files are gitignored):
+
+```bash
+git add pipeline/yelamu/habitats.py pipeline/tests/test_habitats.py
+git commit -m "feat(pipeline): split SFEI habitat GeoJSON into bay and marsh polygons"
+```
 
 - [ ] **Step 4: Write `pipeline/data/slice/checks.json`**
 
@@ -1823,6 +1954,28 @@ Include: a screenshot of the viewer; the list of sanity checks and their results
 git add pipeline/data/slice docs/research/slice-results.md viewer/public/assets/slice
 git commit -m "feat: real-data vertical slice for Yerba Buena Cove and Mission Bay"
 ```
+
+---
+
+## Addendum A: Changes made during execution (supersedes the tasks above where they differ)
+
+Execution used one implementer subagent per task. Reviews were done per phase (pipeline, viewer) by a read-only reviewer on a stronger model. Both reviews found the code byte-identical to this plan but found gaps *in the plan itself*, fixed as follows.
+
+**A1. Pipeline hardening** (commit `7425364`, after the pipeline review). `load_dem` keeps NaN for missing data and takes a `nodata` override (`--dem-nodata`). Missing data is expected over open water (a lidar DEM has no data there) and is harmless because the water edit overwrites it; `fill_missing_land` raises only if more than 2% of cells are still missing after the water edit (this catches a DEM that doesn't cover the box). `load_polygons` skips null geometries, keeps only polygonal parts (a line is never burned into the water mask), applies `make_valid`, and raises if nothing usable remains. Order of operations is now: load DEM, stamp landforms, apply water, fill missing land. The `water` provenance layer is written only when a bay or marsh file was supplied. `write_assets` rejects NaN/inf. 38 tests.
+
+**A2. Asset contract: raw `uint16`, not PNG** (supersedes Tasks 5, 8, 11; reason: privacy-hardened browsers, such as Brave, Safari and Firefox with fingerprinting resistance, can add noise to canvas pixel readback, which would silently jitter the terrain). The pipeline writes `heightmap.u16` (little-endian, row-major, row 0 = north) and `meta.json`, which gains `heights_file`, `heights_format` (`"uint16-le"`) and `water_level_m`. `encode_heights`/`decode_heights` became `quantize_heights`/`dequantize_heights`. Pillow was removed. The viewer fetches the file as an `ArrayBuffer`, checks its length and format, and reads it with an explicit little-endian `DataView`. No canvas is involved.
+
+**A3. One source of truth for water.** `terrain.py` defines `WATER_LEVEL_M = 0.6`, `MARSH_LEVEL_M = 0.5` (just below water, so marsh reads as shallow water), `LAND_FLOOR_M = 1.0` and `BAY_FLOOR_M = -3.0`. Dry land is clamped to at least `LAND_FLOOR_M`, and filled data voids use it too, so land can never render as water. The viewer reads `water_level_m` from `meta.json`. **Known simplification:** real coastal land between 0 and 1 m is flattened to 1 m.
+
+**A4. Viewer fixes.** `fitViewSize` (in `camera.ts`, tested) frames the whole map for any aspect ratio, including portrait windows, and is reapplied on resize. Fetches check `res.ok`. Pinch zoom re-bases when the pointer count changes. A non-primary mouse button or a lost `pointerup` no longer leaves panning stuck.
+
+**A5. Known gaps carried forward** (not fixed in this plan):
+- The spec's "constrained" camera (no panning far off the map) is not implemented.
+- Heights are relative to NAVD88 (elevation data) but the water level is a flat 0.6 m; the real tidal datum offset was not modelled.
+- The habitat layer has no per-polygon certainty, so `documented`/`inferred` tags are assigned by us.
+- Task 12 still needs the user's approval for the downloads, and the SFEI license must be confirmed before anything derived is published.
+
+**A6. Environment note.** This machine has a stray `/Users/paras/node_modules/fsevents` (v1.2.13) that Node finds before the project's own copy, which crashes `vite` with `fsevents.watch is not a function`. Workaround used (changes nothing in the repo): `cd viewer && npm install --no-save --ignore-scripts fsevents`. Do not run a plain `npm install`/`npm ci` afterwards without repeating it, because npm prunes the extra package. A cleaner fix is for the user to remove the stray `~/node_modules`.
 
 ---
 
