@@ -1977,6 +1977,8 @@ Execution used one implementer subagent per task. Reviews were done per phase (p
 
 **A6. Environment note.** This machine has a stray `/Users/paras/node_modules/fsevents` (v1.2.13) that Node finds before the project's own copy, which crashes `vite` with `fsevents.watch is not a function`. Workaround used (changes nothing in the repo): `cd viewer && npm install --no-save --ignore-scripts fsevents`. Do not run a plain `npm install`/`npm ci` afterwards without repeating it, because npm prunes the extra package. A cleaner fix is for the user to remove the stray `~/node_modules`.
 
+**A7. Changes made while running Task 12** (commits `604c777`, `1fa934d`, `84e07f6`). The splitter in Task 12, Step 3 shipped as written. The first real run exposed that SFEI's layer maps only part of the city, so the open bay east of its extent rendered as flat land. The pipeline gained `--coverage` (GeoJSON of all habitat polygons) and `--open-water-max-m` (default 0.5): where no SFEI polygon exists and the raw modern DEM is at or below the threshold, the cell is open bay, tagged `open_water_gap_fill` / `inferred`. The empty-landforms provenance bug was fixed in the same change. **The Step 6 command now needs `--coverage data/raw/sf_habitats.geojson`.** Output goes to `viewer/public/assets/real/` (gitignored, because the data derives from an SFEI layer with no stated license), and the viewer loads it with `?data=real`; the committed synthetic demo stays the default. Results and the go/no-go are in `docs/research/slice-results.md`.
+
 ---
 
 ## Self-Review
