@@ -6,7 +6,12 @@ import { buildTerrainGeometry } from "./terrainMesh";
 
 // Real hills are gentle at this scale; a diorama needs them exaggerated to read.
 const VERTICAL_EXAGGERATION = 3;
-const ASSET_BASE = `${import.meta.env.BASE_URL}assets/slice`;
+// Which dataset folder under public/assets/ to load. `?data=real` selects the locally
+// generated real-data slice (gitignored; see docs/research/slice-results.md). The name
+// is restricted so a URL cannot point the loader at arbitrary paths.
+const requested = new URLSearchParams(location.search).get("data") ?? "slice";
+const dataset = /^[a-z0-9_-]+$/.test(requested) ? requested : "slice";
+const ASSET_BASE = `${import.meta.env.BASE_URL}assets/${dataset}`;
 
 async function start() {
   const canvas = document.getElementById("scene") as HTMLCanvasElement;

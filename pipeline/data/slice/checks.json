@@ -1,0 +1,5 @@
+[
+  {"name": "Coit Tower (Telegraph Hill summit)", "lon": -122.4058, "lat": 37.8024, "min_m": 60},
+  {"name": "Chase Center (former Mission Bay tidal flat)", "lon": -122.3875, "lat": 37.7680, "max_m": 1.0},
+  {"name": "Ferry Building (Yerba Buena Cove)", "lon": -122.3935, "lat": 37.7955, "max_m": 1.0}
+]
