@@ -1,0 +1,25 @@
+[project]
+name = "yelamu-pipeline"
+version = "0.1.0"
+description = "Offline data pipeline that reconstructs the ~1769 Yelamu landscape"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pyproj>=3.6",
+  "rasterio>=1.3",
+  "shapely>=2.0",
+  "Pillow>=10",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["yelamu"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
