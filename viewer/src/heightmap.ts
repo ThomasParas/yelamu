@@ -22,6 +22,10 @@ export interface HeightmapMeta {
   /** One byte per cell (habitat class id), same row-major layout as the heightmap. */
   habitat_file?: string;
   habitat_classes?: HabitatClass[];
+  /** File name of the overlay (streets, landmarks, hotspots) next to the heightmap. */
+  overlay_file?: string;
+  /** Pipeline parameters, shown on the Sources panel (see provenanceData.ts). */
+  processing?: Record<string, unknown>;
 }
 
 /**
