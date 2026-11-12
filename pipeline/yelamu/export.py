@@ -56,11 +56,13 @@ def write_assets(
     processing: dict | None = None,
     habitat: np.ndarray | None = None,
     habitat_classes: list[dict] | None = None,
+    extra_meta: dict | None = None,
 ) -> dict:
     """Write heightmap.u16 and meta.json (and habitat.u8 when a habitat raster is given).
 
     `habitat` is a (height, width) uint8 class-id raster, row 0 = north, written raw;
-    `habitat_classes` is its legend, copied into meta.json.
+    `habitat_classes` is its legend, copied into meta.json. `extra_meta` keys (e.g.
+    "ponds_file", "hand_sources") are added to meta.json last.
     """
     if not np.isfinite(dem).all():
         raise ValueError(
@@ -108,5 +110,7 @@ def write_assets(
         meta["habitat_classes"] = habitat_classes
     if processing is not None:
         meta["processing"] = processing
+    if extra_meta:
+        meta.update(extra_meta)
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     return meta

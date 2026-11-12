@@ -637,7 +637,7 @@ def test_habitats_flag_writes_raster_legend_and_inferred_open_bay(tmp_path, caps
     assert (out / "habitat.u8").stat().st_size == meta["width"] * meta["height"]
     assert meta["habitat_file"] == "habitat.u8"
     ids = {e["name"]: e["id"] for e in meta["habitat_classes"]}
-    assert (ids["Coast live oak woodland"], ids["Weird thing"]) == (4, 5)  # sorted-name ids
+    assert (ids["Coast live oak woodland"], ids["Weird thing"]) == (5, 6)  # sorted-name ids
     woodland = ids["Coast live oak woodland"]
     raster = _habitat(out, meta)
     # --habitats is the coverage too: the unmapped, low (0 m) north-east is gap-filled bay.

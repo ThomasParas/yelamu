@@ -2,7 +2,7 @@
 
 The SFEI layer's `HabitatCla` values (about thirty) are grouped into ten coarse groups
 for colouring. The raster stores one uint8 id per cell; `legend` maps ids back to names
-and groups. Ids 0..3 are fixed synthetic classes; SFEI classes get ids 4.. in sorted
+and groups. Ids 0..4 are fixed synthetic classes; SFEI classes get ids 5.. in sorted
 name order (only those present in the data).
 """
 
@@ -18,8 +18,9 @@ ID_UNMAPPED = 0
 ID_OPEN_BAY_INFERRED = 1
 ID_HAND_BAY = 2
 ID_HAND_MARSH = 3
-FIRST_SFEI_ID = 4
-MAX_SFEI_CLASSES = 251  # uint8 ids 4..254 (255 stays free)
+ID_HAND_POND = 4
+FIRST_SFEI_ID = 5
+MAX_SFEI_CLASSES = 250  # uint8 ids 5..254 (255 stays free)
 
 SYNTHETIC_LEGEND: list[dict] = [
     {"id": ID_UNMAPPED, "name": "Unmapped", "group": "unmapped"},
@@ -27,6 +28,7 @@ SYNTHETIC_LEGEND: list[dict] = [
      "group": "water"},
     {"id": ID_HAND_BAY, "name": "Bay (hand-drawn)", "group": "water"},
     {"id": ID_HAND_MARSH, "name": "Marsh (hand-drawn)", "group": "marsh"},
+    {"id": ID_HAND_POND, "name": "Pond (hand-drawn)", "group": "water"},
 ]
 
 _GROUPS = {
@@ -116,7 +118,8 @@ def apply_overrides(
     """A copy of `habitat` with the synthetic water classes stamped on.
 
     Applied in this order, so later wins: inferred open bay (`gap`), hand-drawn marsh,
-    hand-drawn bay. Any mask may be None (nothing to stamp).
+    hand-drawn bay. Any mask may be None (nothing to stamp). Ponds are stamped after this
+    by yelamu.ponds.stamp_ponds_on_habitat.
     """
     out = np.array(habitat, dtype=np.uint8, copy=True)
     for mask, class_id in ((gap, ID_OPEN_BAY_INFERRED), (hand_marsh, ID_HAND_MARSH),

@@ -9,6 +9,7 @@ from yelamu.habitat import (
     GROUP_BY_CLASS,
     ID_HAND_BAY,
     ID_HAND_MARSH,
+    ID_HAND_POND,
     ID_OPEN_BAY_INFERRED,
     ID_UNMAPPED,
     apply_overrides,
@@ -87,7 +88,8 @@ def test_every_class_in_the_real_sfei_layer_is_mapped():
 
 
 def test_synthetic_ids_are_fixed():
-    assert (ID_UNMAPPED, ID_OPEN_BAY_INFERRED, ID_HAND_BAY, ID_HAND_MARSH) == (0, 1, 2, 3)
+    assert (ID_UNMAPPED, ID_OPEN_BAY_INFERRED, ID_HAND_BAY, ID_HAND_MARSH, ID_HAND_POND) == (
+        0, 1, 2, 3, 4)
 
 
 # --------------------------------------------------------------- rasterising ---
@@ -104,14 +106,15 @@ def test_rasterize_values_legend_and_unknown():
         {"id": 1, "name": "Open bay (inferred from modern elevation)", "group": "water"},
         {"id": 2, "name": "Bay (hand-drawn)", "group": "water"},
         {"id": 3, "name": "Marsh (hand-drawn)", "group": "marsh"},
-        {"id": 4, "name": "Beach", "group": "beach"},
-        {"id": 5, "name": "Coast live oak woodland", "group": "woodland"},
-        {"id": 6, "name": "Mystery class", "group": "unmapped"},
-        {"id": 7, "name": "Tidal marsh", "group": "marsh"},
+        {"id": 4, "name": "Pond (hand-drawn)", "group": "water"},
+        {"id": 5, "name": "Beach", "group": "beach"},
+        {"id": 6, "name": "Coast live oak woodland", "group": "woodland"},
+        {"id": 7, "name": "Mystery class", "group": "unmapped"},
+        {"id": 8, "name": "Tidal marsh", "group": "marsh"},
     ]
-    assert raster[_cell(grid, -122.410, 37.78)] == 7  # marsh
-    assert raster[_cell(grid, -122.3975, 37.78)] == 5  # woodland only
-    assert raster[_cell(grid, -122.3825, 37.78)] == 6  # unknown class keeps its own id
+    assert raster[_cell(grid, -122.410, 37.78)] == 8  # marsh
+    assert raster[_cell(grid, -122.3975, 37.78)] == 6  # woodland only
+    assert raster[_cell(grid, -122.3825, 37.78)] == 7  # unknown class keeps its own id
     assert raster[_cell(grid, -122.377, 37.78)] == 0  # blank/null-class features skipped
     assert raster[_cell(grid, -122.372, 37.78)] == 0  # nothing mapped
     # Only classes with at least one usable polygon appear in the legend.
@@ -144,7 +147,7 @@ def test_custom_field_name():
             "features": [_feat("Beach", _rect(-122.41, 37.77, -122.40, 37.78), field="Cls")]}
     raster, legend, _ = rasterize_habitats(coll, grid, field="Cls")
     assert [e["name"] for e in legend][-1] == "Beach"
-    assert raster[_cell(grid, -122.405, 37.775)] == 4
+    assert raster[_cell(grid, -122.405, 37.775)] == 5
 
 
 def test_multipolygon_and_invalid_polygon_are_handled():
@@ -169,16 +172,16 @@ def test_empty_collection_gives_all_unmapped_and_synthetic_legend_only():
     raster, legend, unknown = rasterize_habitats(
         {"type": "FeatureCollection", "features": []}, grid)
     assert not raster.any() and unknown == []
-    assert [e["id"] for e in legend] == [0, 1, 2, 3]
+    assert [e["id"] for e in legend] == [0, 1, 2, 3, 4]
 
 
-def test_more_than_251_classes_is_an_error():
+def test_more_than_250_classes_is_an_error():
     grid = _grid()
-    feats = [_feat(f"class {i:03d}", _rect(-122.41, 37.77, -122.40, 37.78)) for i in range(252)]
-    with pytest.raises(ValueError, match="251"):
+    feats = [_feat(f"class {i:03d}", _rect(-122.41, 37.77, -122.40, 37.78)) for i in range(251)]
+    with pytest.raises(ValueError, match="250"):
         rasterize_habitats({"type": "FeatureCollection", "features": feats}, grid)
     ok, legend, _ = rasterize_habitats(
-        {"type": "FeatureCollection", "features": feats[:251]}, grid)
+        {"type": "FeatureCollection", "features": feats[:250]}, grid)
     assert len(legend) == 255 and ok.max() == 254
 
 
@@ -211,3 +214,4 @@ def test_apply_overrides_accepts_none_masks():
     habitat = np.zeros((2, 2), dtype=np.uint8)
     out = apply_overrides(habitat, None, None, np.array([[1, 0], [0, 0]], dtype=bool))
     assert out.tolist() == [[ID_HAND_MARSH, 0], [0, 0]]
+
