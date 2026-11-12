@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 from scipy import ndimage
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
+from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
 
 from yelamu.export import Layer
@@ -178,15 +179,28 @@ def build_ponds(
 ) -> list[Pond]:
     """Resolve candidates against the grid: masks, levels, ids; sorted by id.
 
-    Polygons covering fewer than `min_cells` cell centres are dropped with a note via
+    Polygons are first clipped to the grid box (a piece the clip separates is a pond of its
+    own). Polygons covering fewer than `min_cells` cell centres are dropped with a note via
     `log`. The level is level_m if given, else the median of the non-NaN raw DEM under the
     polygon, rounded to 0.01 m; with neither (all NaN) a hand pond raises ValueError and an
-    SFEI pond is dropped with a note. Where ponds overlap, a hand pond wins over an SFEI one and
-    otherwise the pond with the earlier id owns the cell, so the masks are disjoint.
+    SFEI pond is dropped with a note. Where ponds overlap, a hand pond wins over an SFEI one
+    and otherwise the pond with the earlier id wins: the loser's geometry has the winners'
+    geometry subtracted (it may gain a hole or split into several ponds, ids suffixed -2, -3),
+    and a remainder that is empty or under `min_cells` cells is dropped. So every pond's
+    `geometry` and `mask` describe the same area, and no area belongs to two ponds.
     """
     raw_dem = np.asarray(raw_dem)
-    kept: list[tuple[PondSpec, np.ndarray]] = []
+    # Everything a pond can be is on the grid: clip first (a polygon running off the map
+    # becomes the part that is on it; pieces the clip separates become ponds of their own).
+    gbox = box(grid.west, grid.south, grid.east, grid.north)
+    clipped: list[PondSpec] = []
     for spec in specs:
+        geom = spec.geometry
+        parts = [geom] if gbox.contains(geom) else _polygonal_parts(geom.intersection(gbox))
+        clipped += [replace(spec, geometry=part) for part in parts]
+
+    kept: list[tuple[PondSpec, np.ndarray]] = []
+    for spec in clipped:
         label = spec.name or spec.id_hint or spec.class_name or "pond"
         mask = water_mask([spec.geometry], grid)
         n = int(mask.sum())
@@ -215,20 +229,47 @@ def build_ponds(
             level = float(np.median(values))
         resolved.append((pid, spec, mask, round(level, 2)))
 
-    # Disjoint ownership of cells: hand ponds first, then by id.
+    # One surface per cell: hand ponds first, then by id. A pond keeps only the part of its
+    # polygon that no earlier pond covers (that part is what is exported AND what is carved,
+    # so the rings and the cells agree); a pond the others split becomes one pond per piece.
     resolved.sort(key=lambda r: (r[1].origin != "hand", r[0]))
+    used_ids = {r[0] for r in resolved}
     claimed = np.zeros((grid.height, grid.width), dtype=bool)
+    claimed_geom: BaseGeometry | None = None
     ponds: list[Pond] = []
-    for pid, spec, mask, level in resolved:
-        own = mask & ~claimed
-        claimed |= own
-        if not own.any():
+    for pid, spec, _mask, level in resolved:
+        geom = spec.geometry if claimed_geom is None else spec.geometry.difference(claimed_geom)
+        pieces: list[tuple[Polygon, np.ndarray]] = []
+        for part in _polygonal_parts(geom):
+            own = water_mask([part], grid) & ~claimed
+            n = int(own.sum())
+            if n == 0:
+                continue
+            if n < min_cells:
+                c = part.centroid
+                log(f"Dropped a piece of pond '{pid}' near UTM ({c.x:.0f}, {c.y:.0f}): "
+                    f"only {n} cell(s) are left after the ponds that rank above it, fewer "
+                    f"than {min_cells}")
+                continue
+            claimed |= own
+            pieces.append((part, own))
+        if not pieces:
             log(f"Dropped pond '{pid}': every cell is already owned by another pond")
             continue
-        ponds.append(Pond(
-            id=pid, name=spec.name, level_m=level, source=spec.source,
-            confidence=spec.confidence, origin=spec.origin, class_name=spec.class_name,
-            geometry=spec.geometry, mask=own))
+        pieces.sort(key=lambda t: (round(t[0].centroid.x, 1), round(t[0].centroid.y, 1), t[0].area))
+        for k, (part, own) in enumerate(pieces):
+            piece_id = pid
+            if k > 0:
+                n = k + 1
+                while f"{pid}-{n}" in used_ids:
+                    n += 1
+                piece_id = f"{pid}-{n}"
+                used_ids.add(piece_id)
+            claimed_geom = part if claimed_geom is None else claimed_geom.union(part)
+            ponds.append(Pond(
+                id=piece_id, name=spec.name, level_m=level, source=spec.source,
+                confidence=spec.confidence, origin=spec.origin, class_name=spec.class_name,
+                geometry=part, mask=own))
     return sorted(ponds, key=lambda p: p.id)
 
 

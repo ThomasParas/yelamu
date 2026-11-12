@@ -465,3 +465,82 @@ def test_blend_is_deterministic_and_independent_of_pond_order():
     one = blend_pond_banks(dem, GRID, [a, b], LAND_ALL)
     two = blend_pond_banks(dem, GRID, [b, a], LAND_ALL)
     assert (one == two).all() and (one == blend_pond_banks(dem, GRID, [a, b], LAND_ALL)).all()
+
+
+# ------------------------------------------- overlap: one surface per cell, grid clipping
+
+
+def _ring_polygon(flat_ring):
+    pts = list(zip(flat_ring[0::2], flat_ring[1::2]))
+    return Polygon(pts)
+
+
+def _doc_polygons(doc):
+    """Each exported pond as a shapely Polygon in world metres, with holes."""
+    out = {}
+    for q in doc["ponds"]:
+        out[q["id"]] = Polygon(_ring_polygon(q["rings"][0]).exterior.coords,
+                               [_ring_polygon(r).exterior.coords for r in q["rings"][1:]])
+    return out
+
+
+def test_overlapping_ponds_export_no_area_at_two_levels():
+    sfei = spec(square(50, 50, 200), origin="sfei", class_name="Other pond or lake",
+                level=8.0, confidence="inferred")
+    hand = spec(square(100, 100, 100), name="Hand", level=5.0)
+    ponds = build_ponds([sfei, hand], flat(), GRID, log=lambda m: None)
+    doc = ponds_document(ponds, GRID, {})
+    polys = _doc_polygons(doc)
+    by_level = {q["level_m"]: polys[q["id"]] for q in doc["ponds"]}
+    assert set(by_level) == {5.0, 8.0}
+    hand_poly, sfei_poly = by_level[5.0], by_level[8.0]
+    assert hand_poly.area == pytest.approx(100 * 100, rel=1e-6)
+    assert sfei_poly.area == pytest.approx(200 * 200 - 100 * 100, rel=1e-6)
+    assert len(next(q for q in doc["ponds"] if q["level_m"] == 8.0)["rings"]) == 2  # a hole
+    assert hand_poly.intersection(sfei_poly).area < 1e-6
+    # the exported rings agree with the cells each pond owns
+    for p in ponds:
+        poly = polys[p.id]
+        assert poly.area == pytest.approx(p.mask.sum() * 100.0, rel=1e-6)
+
+
+def test_pond_split_by_a_higher_priority_pond_becomes_two_ponds():
+    sfei = spec(square(50, 150, 300), origin="sfei", class_name="Other pond or lake", level=8.0)
+    hand = spec(box(500000 + 150, 4180000 + 100, 500000 + 200, 4180000 + 400), name="Cut", level=5.0)
+    ponds = build_ponds([sfei, hand], flat(), GRID, log=lambda m: None)
+    sf = [p for p in ponds if p.origin == "sfei"]
+    assert len(sf) == 2 and len({p.id for p in sf}) == 2
+    assert all(p.geometry.geom_type == "Polygon" and p.mask.sum() >= 4 for p in sf)
+    assert not (sf[0].mask & sf[1].mask).any()
+    ids = [p.id for p in ponds]
+    assert len(set(ids)) == len(ids)
+
+
+def test_pond_fully_inside_a_higher_priority_pond_is_dropped():
+    notes = []
+    big = spec(square(50, 50, 200), name="Big", level=5.0)
+    small = spec(square(100, 100, 50), origin="sfei", class_name="Other pond or lake", level=8.0)
+    ponds = build_ponds([big, small], flat(), GRID, log=notes.append)
+    assert [p.name for p in ponds] == ["Big"] and notes
+
+
+def test_polygon_running_off_the_grid_is_exported_clipped_to_the_grid():
+    (p,) = build_ponds([spec(box(499900, 4180100, 500200, 4180300), level=5.0)], flat(), GRID,
+                       log=lambda m: None)
+    doc = ponds_document([p], GRID, {})
+    poly = _doc_polygons(doc)[p.id]
+    assert poly.bounds[0] >= -200.0 - 1e-6  # west edge of the grid in world metres
+    assert poly.bounds[0] == pytest.approx(-200.0)
+    assert poly.area == pytest.approx(200 * 200)
+    assert p.geometry.bounds[0] == pytest.approx(500000)
+
+
+def test_polygon_clipped_into_pieces_by_the_grid_makes_separate_ponds():
+    # a U shape whose two arms stay on the grid while the base lies outside it
+    u = Polygon([(500100, 4179900), (500300, 4179900), (500300, 4180200), (500260, 4180200),
+                 (500260, 4179960), (500140, 4179960), (500140, 4180200), (500100, 4180200)])
+    ponds = build_ponds([spec(u, name="U", level=5.0)], flat(), GRID, log=lambda m: None)
+    assert len(ponds) == 2
+    assert all(p.geometry.geom_type == "Polygon" for p in ponds)
+    assert len({p.id for p in ponds}) == 2
+    assert all(p.geometry.bounds[1] >= 4180000 - 1e-6 for p in ponds)
