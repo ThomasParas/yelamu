@@ -1,0 +1,2702 @@
+# Yelamu Phase 3b-2 (NOAA Shoreline Import) Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Replace the modern fill that the map still draws as land in the south-east (Islais Creek and Cove, India Basin, Candlestick) with the water and marsh that NOAA's 1850s survey linework shows, every polygon carrying its sheet, year and confidence, and give the owner the tools (numbered preview, seeds file) to extend and correct it.
+
+**Architecture:** One pure module, `yelamu/noaa.py`, turns a NOAA project's shoreline polylines into closed candidate areas (clip to the project boundary, node, join free ends, polygonise with the boundary as a frame, drop slivers) and classifies them from a seeds file the owner confirms; `scripts/import_noaa.py` writes the result as the two hand-water GeoJSON files the build already reads (so no change to the terrain build or the viewer logic), and `noaa_preview.py` draws the numbered areas for review. The generated files and the seeds are committed.
+
+**Tech Stack:** Same as Phase 3b-1. **No new Python or npm dependencies** (pyshp, shapely, numpy and pyproj are already in use; the preview uses Pillow via `uv run --with pillow`).
+
+**Spec:** [`docs/superpowers/specs/2026-11-11-phase-3b2-noaa-import-design.md`](../specs/2026-11-11-phase-3b2-noaa-import-design.md)
+
+**Base commit:** `aa1db73` (pipeline 562 tests plus 1 skipped, viewer 572 tests; the viewer count assumes `make:city-synth`, `make:overlay-synth` and `make:ponds-synth` have been run). Modified files are carried as unified diffs against that commit (apply with `git apply`, from the repository root); new files are given whole.
+
+**Skipped tests are expected:** from Task N2 on, 3 pipeline tests are skipped (they need Pillow; run `uv run --with pillow python -m pytest -q -W error` to run them). **No test needs the NOAA download**: the tests build synthetic projects with pyshp.
+
+**Out of scope (separate plans):** Yerba Buena and Treasure Island (the 1850s vectors stop west of them; the georeferenced scan of sheet T-00687 may show them), later surveys, scans and georeferencing, automatic water/land classification, the cultural layer, hosting.
+
+> **Licensing.** NOAA states **no access constraints** for these datasets and asks to be credited ("not for use in litigation"; not for navigation). The downloaded zips stay under the gitignored `pipeline/data/raw/noaa/`; the derived polygons and the seeds are committed (the generated bay file is about 335 KB). The SFEI licensing gate is unchanged: nothing here is SFEI-derived.
+
+> **No download without approval.** Task R1 needs the four NOAA zips. If they are not already in `pipeline/data/raw/noaa/`, say which files, from where and how big (about 870 KB in total; the URLs are in the spec and in Task R1) and get the owner's approval before fetching.
+
+---
+
+## Design decisions (veto points)
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | **Vectors first**, from NOAA's own already-extracted shoreline lines, not hand tracing. | Owner's choice. The vectors exist for 1850 to 1857 sheets covering the south-east and the north waterfront, are small, and have no access constraints. |
+| 2 | **Seeds the owner confirms decide water or land.** | The NOAA files contain only lines; which side of a line is water is a human reading. Unseeded areas are listed and left unchanged, never guessed. |
+| 3 | **All eight NOAA line classes are used by default.** | Measured: dropping wharves, other man-made lines and the approximate lines left 59 to 81 km of shoreline unclosed in three of the four projects, because by 1853 the Yerba Buena Cove shore is the wharf front. The list is a flag (`--line-classes`). |
+| 4 | **Snap tolerance 8 m** (and closure reach 600 m to the frame, 2,500 m for NOAA's own closure lines). | Measured: 0.42 km of linework stays unclosed at 8 m, 18.9 km at 12 m (the open north end of the 1853 sheet snaps 11 m sideways instead of reaching the frame and merges Mission Bay's land with its water). 8 m works but the margin is narrow. |
+| 5 | **Output goes into separate generated files** (`hand_bay_noaa.geojson`, `hand_marsh_noaa.geojson`), listed after the owner's own hand files. | The owner's tracing and the machine's import stay apart; regenerating one never touches the other. Where both cover a cell, bay wins, as for all hand-water files. |
+| 6 | **Confidence is `inferred`, never higher.** | NOAA states the lines' positional accuracy was never determined; they are office interpretations of survey sheets. |
+| 7 | **The seeds file may also carry closing lines** that the importer draws. | The Islais estuary and the Golden Gate need a cut to become separate areas. They are choices, not data, and are labelled as such. |
+| 8 | **The vectors' scope ends where they end**: Yerba Buena Island and Treasure Island stay as the reconstruction has them. | The 1857 vector stops at longitude -122.382. |
+
+## What the prototype measured
+
+Built and run first in a scratch copy of the repository, then replayed task by task on a fresh checkout.
+
+| Measurement | Result |
+|---|---|
+| Tests | pipeline 562 to 612 (+3 skipped, Pillow); viewer 572 unchanged |
+| Real files | four projects (CA37A02 1850 to 1852, CA37B02B 1853 to 1854, CA37B07 1853, CA37B08 1857), 682 shoreline lines in total; 71 candidate areas; import under 1 s; build 4.4 s |
+| Output | bay 21,058 ha and marsh 129 ha seeded (most of it open water already water today); **81,115 cells (811 ha) change from land to water, 2.93% of the grid and 5.98% of land** (71,206 cells to bay, 9,909 to marsh); **0 cells go from water to land**; 3,966 ha of overlap between the 1852 and 1857 areas (the build unions them) |
+| What changes | Islais Cove and the Islais Creek marsh, India Basin and South Basin, the Candlestick shore, thin edges on the north waterfront, Alcatraz and the Sausalito coast |
+| Unclosed linework | 0.42 km in total: a 211 m stub of the Golden Gate closure near Lime Point, 18 m near Sausalito, 10 m at the Islais closure, 11 m in the 1857 sheet (and 171 m in CA37B02B, outside the region) |
+| Sanity checks | the four existing checks pass; six new ones pass (three places that are dry land today and are water on the 1852 sheet, three that must stay land) |
+| Browser | not yet in this plan's measurement; Task R1 does it |
+
+**Known limits.** (1) The Islais marsh is cut by a straight line where sheet CA37A02 ends; beside it the 1857 area reads as open bay and, where bay and marsh overlap (30 ha), bay wins. (2) The two importer-drawn closures (Islais mouth, Golden Gate) are choices; without the Golden Gate one, the Pacific shore of the 1852 sheet moves Ocean Beach about 100 m inland. (3) The Pacific, Hunters Point's own area (CA37B02B-10) and the north-waterfront pieces are unseeded and unchanged. (4) A seed with a `note` starting `UNCERTAIN` needs the owner's confirmation.
+
+---
+
+## File Structure
+
+```
+pipeline/
+  yelamu/noaa.py                       Task N1: read, close linework, seeds, classify, GeoJSON
+  tests/test_noaa.py                   Task N1
+  yelamu/noaa_preview.py               Task N2: numbered-area preview (Pillow)
+  scripts/import_noaa.py               Task N2: the command
+  tests/test_noaa_preview.py, test_import_noaa.py   Task N2
+  data/full-city/hand/noaa_seeds.json  Task N3: seeds and closing lines
+  data/full-city/hand/hand_bay_noaa.geojson, hand_marsh_noaa.geojson   Task N3 (generated)
+  regions/full-city.json, data/full-city/checks.json, hand/README.md (modified)   Task N3
+  tests/test_noaa_shipped.py, test_handcheck.py, test_region.py   Task N3
+viewer/src/ui/about.ts (modified)      Task V1: NOAA credit
+docs/research/phase-3b2-results.md     Task R1
+```
+
+Task order matters: N1 before N2 (the command uses the module), both before N3 (the generated files come from the command). Tests are green after every task.
+
+---
+
+## Tasks
+
+### Task N1: Close NOAA linework into candidate areas; seeds; provenance text
+
+**Files:**
+- Create: `pipeline/tests/test_noaa.py`
+- Create: `pipeline/yelamu/noaa.py`
+
+`noaa.py` is the whole importer, in pure functions. `read_project` reads a project's `historicl1` lines and `projbnd` boundary (pyshp) into UTM, normalising sheet ids (`T00460_1` becomes `T-00460`) and years. `close_linework` clips the lines to the project boundary, nodes them, joins free ends (to each other within 100 m, to the nearest line within the **8 m snap**, to the frame within 600 m, and 2,500 m for NOAA's own closure lines), polygonises with the boundary as a frame, and drops faces smaller than 2,000 m² or thinner than the snap. Ids (`CA37A02-12`) are numbered by centroid, so they do not depend on input order. `load_seeds` and `classify` validate the seed file and give each area its class (a conflict, or a seed in no area, is an error naming the seeds); `areas_to_features` writes bay and marsh areas as GeoJSON with a provenance string that never cuts off the seed id, confidence `inferred` at most. Nothing is wired into the build yet.
+
+**Tuned on the real files** (not guessable): all eight NOAA line classes are used by default. Leaving out wharves, other man-made lines and the approximate lines (the spec's first idea) left 59 to 81 km of shoreline unclosed in three of the four projects, because by 1853 the Yerba Buena Cove shore *is* the wharf front. The snap tolerance has a narrow safe range: unclosed linework is 0.42 km at 8 m but 18.9 km at 12 m, where the open north end of the 1853 sheet snaps 11 m sideways instead of reaching the frame and merges Mission Bay's land with its water.
+
+- [ ] **Step 1: Add the tests**
+
+`pipeline/tests/test_noaa.py`
+
+```python
+"""yelamu.noaa on synthetic linework (UTM metres near San Francisco)."""
+
+import json
+import random
+
+import numpy as np
+import pytest
+import rasterio
+from rasterio.transform import from_origin
+from shapely.geometry import LineString, Point, box
+
+from yelamu.cli import main
+from yelamu.export import dequantize_heights
+from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
+from yelamu.noaa import (
+    MAN_MADE, MARSH_EDGE, MEAN_HIGH_WATER, USER_ADDED, WHARF, Area, Line, Seed, area_ordinal,
+    areas_to_features, classify, close_linework, cross_project_overlaps,
+    feature_collection_text, load_seed_file, load_seeds, lonlat_geom_to_utm, normalise_sheet,
+    select_lines, source_text, survey_year, utm_geom_to_lonlat)
+from yelamu.provenance import MAX_SOURCE_CHARS
+from yelamu.sources import load_features
+
+X0, Y0 = 550_000.0, 4_180_000.0  # UTM 10N, inside San Francisco
+FRAME = box(X0, Y0, X0 + 3000, Y0 + 3000)
+EMPTY_FC = '{"type": "FeatureCollection", "features": []}\n'
+
+
+def _line(coords, feature=MEAN_HIGH_WATER, sheet="T-00352", year=1852, project="CA37A02"):
+    return Line(LineString([(X0 + x, Y0 + y) for x, y in coords]), "", feature, sheet, year,
+                project)
+
+
+def _lake(x, y, size, **kw):
+    return _line([(x, y), (x + size, y), (x + size, y + size), (x, y + size), (x, y)], **kw)
+
+
+def _ll(x, y):
+    """lon, lat of a local point."""
+    p = utm_geom_to_lonlat(Point(X0 + x, Y0 + y))
+    return p.x, p.y
+
+
+def _seed(sid, x, y, cls, project="CA37A02", confidence="inferred"):
+    return Seed(sid, project, *_ll(x, y), cls, "test seed", confidence)
+
+
+def _close(lines, **kw):
+    kw.setdefault("project", "CA37A02")
+    return close_linework(lines, FRAME, **kw)
+
+
+# ----------------------------------------------------------------- attributes ---
+
+
+def test_sheet_and_year_parsing():
+    assert normalise_sheet("T00352") == "T-00352"
+    assert normalise_sheet("t-00460_1") == "T-00460"
+    assert survey_year("18570101") == 1857
+    with pytest.raises(ValueError):
+        normalise_sheet("H1234")
+    with pytest.raises(ValueError):
+        survey_year("1857/01/01")
+
+
+def test_select_lines_by_feature_code():
+    lines = [_lake(100, 100, 100), _lake(500, 500, 100, feature=WHARF)]
+    assert select_lines(lines, {MEAN_HIGH_WATER}) == lines[:1]
+    assert select_lines(lines) == lines  # default: all classes
+
+
+# -------------------------------------------------------------------- closing ---
+
+
+def test_closed_lake_is_one_face():
+    closure = _close([_lake(1000, 1000, 200)])
+    lake = [a for a in closure.areas if a.area_m2 == pytest.approx(40_000)]
+    assert len(lake) == 1 and len(closure.areas) == 2  # the lake and the rest of the frame
+    assert lake[0].sheet == "T-00352" and lake[0].year == 1852
+    assert lake[0].line_kind == "mean high water line"
+    assert closure.unclosed == [] and closure.free_ends_after == 0
+
+
+def test_doubled_lines_3m_apart_make_one_face_and_slivers_at_snap_0():
+    lines = [_lake(1000, 1000, 200), _lake(1003, 1000, 200, sheet="T-00321")]
+    snapped = _close(lines, min_area_m2=0)
+    assert len(snapped.areas) == 2  # lake + surroundings; the 3 m strips are dropped
+    assert snapped.dropped_slivers == 2
+    lake = min(snapped.areas, key=lambda a: a.area_m2)
+    assert lake.area_m2 == pytest.approx(197 * 200)
+    raw = _close(lines, snap_m=0, min_area_m2=0)  # snap 0 disables the width filter
+    assert sorted(round(a.area_m2) for a in raw.areas)[:3] == [600, 600, 197 * 200]
+    assert raw.dropped_slivers == 0
+
+
+def test_a_6m_gap_closes_at_snap_8_but_not_at_snap_3():
+    # a U-shaped shore and a second line that stops 6 m short of the U's open end
+    lines = [_line([(1000, 1000), (1200, 1000), (1200, 1200), (1000, 1200)]),
+             _line([(1000, 1200), (1000, 1006)], sheet="T-00321")]
+    no_joins = dict(join_ends_m=0, frame_reach_m=0, closure_reach_m=0)
+    closed = _close(lines, snap_m=8, **no_joins)
+    assert any(a.area_m2 == pytest.approx(40_000, rel=1e-3) for a in closed.areas)
+    assert closed.free_ends_after == 0 and closed.unclosed == [] and closed.connectors
+    open_ = _close(lines, snap_m=3, **no_joins)
+    assert len(open_.areas) == 1  # only the frame face
+    assert open_.unclosed_m == pytest.approx(600 + 194, abs=0.1)
+    # end joins (default 100 m) close the same gap whatever the snap
+    assert len(_close(lines, snap_m=3).areas) == 2
+
+
+def test_bay_closed_only_by_the_frame():
+    # a shore crossing the whole project, then one stopping 50 m short of the frame both ends
+    crossing = _close([_line([(1000, -100), (1100, 1500), (1000, 3100)])])
+    assert len(crossing.areas) == 2
+    short = _close([_line([(1000, 50), (1100, 1500), (1000, 2950)])])
+    assert len(short.areas) == 2 and len(short.connectors) == 2
+    assert sum(a.area_m2 for a in short.areas) == pytest.approx(FRAME.area, rel=1e-6)
+    left = min(short.areas, key=lambda a: a.geometry.centroid.x)
+    assert left.id == "CA37A02-1"
+    no_frame = _close([_line([(1000, 50), (1100, 1500), (1000, 2950)])], frame_reach_m=0)
+    assert len(no_frame.areas) == 1 and no_frame.unclosed
+
+
+def test_user_added_closure_lines_reach_the_frame_from_further_away():
+    shore = _line([(1000, 1000), (1100, 1500), (1000, 2000)])
+    closers = [_line([(1000, 1000), (1000, 1000 - 900)], feature=USER_ADDED),
+               _line([(1000, 2000), (1000, 2000 + 900)], feature=USER_ADDED)]
+    assert len(_close([shore, *closers]).areas) == 2  # 100 m to the frame: within 600
+    far = [_line([(1000, 1000), (1000, 700)], feature=USER_ADDED),
+           _line([(1000, 2000), (1000, 2300)], feature=USER_ADDED)]  # 700 m short
+    assert len(_close([shore, *far]).areas) == 2  # user-added ends reach 2500 m
+    assert len(_close([shore, *far], closure_reach_m=0).areas) == 1
+
+
+def test_dangling_creek_is_reported_not_polygonised():
+    shore = _line([(1000, -100), (1000, 3100)])
+    creek = _line([(1000, 1500), (1400, 1500)], feature=MARSH_EDGE)  # ends 1.6 km from frame
+    closure = _close([shore, creek])
+    assert len(closure.areas) == 2
+    assert [round(g.length) for g in closure.unclosed] == [400]
+    assert closure.free_ends_after == 1
+
+
+def test_small_faces_are_dropped_as_slivers():
+    closure = _close([_lake(1000, 1000, 30), _lake(2000, 2000, 100)])
+    assert sorted(round(a.area_m2) for a in closure.areas)[:1] == [10_000]
+    assert closure.dropped_slivers == 1
+    kept = _close([_lake(1000, 1000, 30)], min_area_m2=500)
+    assert any(a.area_m2 == pytest.approx(900) for a in kept.areas)
+
+
+def test_excluded_classes_are_ignored_and_used_when_requested():
+    lines = [_line([(1000, -100), (1000, 3100)]),
+             _line([(1000, 1400), (1300, 1400), (1300, 1600), (1000, 1600)], feature=WHARF)]
+    with_wharf = _close(select_lines(lines))
+    assert len(with_wharf.areas) == 3  # the wharf encloses a pier-shaped face
+    without = _close(select_lines(lines, {MEAN_HIGH_WATER, MAN_MADE}))
+    assert len(without.areas) == 2 and without.unclosed == []
+
+
+def test_ids_are_deterministic_and_independent_of_input_order():
+    lines = [_line([(1000, -100), (1000, 3100)]), _lake(1500, 500, 300), _lake(2000, 2000, 250),
+             _line([(2500, -100), (2500, 3100)], sheet="T-00321", year=1851)]
+    first = _close(lines)
+    for seed in range(3):
+        shuffled = lines[:]
+        random.Random(seed).shuffle(shuffled)
+        again = _close(shuffled)
+        assert [(a.id, a.sheet) for a in again.areas] == [(a.id, a.sheet) for a in first.areas]
+        assert all(a.geometry.equals(b.geometry) for a, b in zip(again.areas, first.areas))
+    xs = [a.geometry.centroid.x for a in first.areas]
+    assert xs == sorted(xs)
+    assert [a.id for a in first.areas] == [f"CA37A02-{i}" for i in range(1, 6)]
+    assert sorted(["CA37A02-10", "CA37A02-9"], key=area_ordinal) == ["CA37A02-9", "CA37A02-10"]
+
+
+def test_owner_closure_lines_split_an_area():
+    shore = _line([(1000, -100), (1000, 3100)])
+    split = _close([shore], extra_lines=[LineString([(X0 + 1000, Y0 + 1500), (X0 + 3100, Y0 + 1500)])])
+    assert len(split.areas) == 3
+    assert all(a.sheet == "T-00352" for a in split.areas)
+
+
+def test_negative_distances_are_refused():
+    with pytest.raises(ValueError):
+        _close([], snap_m=-1)
+
+
+# --------------------------------------------------------------------- seeds ---
+
+
+def _split_areas():
+    """Two areas: west (CA37A02-1) and east (CA37A02-2) of a shore at x = 1000."""
+    return _close([_line([(1000, -100), (1000, 3100)])]).areas
+
+
+def test_classify_seeds():
+    areas = _split_areas()
+    result = classify(areas, [_seed("east-bay", 2000, 1500, "bay"),
+                              _seed("east-bay-2", 2500, 500, "bay", confidence="illustrative")])
+    (item,) = result.classified
+    assert item.area.id == "CA37A02-2" and item.cls == "bay"
+    assert item.confidence == "illustrative"  # the lowest of inferred and the seeds
+    assert [s.id for s in item.seeds] == ["east-bay", "east-bay-2"]
+    assert [a.id for a in result.unseeded] == ["CA37A02-1"]
+
+
+def test_classify_conflicting_seeds_name_both():
+    with pytest.raises(ValueError, match="'a'.*bay.*'b'.*marsh"):
+        classify(_split_areas(), [_seed("a", 2000, 1500, "bay"), _seed("b", 2500, 500, "marsh")])
+
+
+def test_classify_seed_errors():
+    areas = _split_areas()
+    with pytest.raises(ValueError, match="lies in no area"):
+        classify(areas, [_seed("out", 4000, 1500, "bay")])
+    with pytest.raises(ValueError, match="boundary between CA37A02-1 and CA37A02-2"):
+        classify(areas, [_seed("edge", 1000, 1500, "bay")])
+    with pytest.raises(ValueError, match="CA37B08 was not imported"):
+        classify(areas, [_seed("other", 2000, 1500, "bay", project="CA37B08")])
+
+
+def test_seeds_only_class_their_own_project():
+    a02 = _split_areas()
+    b08 = close_linework([_line([(1200, -100), (1200, 3100)], project="CA37B08")], FRAME,
+                         project="CA37B08").areas
+    result = classify(a02 + b08, [_seed("b08-east", 2000, 1500, "bay", project="CA37B08")])
+    assert [c.area.id for c in result.classified] == ["CA37B08-2"]
+    assert len(result.unseeded) == 3
+
+
+def _seed_file(tmp_path, seeds, closures=None, **extra):
+    data = {"seeds": seeds, **extra}
+    if closures is not None:
+        data["closures"] = closures
+    path = tmp_path / "seeds.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+_GOOD = {"id": "a02-bay", "project": "CA37A02", "lon": -122.37, "lat": 37.76, "class": "bay",
+         "source": "NOAA T-00352 (1852)", "confidence": "inferred"}
+_BBOX = (-122.53, 37.70, -122.35, 37.84)
+
+
+def test_load_seed_file(tmp_path):
+    closure = {"id": "gate", "project": "CA37A02", "coordinates": [[-122.47, 37.81], [-122.47, 37.82]],
+               "source": "owner closure", "note": "check"}
+    path = _seed_file(tmp_path, [{**_GOOD, "note": "UNCERTAIN"}], [closure], note="file note")
+    loaded = load_seed_file(path, _BBOX)
+    assert loaded.seeds == [Seed("a02-bay", "CA37A02", -122.37, 37.76, "bay",
+                                 "NOAA T-00352 (1852)", "inferred", "UNCERTAIN")]
+    assert loaded.closures[0].coordinates == ((-122.47, 37.81), (-122.47, 37.82))
+    assert loaded.closures_for("CA37A02") == loaded.closures and loaded.closures_for("X1") == []
+    assert loaded.closures[0].utm().length == pytest.approx(1110, rel=0.01)
+    assert load_seeds(path, _BBOX) == loaded.seeds
+
+
+@pytest.mark.parametrize("change, message", [
+    ({"class": "pond"}, "class must be one of"),
+    ({"confidence": "sure"}, "confidence must be one of"),
+    ({"lon": -121.0}, "outside the region bbox"),
+    ({"lat": float("nan")}, "finite numbers"),
+    ({"id": "Bad Id"}, "id must be"),
+    ({"project": "ca37"}, "project must be"),
+    ({"source": "x" * (MAX_SOURCE_CHARS + 1)}, "more than 200"),
+    ({"colour": "blue"}, "unknown key"),
+])
+def test_load_seed_file_refuses_bad_seeds(tmp_path, change, message):
+    with pytest.raises(ValueError, match=message):
+        load_seed_file(_seed_file(tmp_path, [{**_GOOD, **change}]), _BBOX)
+
+
+def test_load_seed_file_refuses_bad_files(tmp_path):
+    with pytest.raises(ValueError, match="used twice"):
+        load_seed_file(_seed_file(tmp_path, [_GOOD, _GOOD]))
+    with pytest.raises(ValueError, match="missing key"):
+        load_seed_file(_seed_file(tmp_path, [{k: v for k, v in _GOOD.items() if k != "lat"}]))
+    with pytest.raises(ValueError, match="2 or more"):
+        load_seed_file(_seed_file(tmp_path, [], [{"id": "c", "project": "CA37A02",
+                                                  "coordinates": [[-122.4, 37.8]],
+                                                  "source": "s"}]))
+    with pytest.raises(ValueError, match="unknown key"):
+        load_seed_file(_seed_file(tmp_path, [], extra=1))
+    (tmp_path / "list.json").write_text("[]")
+    with pytest.raises(ValueError, match="'seeds' list"):
+        load_seed_file(tmp_path / "list.json")
+
+
+# -------------------------------------------------------------------- output ---
+
+
+def _area(**kw):
+    base = dict(id="CA37A02-7", project="CA37A02", geometry=box(X0, Y0, X0 + 100, Y0 + 100),
+                area_m2=10_000.0, sheet="T-00352", year=1852, line_kind="mean high water line")
+    return Area(**{**base, **kw})
+
+
+def test_source_text_names_the_survey_and_the_seed():
+    text = source_text(_area(), "a02-open-bay")
+    assert text == ("NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), "
+                    "mean high water line; area classed by seed a02-open-bay")
+
+
+def test_source_text_is_shortened_but_keeps_the_seed_id():
+    seed = "s" * 64
+    text = source_text(_area(), seed)
+    assert len(text) <= MAX_SOURCE_CHARS and text.startswith("NOAA Shoreline")
+    short = source_text(_area(), seed, max_chars=130)
+    assert short.startswith("NOAA SDRP, CA37A02") and short.endswith(seed)
+    cut = source_text(_area(), seed, max_chars=110)
+    assert len(cut) == 110 and "..." in cut and cut.endswith(f"seed {seed}")
+    with pytest.raises(ValueError, match="too long"):
+        source_text(_area(), seed, max_chars=90)
+
+
+def _classified_split():
+    return classify(_split_areas(), [_seed("east-bay", 2000, 1500, "bay"),
+                                     _seed("west-land", 500, 1500, "land")]).classified
+
+
+def test_geojson_is_deterministic_and_has_provenance(tmp_path):
+    features = areas_to_features(_classified_split())
+    assert features["marsh"] == [] and len(features["bay"]) == 1  # land is not written
+    props = features["bay"][0]["properties"]
+    assert props == {"source": source_text(_split_areas()[1], "east-bay"),
+                     "confidence": "inferred", "area_id": "CA37A02-2", "area_m2": 6_000_000,
+                     "seed": "east-bay"}
+    text = feature_collection_text(features["bay"])
+    assert text == feature_collection_text(areas_to_features(_classified_split())["bay"])
+    path = tmp_path / "bay.geojson"
+    path.write_text(text)
+    (feat,) = load_features(path, require_provenance=True)
+    assert feat.geometry.area == pytest.approx(6_000_000, rel=1e-4)
+    assert feature_collection_text([]) == EMPTY_FC
+    path.write_text(EMPTY_FC)
+    assert load_features(path, allow_empty=True, require_provenance=True) == []
+
+
+def test_cross_project_overlaps():
+    b08 = close_linework([_line([(1200, -100), (1200, 3100)], project="CA37B08")], FRAME,
+                         project="CA37B08").areas
+    result = classify(_split_areas() + b08, [_seed("a", 2000, 1500, "bay"),
+                                             _seed("b", 2000, 1500, "bay", project="CA37B08")])
+    ((a, b, m2),) = cross_project_overlaps(result.classified)
+    assert (a, b) == ("CA37A02-2", "CA37B08-2") and m2 == pytest.approx(1800 * 3000)
+
+
+# ------------------------------------------------------- build round trip ---
+
+BBOX = (-122.42, 37.755, -122.37, 37.805)
+_FLAT = ["--smooth-m", "0", "--shelf-m", "0", "--shore-open-cells", "0", "--shore-slope", "0"]
+
+
+def _write_dem(path, grid: Grid, value: float) -> None:
+    margin = 200
+    width = grid.width + 2 * margin // int(grid.cell)
+    height = grid.height + 2 * margin // int(grid.cell)
+    with rasterio.open(path, "w", driver="GTiff", height=height, width=width, count=1,
+                       dtype="float32", crs=UTM_CRS,
+                       transform=from_origin(grid.west - margin, grid.north + margin,
+                                             grid.cell, grid.cell)) as dst:
+        dst.write(np.full((height, width), value, dtype="float32"), 1)
+
+
+def test_imported_bay_and_marsh_go_through_the_build(tmp_path):
+    frame = lonlat_geom_to_utm(box(-122.43, 37.75, -122.36, 37.81).segmentize(0.001))
+    shore = lonlat_geom_to_utm(LineString([(-122.40, 37.70), (-122.40, 37.86)]))
+    marsh = lonlat_geom_to_utm(LineString([(-122.43, 37.765), (-122.41, 37.765),
+                                           (-122.41, 37.775), (-122.43, 37.775)]))
+    lines = [Line(shore, "", MEAN_HIGH_WATER, "T-00352", 1852, "CA37A02"),
+             Line(marsh, "", MARSH_EDGE, "T-00352", 1852, "CA37A02")]
+    areas = close_linework(lines, frame, project="CA37A02").areas
+    seeds = [Seed("bay", "CA37A02", -122.38, 37.78, "bay", "t", "inferred"),
+             Seed("marsh", "CA37A02", -122.415, 37.77, "marsh", "t", "inferred"),
+             Seed("land", "CA37A02", -122.41, 37.79, "land", "t", "inferred")]
+    features = areas_to_features(classify(areas, seeds).classified)
+    for cls in ("bay", "marsh"):
+        (tmp_path / f"{cls}.geojson").write_text(feature_collection_text(features[cls]))
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 5.0)
+    out = tmp_path / "out"
+    assert main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), "--out", str(out),
+                 *_FLAT, "--hand-bay", str(tmp_path / "bay.geojson"),
+                 "--hand-marsh", str(tmp_path / "marsh.geojson")]) == 0
+    meta = json.loads((out / "meta.json").read_text())
+    q = np.fromfile(out / "heightmap.u16", dtype="<u2").reshape(meta["height"], meta["width"])
+    heights = dequantize_heights(q, meta["min_m"], meta["max_m"])
+
+    def at(lon, lat):
+        return heights[grid.pixel_of(*lonlat_to_utm(lon, lat))]
+
+    assert at(-122.38, 37.78) == pytest.approx(-3.0, abs=0.01)  # bay
+    assert at(-122.41, 37.79) == pytest.approx(5.0, abs=0.01)  # land: unchanged
+    assert at(-122.415, 37.77) < 1.0  # marsh: lowered to marsh level
+    sources = {s["source"] for s in meta["hand_sources"]}
+    assert any(s.endswith("seed bay") for s in sources)
+    assert any(s.endswith("seed marsh") for s in sources)
+```
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Run: `cd pipeline && uv run pytest tests/test_noaa.py -q`
+
+Expected: **FAIL** (the code under test does not exist yet, or the new assertions do not hold yet).
+
+- [ ] **Step 3: Write the implementation**
+
+`pipeline/yelamu/noaa.py`
+
+```python
+"""Import NOAA Shoreline Data Rescue vectors (1850s T-sheets) as seeded water and marsh areas.
+
+NOAA's project zips hold polylines only (`historicl1`) and a project boundary (`projbnd`),
+NAD83 lon/lat. This module turns them into closed candidate areas and, with seed points the
+owner confirms, into hand-water GeoJSON features with provenance:
+
+1. `read_project` reads one unpacked project folder (lines and boundary, in UTM metres).
+2. `close_linework` closes the selected lines into areas (see its docstring). Lines that
+   still bound no area are reported, never guessed.
+3. `load_seed_file` / `classify` give an area the class (bay, marsh, land) of the seed points
+   inside it. Areas without a seed are reported and left out.
+4. `areas_to_features` / `feature_collection_text` write the bay and marsh areas as GeoJSON in
+   lon/lat with `source`, `confidence`, `area_id`, `area_m2` and `seed` properties.
+
+Areas are closed per project: a seed classes the area of ITS project only, so overlapping
+projects never merge into one area. Their output polygons may overlap (the build unions
+the hand files); `cross_project_overlaps` reports by how much.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+import numpy as np
+import shapefile
+import shapely
+from pyproj import Transformer
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon, mapping
+from shapely.geometry.base import BaseGeometry
+from shapely.geometry.polygon import orient
+from shapely.ops import nearest_points
+
+from yelamu.export import CONFIDENCE_LEVELS
+from yelamu.geo import UTM_CRS
+from yelamu.provenance import MAX_SOURCE_CHARS, lowest_confidence
+
+# NOAA's coordinates are NAD83 geographic. As in yelamu.overlay (TIGER/Line): "NAD83 and WGS84
+# differ by about a metre in this area", far below the 10 m grid and the accuracy of an 1850s
+# survey (NOAA: HOR_ACC 0, not determined), so EPSG:4326 is used.
+_LONLAT_TO_UTM = Transformer.from_crs("EPSG:4326", UTM_CRS, always_xy=True)
+_UTM_TO_LONLAT = Transformer.from_crs(UTM_CRS, "EPSG:4326", always_xy=True)
+
+# NOAA FEATURE codes in historicl1 (their ATTRIBUTE text in the comment).
+MEAN_HIGH_WATER = 20  # Natural.Mean High Water
+MARSH_EDGE = 15  # Natural.Apparent.Marsh Or Swamp
+MAN_MADE = 1  # Man-made
+WHARF = 12  # Man-made.Wharf Or Quay
+ALONGSHORE = 57  # Undetermined Alongshore Feature
+ALONGSHORE_BOUNDARY = 28  # Shoreline/Alongshore Feature Boundary
+APPROXIMATE = 26  # Undetermined.Approximate
+USER_ADDED = 205  # User Added Line (closures drawn by NOAA's digitisers)
+
+FEATURE_NAMES = {
+    MEAN_HIGH_WATER: "mean high water line",
+    MARSH_EDGE: "marsh edge line",
+    MAN_MADE: "man-made shoreline",
+    WHARF: "wharf line",
+    ALONGSHORE: "alongshore feature line",
+    ALONGSHORE_BOUNDARY: "shoreline/alongshore boundary",
+    APPROXIMATE: "approximate shoreline",
+    USER_ADDED: "digitiser closure line",
+}
+
+# Which lines close areas by default: ALL eight classes. Line classes only decide where areas
+# are split; the owner's seeds decide what an area is, and land is never written. Measured on
+# the four SF projects (snap 8 m, default reaches), the spec's first choice (mean high water,
+# marsh edge, user-added, alongshore boundary; man-made, wharf, undetermined alongshore and
+# approximate excluded) leaves free ends 28 / 2 / 28 / 10 -> 11 / 0 / 6 / 6 and 80.8 / 0 /
+# 13.7 / 58.7 km of linework bounding nothing in CA37A02 / CA37B02B / CA37B07 / CA37B08:
+# - Undetermined.Approximate (26) pieces sit IN the shore chain (both ends on mean high water
+#   in A02 and B02B): the stretches the surveyor drew as approximate. Without them the
+#   1852 shore has gaps and the bay leaks into the land.
+# - By 1853 and 1857 the Yerba Buena Cove shore WAS the man-made bulkhead and wharf front
+#   (1, 12, 57). Without them B07 and B08 do not separate bay from land at all (one face
+#   holds both). With them every project closes (0 / 0.2 / 0 / 0 km unclosed). The wharves
+#   only add pier-shaped faces and slivers (dropped) on the water side; the bay face then
+#   ends at the 1853/1857 waterfront, which is water already in the SFEI-based build.
+DEFAULT_LINE_CLASSES: frozenset[int] = frozenset(FEATURE_NAMES)
+
+# End-to-line gap closing distance and minimum sliver width. Measured on the four SF projects
+# with the committed seeds (defaults otherwise): snap 0, 2, 5 and 8 m all give 71 areas and
+# the same 21,058 ha bay / 129 ha marsh; unclosed linework 0.51 / 0.51 / 0.43 / 0.42 km. At
+# 12 m the open north end of CA37B07's shore snaps 11 m sideways onto a neighbouring line
+# instead of reaching the frame, B07 land and water become one face and 18.9 km of shore
+# bounds nothing (20 m: the same). 8 m is below one 10 m grid cell.
+DEFAULT_SNAP_M = 8.0
+# Faces smaller than this (0.2 ha, 20 cells of the 10 m grid) are slivers or creek-bank loops.
+DEFAULT_MIN_AREA_M2 = 2000.0
+# A shore that stops short of the project boundary is closed straight to it when the gap is at
+# most this long and the closing line crosses nothing. NOAA's own closure lines (User Added
+# Line) aim at the sheet edge, so their ends may reach further (A02's closure south of
+# Candlestick stops 2.35 km short, B08's off Hunters Point 1.9 km).
+DEFAULT_FRAME_REACH_M = 600.0
+DEFAULT_CLOSURE_REACH_M = 2500.0
+# Two free line ends at most this far apart are joined by a straight line when it crosses
+# nothing: two sheets' shores that do not quite meet (74 m at Point Lobos in A02), the two
+# banks of a creek where the survey stopped (35 m at the head of Mission Creek in B08).
+DEFAULT_JOIN_ENDS_M = 100.0
+
+SEED_CLASSES = ("bay", "marsh", "land")
+EXPORTED_CLASSES = ("bay", "marsh")
+MAX_CONFIDENCE = "inferred"  # 1850s survey positions are never better than inferred
+SEED_TOLERANCE_M = 0.01  # a seed this close to an area counts as inside it
+COORD_DECIMALS = 7
+OUTPUT_SIMPLIFY_M = 0.5  # vertex thinning of written polygons, far below one grid cell
+MAX_SEED_ID_CHARS = 64
+SOURCE_PREFIX = "NOAA Shoreline Data Rescue Project"
+SHORT_SOURCE_PREFIX = "NOAA SDRP"
+
+_OVERSHOOT_M = 0.01  # connectors cross their target slightly, so noding splits it there
+_STUB_M = 0.1  # overshoot stubs are shorter than this: ignored as ends, never reported
+_SEED_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+_PROJECT_RE = re.compile(r"[A-Z][A-Z0-9]{1,15}")
+_SHEET_RE = re.compile(r"([A-Z])-?(\d{5})")
+_ID_RE = re.compile(r"(.+)-(\d+)")
+_FILE_KEYS = frozenset({"seeds", "closures", "note"})
+_SEED_KEYS = frozenset({"id", "project", "lon", "lat", "class", "source", "confidence", "note"})
+_SEED_REQUIRED = ("id", "project", "lon", "lat", "class", "source", "confidence")
+_CLOSURE_KEYS = frozenset({"id", "project", "coordinates", "source", "note"})
+_CLOSURE_REQUIRED = ("id", "project", "coordinates", "source")
+
+
+# --------------------------------------------------------------------------- reading
+
+
+@dataclass(frozen=True)
+class Line:
+    """One NOAA polyline (one part of a shapefile record), in UTM metres."""
+
+    geometry: LineString
+    attribute: str
+    feature: int
+    sheet: str  # normalised, e.g. 'T-00352'
+    year: int
+    project: str
+
+
+@dataclass(frozen=True)
+class Project:
+    name: str
+    boundary: Polygon  # UTM metres
+    lines: tuple[Line, ...]
+
+
+def normalise_sheet(source_id: str) -> str:
+    """'T00352' -> 'T-00352'; parts of split sheets lose their suffix ('T00460_1' -> 'T-00460')."""
+    m = _SHEET_RE.match(str(source_id).strip().upper())
+    if not m:
+        raise ValueError(f"unrecognised NOAA SOURCE_ID {source_id!r} (expected e.g. 'T00352')")
+    return f"{m.group(1)}-{m.group(2)}"
+
+
+def survey_year(src_date: str) -> int:
+    """'18520101' -> 1852."""
+    text = str(src_date).strip()
+    if not re.fullmatch(r"\d{4}(\d{2}(\d{2})?)?", text):
+        raise ValueError(f"unrecognised NOAA SRC_DATE {src_date!r} (expected YYYYMMDD)")
+    return int(text[:4])
+
+
+def _transform(geom: BaseGeometry, transformer: Transformer) -> BaseGeometry:
+    def project(coords: np.ndarray) -> np.ndarray:
+        x, y = transformer.transform(coords[:, 0], coords[:, 1])
+        return np.column_stack([x, y])
+
+    return shapely.transform(geom, project)
+
+
+def lonlat_geom_to_utm(geom: BaseGeometry) -> BaseGeometry:
+    return _transform(geom, _LONLAT_TO_UTM)
+
+
+def utm_geom_to_lonlat(geom: BaseGeometry) -> BaseGeometry:
+    return _transform(geom, _UTM_TO_LONLAT)
+
+
+def _shape_parts(shape) -> list[list[tuple[float, float]]]:
+    bounds = [*shape.parts, len(shape.points)]
+    return [[tuple(p) for p in shape.points[a:b]] for a, b in zip(bounds, bounds[1:])]
+
+
+def read_project(directory: Path) -> Project:
+    """Read `<dir>/historicl1` (lines) and `<dir>/projbnd` (boundary) of one NOAA project.
+
+    The project name is the boundary's NAME field (the folder name when it is blank). The
+    boundary is densified (0.001 degree) before projecting, so its edges follow the lon/lat
+    rectangle. Multi-part line records become one Line per part. Raises ValueError for missing
+    files or unreadable attributes.
+    """
+    directory = Path(directory)
+    for stem in ("historicl1", "projbnd"):
+        if not (directory / f"{stem}.shp").exists():
+            raise ValueError(f"{directory}: {stem}.shp not found (unpack the NOAA project zip)")
+    with shapefile.Reader(str(directory / "projbnd")) as reader:
+        rings = [ring for s in reader.shapes() for ring in _shape_parts(s) if len(ring) >= 4]
+        names = [str(r.as_dict().get("NAME") or "").strip() for r in reader.records()]
+    if not rings:
+        raise ValueError(f"{directory}: projbnd has no polygon")
+    name = names[0] if names and names[0] else directory.name
+    if not _PROJECT_RE.fullmatch(name):
+        raise ValueError(f"{directory}: project name {name!r} is not like 'CA37B08'")
+    lonlat = shapely.unary_union([Polygon(r).buffer(0) for r in rings])
+    if lonlat.geom_type != "Polygon":
+        lonlat = lonlat.convex_hull  # several parts: their hull is the frame
+    boundary = lonlat_geom_to_utm(shapely.segmentize(lonlat, 0.001))
+
+    lines: list[Line] = []
+    with shapefile.Reader(str(directory / "historicl1")) as reader:
+        for index, (shape, record) in enumerate(zip(reader.shapes(), reader.records())):
+            rec = record.as_dict()
+            try:
+                feature = int(rec["FEATURE"])
+                sheet = normalise_sheet(rec["SOURCE_ID"])
+                year = survey_year(rec["SRC_DATE"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"{directory}/historicl1: record {index}: {exc}") from exc
+            for part in _shape_parts(shape):
+                if len(part) < 2:
+                    continue
+                geom = lonlat_geom_to_utm(LineString(part))
+                if geom.length > 0:
+                    lines.append(Line(geom, str(rec.get("ATTRIBUTE") or "").strip(), feature,
+                                      sheet, year, name))
+    return Project(name, boundary, tuple(lines))
+
+
+def select_lines(lines: Iterable[Line], classes: Iterable[int] = DEFAULT_LINE_CLASSES
+                 ) -> list[Line]:
+    """The lines whose FEATURE code is in `classes`."""
+    wanted = frozenset(classes)
+    return [line for line in lines if line.feature in wanted]
+
+
+# --------------------------------------------------------------------------- closing
+
+
+@dataclass(frozen=True)
+class Area:
+    """A closed candidate area (UTM polygon) of one project."""
+
+    id: str  # '<PROJECT>-<ordinal>', ordinals by ascending centroid x then y
+    project: str
+    geometry: Polygon
+    area_m2: float
+    sheet: str  # the sheet contributing most boundary length
+    year: int
+    line_kind: str  # FEATURE_NAMES of the class contributing most boundary length
+
+
+@dataclass(frozen=True)
+class Closure:
+    """Result of close_linework: the areas plus what did not close."""
+
+    areas: list[Area]
+    unclosed: list[LineString] = field(default_factory=list)  # linework bounding no area
+    connectors: list[LineString] = field(default_factory=list)  # closing lines added
+    free_ends_before: int = 0  # free line ends of the noded lines, before any closing
+    free_ends_after: int = 0  # free line ends left in the final linework
+    dropped_slivers: int = 0  # faces below min_area_m2 or narrower than snap_m
+
+    @property
+    def unclosed_m(self) -> float:
+        return float(sum(g.length for g in self.unclosed))
+
+
+def _line_key(line: Line) -> tuple:
+    return (line.sheet, line.feature, shapely.normalize(line.geometry).wkb)
+
+
+def _linear_parts(geom: BaseGeometry | None) -> list[LineString]:
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "LineString":
+        return [geom]
+    if geom.geom_type == "LinearRing":
+        return [LineString(geom.coords)]
+    return [p for g in getattr(geom, "geoms", []) for p in _linear_parts(g)]
+
+
+def _polygons(geom: BaseGeometry | None) -> list[Polygon]:
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Polygon":
+        return [geom]
+    return [p for g in getattr(geom, "geoms", []) for p in _polygons(g)]
+
+
+def _node(geoms: Sequence[BaseGeometry]) -> list[LineString]:
+    """The edges of the noded linework (intersections become vertices, duplicates merge)."""
+    return _linear_parts(shapely.union_all(list(geoms))) if geoms else []
+
+
+def _free_ends(edges: Sequence[LineString]) -> list[tuple[tuple[float, float], int]]:
+    """(point, edge index) of every edge end no other edge end shares (degree 1), sorted.
+
+    The far ends of connector overshoot stubs (edges shorter than _STUB_M) are not reported;
+    the stubs still count towards the degree of the point they hang from.
+    """
+    count: dict[tuple[float, float], int] = defaultdict(int)
+    owner: dict[tuple[float, float], int] = {}
+    for i, edge in enumerate(edges):
+        if edge.is_ring:
+            continue
+        for end in (edge.coords[0], edge.coords[-1]):
+            count[end] += 1
+            owner[end] = i
+    return sorted((p, owner[p]) for p, n in count.items()
+                  if n == 1 and edges[owner[p]].length >= _STUB_M)
+
+
+def _connector(p: Point, q: Point, edge: LineString) -> LineString:
+    """Segment p -> q extended by _OVERSHOOT_M beyond q. A nearest point is not exactly on its
+    line in floating point; crossing the line makes noding split it there.
+
+    When q is closer than _OVERSHOOT_M (an end drawn onto a line or the frame that stops a
+    hair short of it) the direction p -> q is numerical noise, so the end's own `edge` is
+    continued straight on by 2 x _OVERSHOOT_M instead.
+    """
+    dx, dy = q.x - p.x, q.y - p.y
+    d = math.hypot(dx, dy)
+    if d >= _OVERSHOOT_M:
+        k = 1.0 + _OVERSHOOT_M / d
+        return LineString([p, (p.x + k * dx, p.y + k * dy)])
+    coords = edge.coords
+    prev = coords[1] if Point(coords[0]).equals(p) else coords[-2]
+    ex, ey = p.x - prev[0], p.y - prev[1]
+    k = 2 * _OVERSHOOT_M / math.hypot(ex, ey)
+    return LineString([p, (p.x + k * ex, p.y + k * ey)])
+
+
+def _crosses_only_at(seg: LineString, edges: list[LineString], tree: shapely.STRtree,
+                     allowed: set[int], ends: Sequence[Point]) -> bool:
+    """True when seg touches the edges only at `ends`, and only edges in `allowed`."""
+    for j in (int(j) for j in tree.query(seg, predicate="intersects")):
+        if j not in allowed:
+            return False
+        meet = edges[j].intersection(seg)
+        parts = getattr(meet, "geoms", [meet])
+        if not all(any(part.distance(e) < 2 * _OVERSHOOT_M for e in ends) for part in parts):
+            return False
+    return True
+
+
+def _end_joins(edges: list[LineString], join_m: float) -> list[LineString]:
+    """Join pairs of free ends at most join_m apart (nearest pairs first, each end once) by a
+    straight line that crosses nothing."""
+    ends = _free_ends(edges)
+    points = [Point(p) for p, _ in ends]
+    pairs = sorted(
+        (points[a].distance(points[b]), a, b)
+        for a in range(len(ends)) for b in range(a + 1, len(ends))
+        if 0 < points[a].distance(points[b]) <= join_m)
+    if not pairs:
+        return []
+    tree = shapely.STRtree(edges)
+    used: set[int] = set()
+    out = []
+    for _, a, b in pairs:
+        if a in used or b in used:
+            continue
+        seg = LineString([points[a], points[b]])
+        if _crosses_only_at(seg, edges, tree, {ends[a][1], ends[b][1]}, [points[a], points[b]]):
+            out.append(seg)
+            used |= {a, b}
+    return out
+
+
+def _gap_connectors(edges: list[LineString], snap_m: float) -> list[LineString]:
+    """From each free end, a straight connector to the nearest OTHER edge within snap_m.
+
+    An end whose only nearby linework is its own edge (a hook) is left alone.
+    """
+    tree = shapely.STRtree(edges)
+    out = []
+    for (x, y), own in _free_ends(edges):
+        p = Point(x, y)
+        best = None
+        for j in sorted(int(j) for j in tree.query(p, predicate="dwithin", distance=snap_m)):
+            d = edges[j].distance(p)
+            if j != own and d > 0 and (best is None or d < best[0]):
+                best = (d, j)
+        if best is not None:
+            out.append(_connector(p, nearest_points(p, edges[best[1]])[1], edges[own]))
+    return out
+
+
+def _frame_connectors(edges: list[LineString], frame: LineString, reach_m: float,
+                      long_ends: frozenset[tuple[float, float]], long_reach_m: float
+                      ) -> list[LineString]:
+    """From each free end within reach_m of the frame (long_reach_m for the points in
+    long_ends), a straight line to the nearest frame point, kept when it crosses nothing."""
+    tree = shapely.STRtree(edges)
+    inside = Polygon(frame.coords)
+    out = []
+    for (x, y), own in _free_ends(edges):
+        p = Point(x, y)
+        if not inside.contains(p):  # a line clipped just outside the frame: crosses it already
+            continue
+        d = frame.distance(p)
+        reach = max(reach_m, long_reach_m) if (x, y) in long_ends else reach_m
+        if d == 0 or d > reach:
+            continue
+        seg = _connector(p, nearest_points(p, frame)[1], edges[own])
+        if seg.intersects(frame) and _crosses_only_at(seg, edges, tree, {own}, [p]):
+            out.append(seg)
+    return out
+
+
+def close_linework(
+    lines: Sequence[Line],
+    boundary: Polygon,
+    snap_m: float = DEFAULT_SNAP_M,
+    min_area_m2: float = DEFAULT_MIN_AREA_M2,
+    *,
+    project: str | None = None,
+    frame_reach_m: float = DEFAULT_FRAME_REACH_M,
+    closure_reach_m: float = DEFAULT_CLOSURE_REACH_M,
+    join_ends_m: float = DEFAULT_JOIN_ENDS_M,
+    extra_lines: Sequence[LineString] = (),
+) -> Closure:
+    """Close `lines` (already selected, UTM) inside `boundary` into areas. Deterministic.
+
+    1. Clip the lines to the boundary and node them (intersections become vertices, exact
+       duplicates merge).
+    2. End joins: two free line ends at most `join_ends_m` apart are joined by a straight
+       line that crosses nothing (nearest pairs first).
+    3. Gap closing: every remaining free end gets a straight connector to the nearest other
+       line within `snap_m` (digitising gaps; a sheet's line stopping short of the next).
+    4. Frame closing: a free end within `frame_reach_m` of the boundary gets a straight line
+       to the nearest boundary point when it crosses nothing (a shore drawn to just short of
+       the sheet edge); the free end of a NOAA closure line (USER_ADDED) may be up to
+       `closure_reach_m` away.
+    5. The boundary ring is added as a frame and the linework is polygonised.
+    6. Faces below `min_area_m2`, or with a mean width (2 x area / perimeter) under `snap_m`,
+       are slivers and are dropped: the strip between the doubled lines of two overlapping
+       sheets, a creek narrower than the snap. Their neighbours keep their own faces, so a
+       sliver leaves a gap a few metres wide.
+
+    `extra_lines` (UTM) are closure lines drawn by the owner (see load_seed_file): noded with
+    the NOAA lines, never counted for an area's sheet. Any distance of 0 disables its step;
+    snap_m 0 also disables the width filter (so doubled lines then leave their slivers).
+
+    Open lines that bound no area (a creek drawn as a single line, a shore that stops short of
+    everything) are returned in Closure.unclosed. Ids are '<project>-<n>' with n counted by
+    ascending centroid x, then y; the result does not depend on the order of `lines`.
+    """
+    if min(snap_m, min_area_m2, frame_reach_m, closure_reach_m, join_ends_m) < 0:
+        raise ValueError("snap_m, min_area_m2 and the reach / join distances must be 0 or more")
+    name = project or (lines[0].project if lines else "AREA")
+    frame = LineString(boundary.exterior.coords)
+    # Clip slightly outside the frame: a line leaving the project then crosses the frame, and
+    # noding splits both there (an end computed exactly ON the frame would not be noded).
+    clip_zone = boundary.buffer(5 * _OVERSHOOT_M)
+    clipped: list[tuple[Line, LineString]] = [
+        (line, part) for line in sorted(lines, key=_line_key)
+        for part in _linear_parts(line.geometry.intersection(clip_zone)) if part.length > 0
+    ]
+    owner_parts = [p for g in extra_lines for p in _linear_parts(g.intersection(clip_zone))]
+    edges = _node([g for _, g in clipped] + owner_parts)
+    def inside_ends(es: Sequence[LineString]) -> int:  # ends past the frame are harmless
+        return sum(boundary.contains(Point(pt)) for pt, _ in _free_ends(es))
+
+    ends_before = inside_ends(edges)
+
+    connectors: list[LineString] = []
+    if join_ends_m > 0 and edges:
+        joins = _end_joins(edges, join_ends_m)
+        connectors += joins
+        edges = _node([*edges, *joins]) if joins else edges
+    if snap_m > 0 and edges:
+        gaps = _gap_connectors(edges, snap_m)
+        connectors += gaps
+        edges = _node([*edges, *gaps]) if gaps else edges
+    if (frame_reach_m > 0 or closure_reach_m > 0) and edges:
+        user_ends = frozenset(c for line, g in clipped if line.feature == USER_ADDED
+                              for c in (g.coords[0], g.coords[-1]))
+        connectors += _frame_connectors(edges, frame, frame_reach_m, user_ends, closure_reach_m)
+
+    network = shapely.union_all([*edges, *connectors, frame])
+    polys, cuts, dangles, invalid = shapely.polygonize_full([network])
+    final_edges = _linear_parts(network)
+    unclosed = sorted((g for part in (cuts, dangles, invalid) for g in _linear_parts(part)
+                       if g.length >= _STUB_M), key=lambda g: g.wkb)
+
+    faces = [p for p in _polygons(polys) if boundary.contains(p.representative_point())]
+    kept = [p for p in faces
+            if p.area >= min_area_m2 and (snap_m == 0 or 2 * p.area / p.length >= snap_m)]
+    kept.sort(key=lambda p: (round(p.centroid.x, 3), round(p.centroid.y, 3), round(p.area, 3)))
+    attribution = _attribute(kept, clipped, snap_m)
+    areas = [Area(f"{name}-{i}", name, p, round(float(p.area), 1), *attr)
+             for i, (p, attr) in enumerate(zip(kept, attribution), start=1)]
+    return Closure(areas, unclosed, sorted(connectors, key=lambda g: g.wkb), ends_before,
+                   inside_ends(final_edges), len(faces) - len(kept))
+
+
+def _attribute(faces: list[Polygon], clipped: list[tuple[Line, LineString]], snap_m: float
+               ) -> list[tuple[str, int, str]]:
+    """(sheet, year, line kind) per face: the sheet and the line class with most boundary
+    length within snap_m + 1 m. Ties go to the first sheet id / lowest code. A face bounded
+    by the frame and connectors alone takes the first line's sheet."""
+    if not clipped:
+        return [("", 0, "") for _ in faces]
+    zones = [g.buffer(snap_m + 1.0, cap_style="flat") for _, g in clipped]
+    tree = shapely.STRtree(zones)
+    out = []
+    for face in faces:
+        ring = face.boundary
+        by_sheet: dict[tuple[str, int], float] = defaultdict(float)
+        by_kind: dict[int, float] = defaultdict(float)
+        for j in sorted(int(j) for j in tree.query(ring, predicate="intersects")):
+            length = ring.intersection(zones[j]).length
+            line = clipped[j][0]
+            by_sheet[(line.sheet, line.year)] += length
+            by_kind[line.feature] += length
+        if not by_sheet:
+            line = clipped[0][0]
+            out.append((line.sheet, line.year, FEATURE_NAMES.get(line.feature, "shoreline")))
+            continue
+        best = max(by_sheet.values())
+        sheet, year = min(k for k, v in by_sheet.items() if v == best)
+        top = max(by_kind.values())
+        kind = min(k for k, v in by_kind.items() if v == top)
+        out.append((sheet, year, FEATURE_NAMES.get(kind, "shoreline")))
+    return out
+
+
+def area_ordinal(area_id: str) -> tuple[str, int]:
+    """'CA37B08-12' -> ('CA37B08', 12), for sorting ids naturally."""
+    m = _ID_RE.fullmatch(area_id)
+    return (m.group(1), int(m.group(2))) if m else (area_id, 0)
+
+
+# --------------------------------------------------------------------------- seeds
+
+
+@dataclass(frozen=True)
+class Seed:
+    id: str
+    project: str
+    lon: float
+    lat: float
+    cls: str  # bay | marsh | land
+    source: str
+    confidence: str
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class OwnerClosure:
+    """A closure line drawn by the owner where NOAA's linework does not separate two places."""
+
+    id: str
+    project: str
+    coordinates: tuple[tuple[float, float], ...]  # lon/lat
+    source: str
+    note: str | None = None
+
+    def utm(self) -> LineString:
+        return lonlat_geom_to_utm(LineString(self.coordinates))
+
+
+@dataclass(frozen=True)
+class SeedFile:
+    seeds: list[Seed]
+    closures: list[OwnerClosure]
+
+    def closures_for(self, project: str) -> list[OwnerClosure]:
+        return [c for c in self.closures if c.project == project]
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _check_text(item: dict, key: str, fail, max_chars: int = MAX_SOURCE_CHARS) -> str:
+    value = item.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise fail(f"{key} must be non-blank text")
+    if len(value.strip()) > max_chars:
+        raise fail(f"{key} is {len(value.strip())} characters, more than {max_chars}")
+    return value.strip()
+
+
+def _check_common(item: Any, kind: str, index: int, keys: frozenset[str],
+                  required: Sequence[str], path: Path, seen: set[str]):
+    """Shared checks of a seed / closure entry. Returns (fail, id, project, note)."""
+    label = f"{path}: {kind} {index}"
+    if isinstance(item, dict) and isinstance(item.get("id"), str):
+        label += f" ({item['id']!r})"
+
+    def fail(msg: str) -> ValueError:
+        return ValueError(f"{label}: {msg}")
+
+    if not isinstance(item, dict):
+        raise fail("must be a JSON object")
+    unknown = sorted(set(item) - keys)
+    if unknown:
+        raise fail(f"unknown key(s): {', '.join(unknown)} (known: {', '.join(sorted(keys))})")
+    missing = [k for k in required if k not in item]
+    if missing:
+        raise fail(f"missing key(s): {', '.join(missing)}")
+    sid = item["id"]
+    if (not isinstance(sid, str) or len(sid) > MAX_SEED_ID_CHARS
+            or not _SEED_ID_RE.fullmatch(sid)):
+        raise fail(f"id must be lower-case letters, digits and '-' (at most "
+                   f"{MAX_SEED_ID_CHARS} characters), got {sid!r}")
+    if sid in seen:
+        raise fail(f"id {sid!r} is used twice")
+    seen.add(sid)
+    project = item["project"]
+    if not isinstance(project, str) or not _PROJECT_RE.fullmatch(project):
+        raise fail(f"project must be a NOAA project name like 'CA37B08', got {project!r}")
+    note = _check_text(item, "note", fail, 500) if "note" in item else None
+    return fail, sid, project, note
+
+
+def _in_bbox(lon: float, lat: float, bbox: tuple[float, float, float, float] | None) -> bool:
+    return bbox is None or (bbox[0] <= lon <= bbox[2] and bbox[1] <= lat <= bbox[3])
+
+
+def load_seed_file(path: Path, bbox: tuple[float, float, float, float] | None = None
+                   ) -> SeedFile:
+    """Read and strictly validate a seeds file (see data/full-city/hand/README.md).
+
+    {"seeds": [...], "closures": [...] (optional), "note": "..." (optional)}. A seed is
+    {id, project, lon, lat, class, source, confidence, note?}; a closure is
+    {id, project, coordinates: [[lon, lat], ...] (2 or more points), source, note?}. Ids are
+    unique across the file and slug-like; points must lie inside `bbox` (W, S, E, N) when it
+    is given; class is bay, marsh or land; source is non-blank text of at most 200
+    characters; confidence one of yelamu.export.CONFIDENCE_LEVELS. Unknown keys are refused.
+    Raises ValueError naming the file and the entry.
+    """
+    path = Path(path)
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: not valid JSON ({exc})") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("seeds"), list):
+        raise ValueError(f"{path}: must be a JSON object with a 'seeds' list")
+    unknown = sorted(set(data) - _FILE_KEYS)
+    if unknown:
+        raise ValueError(f"{path}: unknown key(s): {', '.join(unknown)} "
+                         f"(known: {', '.join(sorted(_FILE_KEYS))})")
+    closures_raw = data.get("closures", [])
+    if not isinstance(closures_raw, list):
+        raise ValueError(f"{path}: 'closures' must be a list")
+    seen: set[str] = set()
+    seeds = []
+    for index, item in enumerate(data["seeds"]):
+        fail, sid, project, note = _check_common(
+            item, "seed", index, _SEED_KEYS, _SEED_REQUIRED, path, seen)
+        lon, lat = item["lon"], item["lat"]
+        if not (_is_number(lon) and _is_number(lat)):
+            raise fail(f"lon and lat must be finite numbers, got {lon!r}, {lat!r}")
+        if not _in_bbox(lon, lat, bbox):
+            raise fail(f"({lon}, {lat}) lies outside the region bbox {list(bbox)}")
+        cls = item["class"]
+        if cls not in SEED_CLASSES:
+            raise fail(f"class must be one of {', '.join(SEED_CLASSES)}, got {cls!r}")
+        source = _check_text(item, "source", fail)
+        confidence = item["confidence"]
+        if confidence not in CONFIDENCE_LEVELS:
+            raise fail(f"confidence must be one of {', '.join(CONFIDENCE_LEVELS)}, "
+                       f"got {confidence!r}")
+        seeds.append(Seed(sid, project, float(lon), float(lat), cls, source, confidence, note))
+    closures = []
+    for index, item in enumerate(closures_raw):
+        fail, cid, project, note = _check_common(
+            item, "closure", index, _CLOSURE_KEYS, _CLOSURE_REQUIRED, path, seen)
+        coords = item["coordinates"]
+        if (not isinstance(coords, list) or len(coords) < 2 or not all(
+                isinstance(c, list) and len(c) == 2 and all(_is_number(v) for v in c)
+                for c in coords)):
+            raise fail("coordinates must be a list of 2 or more [lon, lat] pairs of numbers")
+        if not all(_in_bbox(c[0], c[1], bbox) for c in coords):
+            raise fail(f"a point lies outside the region bbox {list(bbox)}")
+        if LineString(coords).length == 0:
+            raise fail("coordinates must not all be the same point")
+        source = _check_text(item, "source", fail)
+        closures.append(OwnerClosure(cid, project, tuple((float(a), float(b)) for a, b in coords),
+                                     source, note))
+    return SeedFile(seeds, closures)
+
+
+def load_seeds(path: Path, bbox: tuple[float, float, float, float] | None = None) -> list[Seed]:
+    """The seeds of a seeds file (load_seed_file validates the whole file)."""
+    return load_seed_file(path, bbox).seeds
+
+
+@dataclass(frozen=True)
+class Classified:
+    area: Area
+    cls: str
+    seeds: tuple[Seed, ...]  # sorted by id; seeds[0] names the area in its source text
+    confidence: str  # MAX_CONFIDENCE or lower if a seed says so
+
+
+@dataclass(frozen=True)
+class Classification:
+    classified: list[Classified]
+    unseeded: list[Area]
+
+
+def classify(areas: Sequence[Area], seeds: Sequence[Seed]) -> Classification:
+    """Give each area the class of the seeds inside it (seeds class areas of their project).
+
+    A seed counts as inside an area when it is within SEED_TOLERANCE_M of it (prepared
+    geometry). Errors (ValueError naming the seed or seeds): a seed whose project has no
+    areas; a seed in no area of its project; a seed on the boundary of two areas; two seeds
+    of different classes in one area. Areas without a seed are returned in `unseeded`.
+    Confidence: MAX_CONFIDENCE ('inferred'), or lower if a seed says so ('illustrative').
+    """
+    by_project: dict[str, list[Area]] = defaultdict(list)
+    for area in areas:
+        by_project[area.project].append(area)
+    for group in by_project.values():
+        shapely.prepare([a.geometry for a in group])
+    hits: dict[str, list[Seed]] = defaultdict(list)
+    for seed in sorted(seeds, key=lambda s: s.id):
+        group = by_project.get(seed.project)
+        if not group:
+            raise ValueError(f"seed {seed.id!r}: project {seed.project} was not imported "
+                             f"(imported: {', '.join(sorted(by_project)) or 'none'})")
+        point = lonlat_geom_to_utm(Point(seed.lon, seed.lat))
+        inside = [a for a in group
+                  if shapely.dwithin(a.geometry, point, SEED_TOLERANCE_M)]
+        if not inside:
+            raise ValueError(
+                f"seed {seed.id!r} ({seed.lon}, {seed.lat}) lies in no area of {seed.project} "
+                "(outside the project, in a sliver dropped as too small or narrow, or on "
+                "linework); move it")
+        if len(inside) > 1:
+            raise ValueError(f"seed {seed.id!r} lies on the boundary between "
+                             f"{' and '.join(a.id for a in inside)}; move it inside one")
+        hits[inside[0].id].append(seed)
+    classified, unseeded = [], []
+    for area in sorted(areas, key=lambda a: area_ordinal(a.id)):
+        found = hits.get(area.id)
+        if not found:
+            unseeded.append(area)
+            continue
+        classes = sorted({s.cls for s in found})
+        if len(classes) > 1:
+            a = next(s for s in found if s.cls == classes[0])
+            b = next(s for s in found if s.cls == classes[1])
+            raise ValueError(f"area {area.id}: seed {a.id!r} says {a.cls} but seed {b.id!r} "
+                             f"says {b.cls}")
+        confidence = lowest_confidence([MAX_CONFIDENCE, *(s.confidence for s in found)])
+        classified.append(Classified(area, classes[0], tuple(found), confidence))
+    return Classification(classified, unseeded)
+
+
+# --------------------------------------------------------------------------- output
+
+
+def source_text(area: Area, seed_id: str, max_chars: int = MAX_SOURCE_CHARS) -> str:
+    """The provenance text of an area classed by `seed_id`, at most `max_chars` characters.
+
+    "NOAA Shoreline Data Rescue Project, <project>, sheet <T-xxxxx> (<year>), <line kind>;
+    area classed by seed <seed id>". When too long the leading text is shortened (first the
+    project name, then cut with '...'); the seed id is never cut.
+    """
+    tail = f"; area classed by seed {seed_id}"
+    for prefix in (SOURCE_PREFIX, SHORT_SOURCE_PREFIX):
+        head = f"{prefix}, {area.project}, sheet {area.sheet} ({area.year}), {area.line_kind}"
+        if len(head) + len(tail) <= max_chars:
+            return head + tail
+    room = max_chars - len(tail) - 3
+    if room < len(SHORT_SOURCE_PREFIX):
+        raise ValueError(f"seed id {seed_id!r} is too long for a {max_chars}-character source")
+    return head[:room] + "..." + tail
+
+
+def _round_ring(coords) -> list[list[float]]:
+    out: list[list[float]] = []
+    for x, y in coords:
+        p = [round(float(x), COORD_DECIMALS), round(float(y), COORD_DECIMALS)]
+        if not out or p != out[-1]:
+            out.append(p)
+    return out
+
+
+def _lonlat_polygons(geom: Polygon) -> list[Polygon]:
+    """UTM polygon -> lon/lat polygons, thinned, rounded and valid, exterior counter-clockwise."""
+    simple = geom.simplify(OUTPUT_SIMPLIFY_M, preserve_topology=True)
+    ll = utm_geom_to_lonlat(simple)
+    rounded = Polygon(_round_ring(ll.exterior.coords),
+                      [_round_ring(r.coords) for r in ll.interiors])
+    parts = [rounded] if rounded.is_valid else _polygons(shapely.make_valid(rounded))
+    out = []
+    for part in parts:
+        part = orient(part, 1.0)
+        fixed = Polygon(_round_ring(part.exterior.coords),
+                        [_round_ring(r.coords) for r in part.interiors])
+        if fixed.is_valid and not fixed.is_empty:
+            out.append(fixed)
+    return out
+
+
+def area_feature(item: Classified) -> dict:
+    """One GeoJSON Feature (lon/lat) for a classified area."""
+    polys = _lonlat_polygons(item.area.geometry)
+    if not polys:
+        raise ValueError(f"area {item.area.id}: no valid polygon left after rounding")
+    geom = polys[0] if len(polys) == 1 else MultiPolygon(polys)
+    seed = item.seeds[0].id
+    return {
+        "type": "Feature",
+        "properties": {
+            "source": source_text(item.area, seed),
+            "confidence": item.confidence,
+            "area_id": item.area.id,
+            "area_m2": round(item.area.area_m2),
+            "seed": seed,
+        },
+        "geometry": mapping(geom),
+    }
+
+
+def areas_to_features(classified: Sequence[Classified]) -> dict[str, list[dict]]:
+    """{'bay': [...], 'marsh': [...]}: GeoJSON Features of the bay and marsh areas, sorted by
+    project then ordinal. Land areas are not written (land is the default)."""
+    out: dict[str, list[dict]] = {cls: [] for cls in EXPORTED_CLASSES}
+    for item in sorted(classified, key=lambda c: area_ordinal(c.area.id)):
+        if item.cls in out:
+            out[item.cls].append(area_feature(item))
+    return out
+
+
+def feature_collection_text(features: Sequence[dict]) -> str:
+    """Deterministic GeoJSON text: one feature per line; an empty collection is the same
+    one-line text as the committed empty hand files."""
+    if not features:
+        return '{"type": "FeatureCollection", "features": []}\n'
+    lines = [json.dumps(f, separators=(",", ":"), ensure_ascii=False) for f in features]
+    return '{"type": "FeatureCollection", "features": [\n' + ",\n".join(lines) + "\n]}\n"
+
+
+def cross_project_overlaps(classified: Sequence[Classified]) -> list[tuple[str, str, float]]:
+    """(area id, area id, overlap m2) for written (bay / marsh) areas of DIFFERENT projects
+    that overlap, sorted. Overlaps are allowed: the build unions the hand files."""
+    items = sorted((c for c in classified if c.cls in EXPORTED_CLASSES),
+                   key=lambda c: area_ordinal(c.area.id))
+    geoms = [c.area.geometry for c in items]
+    if len(geoms) < 2:
+        return []
+    tree = shapely.STRtree(geoms)
+    left, right = tree.query(geoms, predicate="intersects")
+    out = []
+    for i, j in sorted({(int(a), int(b)) for a, b in zip(left, right) if a < b}):
+        if items[i].area.project == items[j].area.project:
+            continue
+        m2 = geoms[i].intersection(geoms[j]).area
+        if m2 > 0:
+            out.append((items[i].area.id, items[j].area.id, round(m2, 1)))
+    return out
+
+
+def area_row(area: Area) -> str:
+    """'<id>  <ha> ha  centroid <lon>, <lat>  sheet <T-xxxxx> (<year>)  <line kind>'."""
+    c = utm_geom_to_lonlat(area.geometry.centroid)
+    p = utm_geom_to_lonlat(area.geometry.representative_point())
+    return (f"{area.id:<14} {area.area_m2 / 1e4:10.2f} ha  centroid {c.x:.5f}, {c.y:.5f}  "
+            f"inside point {p.x:.5f}, {p.y:.5f}  sheet {area.sheet} ({area.year})  "
+            f"{area.line_kind}")
+```
+
+- [ ] **Step 4: Run the whole suite**
+
+Run: `cd pipeline && uv run pytest -q -W error`
+
+Expected: **594 passed, 1 skipped**, no warnings.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add pipeline/tests/test_noaa.py pipeline/yelamu/noaa.py
+git commit -m "feat(pipeline): close NOAA 1850s linework into candidate areas, seeds, provenance"
+```
+
+---
+
+### Task N2: Preview image and the import_noaa command
+
+**Files:**
+- Create: `pipeline/tests/test_noaa_preview.py`
+- Create: `pipeline/tests/test_import_noaa.py`
+- Create: `pipeline/yelamu/noaa_preview.py`
+- Create: `pipeline/scripts/import_noaa.py`
+
+`import_noaa.py` reads the projects, closes the linework and prints a report (area ids, hectares, centroids, sheet, unseeded areas, unclosed linework). With `--seeds` it writes `hand_bay_noaa.geojson` and `hand_marsh_noaa.geojson` (always both, possibly empty; the same bytes every time) and exits 1 without writing anything on any error. `noaa_preview.py` draws the numbered areas coloured by class over the source lines by class, with a legend, scale bar and ticks (Pillow, via `uv run --with pillow`; its pure parts are tested without it). Where two projects overlap the output polygons overlap too; the build unions them, and the report states the overlap.
+
+- [ ] **Step 1: Add the tests**
+
+`pipeline/tests/test_noaa_preview.py`
+
+```python
+"""yelamu.noaa_preview: the pure parts, plus a render smoke test when Pillow is present."""
+
+import numpy as np
+import pytest
+from shapely.geometry import LineString, box
+
+from yelamu.compare import LAND
+from yelamu.geo import Grid
+from yelamu.noaa import MEAN_HIGH_WATER, WHARF, Area, Line, Seed, utm_geom_to_lonlat
+from yelamu.noaa_preview import (
+    BACKGROUND_RGB, LINE_COLOURS, OTHER_LINE_RGB, RECON_LAND_RGB, RECON_WATER_RGB,
+    UNSEEDED_TINTS, View, background, hatch_mask, label_point, legend_entries, line_colour,
+    make_view, nice_bar_m, render, short_label, unseeded_tint)
+
+X0, Y0 = 550_000.0, 4_180_000.0
+
+
+def test_view_size_and_pixel_mapping():
+    view = View(X0, Y0, X0 + 1000, Y0 + 500, 10.0)
+    assert (view.width, view.height) == (100, 50)
+    assert view.px(X0, Y0 + 500) == (0.0, 0.0)  # north-west corner
+    assert view.px(X0 + 1000, Y0) == (100.0, 50.0)
+    grid = view.grid()
+    assert (grid.width, grid.height, grid.cell) == (100, 50, 10.0)
+
+
+def test_make_view_from_bbox_or_boundaries():
+    view = make_view((-122.42, 37.75, -122.37, 37.80), [], max_side_px=1000)
+    assert max(view.width, view.height) == 1000
+    assert view.east - view.west == pytest.approx(4400, rel=0.02)
+    frames = [box(X0, Y0, X0 + 2000, Y0 + 1000), box(X0 + 1000, Y0 - 1000, X0 + 3000, Y0)]
+    view = make_view(None, frames, max_side_px=300)
+    assert (view.west, view.south, view.east, view.north) == (X0, Y0 - 1000, X0 + 3000, Y0 + 1000)
+    assert (view.width, view.height) == (300, 200)
+    with pytest.raises(ValueError):
+        make_view((-122.37, 37.75, -122.42, 37.80), [])
+    with pytest.raises(ValueError):
+        make_view(None, [])
+
+
+def test_short_label_drops_the_common_project_prefix():
+    projects = ["CA37A02", "CA37B07", "CA37B08"]
+    assert short_label("CA37B08-7", projects) == "B08-7"
+    assert short_label("CA37A02-12", projects) == "A02-12"
+    assert short_label("CA37A02-3", ["CA37A02"]) == "CA37A02-3"
+
+
+def test_colours_and_tints():
+    assert line_colour(MEAN_HIGH_WATER) == LINE_COLOURS[MEAN_HIGH_WATER]
+    assert line_colour(999) == OTHER_LINE_RGB
+    assert unseeded_tint("CA37A02-1") == UNSEEDED_TINTS[1]
+    assert unseeded_tint(f"CA37A02-{len(UNSEEDED_TINTS) + 1}") == UNSEEDED_TINTS[1]
+    kinds = [k for k, _, _ in legend_entries()]
+    assert kinds[:4] == ["fill", "fill", "hatch", "outline"] and kinds[-1] == "dot"
+    assert sum(k == "line" for k in kinds) == len(LINE_COLOURS)
+
+
+def test_hatch_mask_is_diagonal_stripes():
+    mask = hatch_mask(4, 6, step=3)
+    assert mask.shape == (4, 6)
+    assert mask[0, 0] and mask[0, 3] and mask[1, 2] and not mask[0, 1]
+    assert mask.sum() == sum((r + c) % 3 == 0 for r in range(4) for c in range(6))
+
+
+def test_background_samples_the_reconstruction():
+    view = View(X0, Y0, X0 + 40, Y0 + 20, 10.0)  # 4 x 2 pixels
+    assert (background(view, None, None) == BACKGROUND_RGB).all()
+    grid = Grid(X0, Y0, X0 + 20, Y0 + 20, 10.0)  # covers the west half only
+    codes = np.array([[LAND, 1], [1, LAND]])
+    rgb = background(view, codes, grid)
+    assert tuple(rgb[0, 0]) == RECON_LAND_RGB and tuple(rgb[0, 1]) == RECON_WATER_RGB
+    assert tuple(rgb[1, 0]) == RECON_WATER_RGB and tuple(rgb[1, 1]) == RECON_LAND_RGB
+    assert tuple(rgb[0, 3]) == BACKGROUND_RGB  # outside the grid
+
+
+def test_nice_bar_and_label_point():
+    assert nice_bar_m(10_000) == 2000
+    assert nice_bar_m(3_000) == 500
+    assert nice_bar_m(1) == 1
+    ring = box(0, 0, 10, 10).difference(box(2, 2, 8, 8))
+    assert ring.contains(label_point(ring))
+
+
+def test_render_smoke(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    view = View(X0, Y0, X0 + 1000, Y0 + 1000, 5.0)
+    area = lambda i, geom: Area(f"CA37A02-{i}", "CA37A02", geom, geom.area, "T-00352", 1852,
+                                "mean high water line")
+    areas = [area(1, box(X0, Y0, X0 + 500, Y0 + 1000)),
+             area(2, box(X0 + 500, Y0, X0 + 1000, Y0 + 1000).difference(
+                 box(X0 + 600, Y0 + 600, X0 + 700, Y0 + 700))),
+             area(3, box(X0 + 600, Y0 + 600, X0 + 700, Y0 + 700))]
+    lines = [Line(LineString([(X0 + 500, Y0), (X0 + 500, Y0 + 1000)]), "", MEAN_HIGH_WATER,
+                  "T-00352", 1852, "CA37A02"),
+             Line(LineString([(X0 + 600, Y0 + 100), (X0 + 700, Y0 + 100)]), "", WHARF,
+                  "T-00352", 1852, "CA37A02")]
+    p = utm_geom_to_lonlat(box(X0 + 700, Y0 + 200, X0 + 800, Y0 + 300).centroid)
+    seeds = [Seed("bay-seed", "CA37A02", p.x, p.y, "bay", "s", "inferred")]
+    out = tmp_path / "p.png"
+    size = render(out, view, areas, {"CA37A02-2": "bay", "CA37A02-1": "land"}, lines,
+                  [LineString([(X0 + 10, Y0 + 10), (X0 + 100, Y0 + 100)])],
+                  [LineString([(X0 + 200, Y0 + 500), (X0 + 300, Y0 + 500)])], seeds, "test",
+                  np.zeros((10, 10), dtype=np.uint8), Grid(X0, Y0, X0 + 100, Y0 + 100, 10.0))
+    with Image.open(out) as image:
+        assert image.size == size
+        assert image.size[0] > view.width and image.size[1] > view.height
+```
+
+`pipeline/tests/test_import_noaa.py`
+
+```python
+"""scripts/import_noaa.py on a synthetic NOAA project written with pyshp."""
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+import shapefile
+
+from yelamu.handcheck import check_file
+from yelamu.sources import load_features
+
+SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "import_noaa.py"
+EMPTY_FC = '{"type": "FeatureCollection", "features": []}\n'
+FRAME = (-122.43, 37.75, -122.36, 37.81)
+REGION_BBOX = [-122.53, 37.70, -122.35, 37.84]
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("import_noaa", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["import_noaa"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+import_noaa = _load()
+
+
+def _write_project(root: Path, name="CA37A02") -> Path:
+    """A frame with a north-south shore at -122.40 and a marsh-edge loop on its west side."""
+    d = root / name
+    d.mkdir(parents=True)
+    w, s, e, n = FRAME
+    with shapefile.Writer(str(d / "projbnd"), shapeType=shapefile.POLYGON) as bnd:
+        bnd.field("NAME", "C", 254)
+        bnd.poly([[(w, s), (w, n), (e, n), (e, s), (w, s)]])
+        bnd.record(name)
+    with shapefile.Writer(str(d / "historicl1"), shapeType=shapefile.POLYLINE) as lines:
+        for field in ("SOURCE_ID", "SRC_DATE", "ATTRIBUTE"):
+            lines.field(field, "C", 254)
+        lines.field("FEATURE", "N", 33, 0)
+        lines.line([[(-122.40, 37.70), (-122.40, 37.86)]])
+        lines.record("T00352", "18520101", "Natural.Mean High Water", 20)
+        lines.line([[(-122.42, 37.765), (-122.41, 37.765), (-122.41, 37.775), (-122.42, 37.775),
+                     (-122.42, 37.765)]])
+        lines.record("T00352", "18520101", "Natural.Apparent.Marsh Or Swamp", 15)
+    return root
+
+
+def _write_region(path: Path) -> Path:
+    path.write_text(json.dumps({"name": "test", "bbox": REGION_BBOX, "cell_m": 10,
+                                "dem": "dem.tif", "out": "out"}))
+    return path
+
+
+def _seed(sid, lon, lat, cls, **kw):
+    return {"id": sid, "project": "CA37A02", "lon": lon, "lat": lat, "class": cls,
+            "source": "test", "confidence": "inferred", **kw}
+
+
+def _run(tmp_path, *extra, seeds=None):
+    noaa = _write_project(tmp_path / "noaa") if not (tmp_path / "noaa").exists() else tmp_path / "noaa"
+    region = _write_region(tmp_path / "region.json")
+    argv = ["--projects", "CA37A02", "--noaa-dir", str(noaa), "--region", str(region),
+            "--out-dir", str(tmp_path / "hand"), *extra]
+    if seeds is not None:
+        (tmp_path / "seeds.json").write_text(json.dumps({"seeds": seeds}))
+        argv += ["--seeds", str(tmp_path / "seeds.json")]
+    return import_noaa.main(argv)
+
+
+def test_without_seeds_only_reports(tmp_path, capsys):
+    assert _run(tmp_path, "--report", str(tmp_path / "r.txt")) == 0
+    out = capsys.readouterr().out
+    assert "== CA37A02: 3 areas" in out
+    assert "CA37A02-1 " in out and "inside point" in out and "[unseeded]" in out
+    assert (tmp_path / "r.txt").read_text() == out
+    assert not (tmp_path / "hand").exists()
+
+
+def test_seeds_write_both_files_deterministically(tmp_path, capsys):
+    seeds = [_seed("bay", -122.38, 37.78, "bay"), _seed("marsh", -122.415, 37.77, "marsh"),
+             _seed("land", -122.42, 37.79, "land")]
+    assert _run(tmp_path, seeds=seeds) == 0
+    out = capsys.readouterr().out
+    assert "bay: 1 areas" in out and "marsh: 1 areas" in out and "unseeded: 0 areas" in out
+    bay, marsh = (tmp_path / "hand" / import_noaa.OUTPUT_FILES[c] for c in ("bay", "marsh"))
+    first = bay.read_bytes(), marsh.read_bytes()
+    assert len(load_features(bay, require_provenance=True)) == 1
+    (feat,) = load_features(marsh, require_provenance=True)
+    assert feat.properties["seed"] == "marsh" and feat.properties["confidence"] == "inferred"
+    for path in (bay, marsh):
+        assert check_file(path, tuple(REGION_BBOX)).ok
+    assert _run(tmp_path, seeds=list(reversed(seeds))) == 0
+    assert (bay.read_bytes(), marsh.read_bytes()) == first
+
+
+def test_no_water_seeds_write_empty_files(tmp_path):
+    assert _run(tmp_path, seeds=[_seed("land", -122.42, 37.79, "land")]) == 0
+    for name in import_noaa.OUTPUT_FILES.values():
+        path = tmp_path / "hand" / name
+        assert path.read_text() == EMPTY_FC
+        assert check_file(path, tuple(REGION_BBOX)).ok
+
+
+@pytest.mark.parametrize("seeds, message", [
+    ([_seed("x", -122.38, 37.78, "bay"), _seed("y", -122.37, 37.79, "marsh")], "says"),
+    ([_seed("x", -122.41, 37.765, "bay")], "boundary between"),  # a vertex of the loop
+    ([_seed("x", -122.50, 37.78, "bay")], "lies in no area"),
+    ([_seed("x", -122.0, 37.78, "bay")], "outside the region bbox"),
+    ([{**_seed("x", -122.38, 37.78, "bay"), "project": "CA37B08"}], "not imported"),
+])
+def test_seed_errors_exit_1_and_write_nothing(tmp_path, capsys, seeds, message):
+    assert _run(tmp_path, seeds=seeds) == 1
+    assert message in capsys.readouterr().err
+    assert not (tmp_path / "hand").exists()
+
+
+def test_missing_project_exits_1(tmp_path, capsys):
+    _write_project(tmp_path / "noaa")
+    assert import_noaa.main(["--projects", "CA37B99", "--noaa-dir", str(tmp_path / "noaa"),
+                             "--region", str(_write_region(tmp_path / "region.json"))]) == 1
+    assert "historicl1.shp not found" in capsys.readouterr().err
+
+
+def test_line_classes_and_negative_distances(tmp_path, capsys):
+    assert _run(tmp_path, "--line-classes", "20") == 0
+    assert "== CA37A02: 2 areas" in capsys.readouterr().out  # no marsh-edge loop
+    with pytest.raises(SystemExit):
+        _run(tmp_path, "--snap-m", "-1")
+
+
+def test_preview_is_written(tmp_path):
+    pytest.importorskip("PIL")
+    seeds = [_seed("bay", -122.38, 37.78, "bay")]
+    assert _run(tmp_path, "--preview", str(tmp_path / "p.png"), "--bbox", *map(str, FRAME),
+                seeds=seeds) == 0
+    assert (tmp_path / "p.png").stat().st_size > 0
+```
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Run: `cd pipeline && uv run pytest tests/test_noaa_preview.py tests/test_import_noaa.py -q`
+
+Expected: **FAIL** (the code under test does not exist yet, or the new assertions do not hold yet).
+
+- [ ] **Step 3: Write the implementation**
+
+`pipeline/yelamu/noaa_preview.py`
+
+```python
+"""Preview image of the NOAA candidate areas, for choosing and checking seeds.
+
+The pure parts (view frame, pixel mapping, colours, labels, background sampling) are tested
+without Pillow; `render` draws with Pillow, which is not a project dependency:
+
+    uv run --with pillow python scripts/import_noaa.py ... --preview preview.png
+
+Each candidate area is filled by its class (bay blue, marsh teal; land and unseeded areas
+are not filled, unseeded ones get a grey hatch and an orange outline), labelled with its id
+at an interior point; the NOAA lines are drawn in their FEATURE class colours, the closing
+lines added by the importer dashed magenta, linework that bounds nothing thick red, seeds as
+dots with their id. Lon/lat ticks, a scale bar and a legend frame the map.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
+
+import numpy as np
+from shapely.geometry import Point, Polygon, box
+from shapely.geometry.base import BaseGeometry
+
+from yelamu.compare import LAND, lonlat_ticks, scale_bar_pixels
+from yelamu.geo import Grid
+from yelamu.noaa import (
+    ALONGSHORE, ALONGSHORE_BOUNDARY, APPROXIMATE, FEATURE_NAMES, MAN_MADE, MARSH_EDGE,
+    MEAN_HIGH_WATER, USER_ADDED, WHARF, Area, Line, Seed, area_ordinal, lonlat_geom_to_utm,
+)
+
+MAX_SIDE_PX = 2400
+MARGIN_LEFT, MARGIN_BOTTOM, MARGIN_TOP, LEGEND_W = 72, 34, 30, 250
+LABEL_MIN_PX2 = 40.0  # areas smaller than this on the image are not labelled (see report)
+
+CLASS_FILL = {  # RGBA
+    "bay": (62, 112, 200, 120),
+    "marsh": (40, 160, 140, 140),
+}
+UNSEEDED_OUTLINE = (230, 120, 20, 255)
+# Unseeded areas get a pale tint cycling through this palette (by ordinal) so neighbouring
+# areas can be told apart, under the grey hatch.
+UNSEEDED_TINTS = ((255, 170, 60), (255, 220, 90), (230, 140, 200), (170, 210, 120),
+                  (150, 190, 240), (240, 160, 140))
+UNSEEDED_ALPHA = 70
+HATCH_RGBA = (120, 120, 120, 110)
+HATCH_STEP_PX = 9
+LINE_COLOURS = {
+    MEAN_HIGH_WATER: (200, 0, 0),
+    MARSH_EDGE: (0, 140, 60),
+    MAN_MADE: (90, 0, 160),
+    WHARF: (150, 60, 200),
+    ALONGSHORE: (240, 120, 0),
+    ALONGSHORE_BOUNDARY: (120, 120, 120),
+    APPROXIMATE: (240, 0, 240),
+    USER_ADDED: (0, 0, 0),
+}
+OTHER_LINE_RGB = (0, 170, 170)
+CONNECTOR_RGB = (255, 0, 200)
+UNCLOSED_RGB = (255, 0, 0)
+SEED_RGB = {"bay": (0, 40, 160), "marsh": (0, 100, 80), "land": (120, 80, 0)}
+BACKGROUND_RGB = (250, 250, 247)
+RECON_WATER_RGB = (214, 228, 242)
+RECON_LAND_RGB = (238, 232, 214)
+
+
+@dataclass(frozen=True)
+class View:
+    """A north-up UTM window drawn at `m_per_px` metres per pixel."""
+
+    west: float
+    south: float
+    east: float
+    north: float
+    m_per_px: float
+
+    @property
+    def width(self) -> int:
+        return max(1, int(math.ceil((self.east - self.west) / self.m_per_px)))
+
+    @property
+    def height(self) -> int:
+        return max(1, int(math.ceil((self.north - self.south) / self.m_per_px)))
+
+    def px(self, x: float, y: float) -> tuple[float, float]:
+        return ((x - self.west) / self.m_per_px, (self.north - y) / self.m_per_px)
+
+    def grid(self) -> Grid:
+        """The view as a yelamu Grid (one cell per pixel), for yelamu.compare.lonlat_ticks."""
+        return Grid(self.west, self.north - self.height * self.m_per_px,
+                    self.west + self.width * self.m_per_px, self.north, self.m_per_px)
+
+
+def make_view(bbox_lonlat: tuple[float, float, float, float] | None,
+              boundaries: Sequence[Polygon], max_side_px: int = MAX_SIDE_PX) -> View:
+    """The view of a lon/lat bbox (W, S, E, N), or of the union of the project boundaries,
+    scaled so its longer side is max_side_px."""
+    if bbox_lonlat is not None:
+        w, s, e, n = bbox_lonlat
+        if not (w < e and s < n):
+            raise ValueError(f"bbox must satisfy west < east and south < north, got {bbox_lonlat}")
+        x0, y0, x1, y1 = lonlat_geom_to_utm(box(w, s, e, n).segmentize(0.001)).bounds
+    else:
+        if not boundaries:
+            raise ValueError("no bbox and no project boundary to frame the preview")
+        x0 = min(b.bounds[0] for b in boundaries)
+        y0 = min(b.bounds[1] for b in boundaries)
+        x1 = max(b.bounds[2] for b in boundaries)
+        y1 = max(b.bounds[3] for b in boundaries)
+    m_per_px = max(x1 - x0, y1 - y0) / max_side_px
+    return View(x0, y0, x1, y1, m_per_px)
+
+
+def short_label(area_id: str, projects: Sequence[str]) -> str:
+    """'CA37B08-7' -> 'B08-7' when every project shares the prefix 'CA37'."""
+    prefix = os.path.commonprefix(list(projects)) if len(projects) > 1 else ""
+    project, n = area_ordinal(area_id)
+    return f"{project[len(prefix):] or project}-{n}"
+
+
+def line_colour(feature: int) -> tuple[int, int, int]:
+    return LINE_COLOURS.get(feature, OTHER_LINE_RGB)
+
+
+def unseeded_tint(area_id: str) -> tuple[int, int, int]:
+    """The pale tint of an unseeded area (cycles with its ordinal)."""
+    return UNSEEDED_TINTS[area_ordinal(area_id)[1] % len(UNSEEDED_TINTS)]
+
+
+def hatch_mask(height: int, width: int, step: int = HATCH_STEP_PX) -> np.ndarray:
+    """Boolean diagonal-stripe pattern (one pixel stripes every `step` pixels)."""
+    rows, cols = np.indices((height, width))
+    return (rows + cols) % step == 0
+
+
+def background(view: View, codes: np.ndarray | None, grid: Grid | None) -> np.ndarray:
+    """RGB background: the reconstruction's land / water (pale) sampled at each pixel centre
+    when `codes` (yelamu.compare.classify output on `grid`) is given, plain otherwise."""
+    rgb = np.empty((view.height, view.width, 3), dtype=np.uint8)
+    rgb[...] = BACKGROUND_RGB
+    if codes is None or grid is None:
+        return rgb
+    xs = view.west + (np.arange(view.width) + 0.5) * view.m_per_px
+    ys = view.north - (np.arange(view.height) + 0.5) * view.m_per_px
+    cols = np.floor((xs - grid.west) / grid.cell).astype(int)
+    rows = np.floor((grid.north - ys) / grid.cell).astype(int)
+    ok_c = (cols >= 0) & (cols < codes.shape[1])
+    ok_r = (rows >= 0) & (rows < codes.shape[0])
+    sub = codes[np.clip(rows, 0, codes.shape[0] - 1)[:, None],
+                np.clip(cols, 0, codes.shape[1] - 1)[None, :]]
+    inside = ok_r[:, None] & ok_c[None, :]
+    rgb[inside & (sub == LAND)] = RECON_LAND_RGB
+    rgb[inside & (sub != LAND)] = RECON_WATER_RGB
+    return rgb
+
+
+def label_point(geom: BaseGeometry) -> Point:
+    """An interior point for the label (the polygon's representative point)."""
+    return geom.representative_point()
+
+
+def legend_entries() -> list[tuple[str, str, tuple]]:
+    """(kind, text, colour) rows of the legend: fills, then lines."""
+    rows = [("fill", "bay (seeded)", CLASS_FILL["bay"]),
+            ("fill", "marsh (seeded)", CLASS_FILL["marsh"]),
+            ("hatch", "unseeded area (left unchanged)", UNSEEDED_OUTLINE),
+            ("outline", "land (seeded; not written)", SEED_RGB["land"])]
+    rows += [("line", FEATURE_NAMES[code], LINE_COLOURS[code]) for code in sorted(LINE_COLOURS)]
+    rows += [("dash", "closing line added by the importer", CONNECTOR_RGB),
+             ("thick", "linework bounding no area", UNCLOSED_RGB),
+             ("dot", "seed", SEED_RGB["bay"])]
+    return rows
+
+
+def render(
+    out: Path,
+    view: View,
+    areas: Sequence[Area],
+    classes: dict[str, str],
+    lines: Sequence[Line],
+    connectors: Sequence[BaseGeometry],
+    unclosed: Sequence[BaseGeometry],
+    seeds: Sequence[Seed],
+    title: str,
+    codes: np.ndarray | None = None,
+    grid: Grid | None = None,
+) -> tuple[int, int]:
+    """Draw the preview PNG (needs Pillow). `classes` maps area id -> bay / marsh / land."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    def font(size: int):
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:  # old Pillow
+            return ImageFont.load_default()
+
+    small, big = font(11), font(14)
+    w, h = view.width, view.height
+    clip = box(view.west, view.south, view.east, view.north)
+    projects = sorted({a.project for a in areas})
+
+    def coords(seq) -> list[tuple[float, float]]:
+        return [view.px(x, y) for x, y in seq]
+
+    base = Image.fromarray(background(view, codes, grid)).convert("RGBA")
+    fills = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    fdraw = ImageDraw.Draw(fills)
+    hatch_area = Image.new("L", (w, h), 0)
+    hdraw = ImageDraw.Draw(hatch_area)
+    visible = [a for a in sorted(areas, key=lambda a: area_ordinal(a.id))
+               if a.geometry.intersects(clip)]
+    for area in visible:
+        cls = classes.get(area.id)
+        if cls in CLASS_FILL:
+            target, fill, empty = fdraw, CLASS_FILL[cls], (0, 0, 0, 0)
+        elif cls is None:
+            target, fill, empty = hdraw, 255, 0
+        else:
+            continue  # land: outline only
+        target.polygon(coords(area.geometry.exterior.coords), fill=fill)
+        for hole in area.geometry.interiors:
+            target.polygon(coords(hole.coords), fill=empty)
+        if cls is None:
+            tint = Image.new("L", (w, h), 0)
+            tdraw = ImageDraw.Draw(tint)
+            tdraw.polygon(coords(area.geometry.exterior.coords), fill=UNSEEDED_ALPHA)
+            for hole in area.geometry.interiors:
+                tdraw.polygon(coords(hole.coords), fill=0)
+            fills.paste(unseeded_tint(area.id) + (UNSEEDED_ALPHA,), mask=tint)
+    alpha = np.where((np.asarray(hatch_area) > 0) & hatch_mask(h, w), HATCH_RGBA[3], 0)
+    hatch_layer = Image.new("RGBA", (w, h), HATCH_RGBA)
+    hatch_layer.putalpha(Image.fromarray(alpha.astype(np.uint8)))
+    image = Image.alpha_composite(Image.alpha_composite(base, fills), hatch_layer)
+    draw = ImageDraw.Draw(image)
+
+    for area in visible:
+        cls = classes.get(area.id)
+        outline = UNSEEDED_OUTLINE if cls is None else (
+            SEED_RGB["land"] if cls == "land" else None)
+        if outline:
+            draw.line(coords(area.geometry.exterior.coords), fill=outline, width=1)
+    for line in sorted(lines, key=lambda ln: ln.feature):
+        if line.geometry.intersects(clip):
+            draw.line(coords(line.geometry.coords), fill=line_colour(line.feature), width=1)
+    for g in unclosed:
+        if g.intersects(clip):
+            draw.line(coords(g.coords), fill=UNCLOSED_RGB, width=3)
+    for g in connectors:
+        if g.intersects(clip):
+            pts = coords(g.coords)
+            _dashed(draw, pts[0], pts[-1], CONNECTOR_RGB)
+    for area in visible:
+        pixels = area.geometry.area / view.m_per_px ** 2
+        if pixels < LABEL_MIN_PX2:
+            continue
+        p = label_point(area.geometry.intersection(clip) if not clip.contains(area.geometry)
+                        else area.geometry)
+        x, y = view.px(p.x, p.y)
+        text = short_label(area.id, projects)
+        draw.text((x + 1, y + 1), text, fill=(255, 255, 255), font=small, anchor="mm")
+        draw.text((x, y), text, fill=(0, 0, 0), font=small, anchor="mm")
+    for seed in seeds:
+        p = lonlat_geom_to_utm(Point(seed.lon, seed.lat))
+        if not clip.contains(p):
+            continue
+        x, y = view.px(p.x, p.y)
+        draw.ellipse([x - 4, y - 4, x + 4, y + 4], fill=SEED_RGB[seed.cls],
+                     outline=(255, 255, 255))
+        draw.text((x + 6, y - 6), seed.id, fill=SEED_RGB[seed.cls], font=small)
+
+    sheet = Image.new("RGB", (MARGIN_LEFT + w + 12 + LEGEND_W, MARGIN_TOP + h + MARGIN_BOTTOM),
+                      (255, 255, 255))
+    sheet.paste(image.convert("RGB"), (MARGIN_LEFT, MARGIN_TOP))
+    sd = ImageDraw.Draw(sheet)
+    sd.text((6, 8), title, fill=(0, 0, 0), font=big)
+    sd.rectangle([MARGIN_LEFT - 1, MARGIN_TOP - 1, MARGIN_LEFT + w, MARGIN_TOP + h],
+                 outline=(80, 80, 80))
+    xt, yt = lonlat_ticks(view.grid(), 1)
+    for py, label in yt:
+        y = MARGIN_TOP + py
+        sd.line([MARGIN_LEFT - 5, y, MARGIN_LEFT - 1, y], fill=(0, 0, 0))
+        sd.text((2, y - 6), label, fill=(0, 0, 0), font=small)
+    for px_, label in xt:
+        x = MARGIN_LEFT + px_
+        sd.line([x, MARGIN_TOP + h + 1, x, MARGIN_TOP + h + 5], fill=(0, 0, 0))
+        sd.text((x - 24, MARGIN_TOP + h + 8), label, fill=(0, 0, 0), font=small)
+    bar_m = nice_bar_m(view.width * view.m_per_px)
+    length = scale_bar_pixels(view.m_per_px, 1, bar_m)
+    x0, y0 = MARGIN_LEFT + 10, MARGIN_TOP + h - 14
+    sd.rectangle([x0 - 4, y0 - 16, x0 + length + 56, y0 + 8], fill=(255, 255, 255))
+    sd.line([x0, y0, x0 + length, y0], fill=(0, 0, 0), width=3)
+    sd.text((x0 + length + 6, y0 - 7),
+            f"{bar_m / 1000:g} km" if bar_m >= 1000 else f"{bar_m:g} m",
+            fill=(0, 0, 0), font=small)
+    _legend(sd, MARGIN_LEFT + w + 16, MARGIN_TOP, small)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out)
+    return sheet.size
+
+
+def nice_bar_m(span_m: float) -> float:
+    """A 1-2-5 scale-bar length close to a fifth of the span."""
+    target = max(span_m / 5.0, 1.0)
+    exp = 10 ** math.floor(math.log10(target))
+    return max(m * exp for m in (1, 2, 5) if m * exp <= target)
+
+
+def _dashed(draw, a, b, colour, dash: float = 6.0) -> None:
+    length = math.dist(a, b)
+    n = max(1, int(length // dash))
+    for i in range(0, n, 2):
+        t0, t1 = i / n, min(1.0, (i + 1) / n)
+        draw.line([(a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0),
+                   (a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1)], fill=colour, width=2)
+
+
+def _legend(draw, x: int, y: int, font) -> None:
+    for kind, text, colour in legend_entries():
+        rgb = tuple(colour[:3])
+        if kind == "fill":
+            draw.rectangle([x, y, x + 18, y + 10], fill=rgb, outline=(60, 60, 60))
+        elif kind == "hatch":
+            draw.rectangle([x, y, x + 18, y + 10], outline=rgb)
+            for k in range(0, 28, 5):
+                draw.line([x + max(0, k - 10), y + min(10, k), x + min(18, k), y + max(0, k - 18)],
+                          fill=HATCH_RGBA[:3])
+        elif kind == "outline":
+            draw.rectangle([x, y, x + 18, y + 10], outline=rgb)
+        elif kind == "dot":
+            draw.ellipse([x + 5, y + 1, x + 13, y + 9], fill=rgb)
+        elif kind == "dash":
+            _dashed(draw, (x, y + 5), (x + 18, y + 5), rgb, 4.0)
+        else:
+            draw.line([x, y + 5, x + 18, y + 5], fill=rgb, width=3 if kind == "thick" else 2)
+        draw.text((x + 24, y - 1), text, fill=(0, 0, 0), font=font)
+        y += 16
+```
+
+`pipeline/scripts/import_noaa.py`
+
+```python
+"""Import NOAA 1850s shoreline vectors as seeded hand-water files.
+
+    uv run python scripts/import_noaa.py --projects CA37A02 CA37B02B CA37B07 CA37B08 \\
+        [--seeds data/full-city/hand/noaa_seeds.json] [--report report.txt]
+    uv run --with pillow python scripts/import_noaa.py ... --preview preview.png [--bbox W S E N]
+
+Closes each project's lines into numbered candidate areas (yelamu.noaa.close_linework).
+Without --seeds it only writes the report (and preview): every candidate area with its id,
+hectares, centroid and an inside point in lon/lat, sheet and year. With --seeds it also
+classes the areas and writes `hand_bay_noaa.geojson` and `hand_marsh_noaa.geojson` into
+--out-dir (always both, possibly empty; deterministic bytes), and prints the counts,
+hectares per class and project, the unseeded areas and the overlap between projects.
+Exit code 1 on any seed or input error (nothing is written then).
+
+Relative paths are resolved against the pipeline directory, so this runs from anywhere.
+Pillow is only needed for --preview.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Sequence
+
+from yelamu.noaa import (
+    DEFAULT_CLOSURE_REACH_M,
+    DEFAULT_FRAME_REACH_M,
+    DEFAULT_JOIN_ENDS_M,
+    DEFAULT_LINE_CLASSES,
+    DEFAULT_MIN_AREA_M2,
+    DEFAULT_SNAP_M,
+    EXPORTED_CLASSES,
+    Area,
+    Classification,
+    Closure,
+    SeedFile,
+    area_ordinal,
+    area_row,
+    areas_to_features,
+    classify,
+    close_linework,
+    cross_project_overlaps,
+    feature_collection_text,
+    load_seed_file,
+    read_project,
+    select_lines,
+    utm_geom_to_lonlat,
+)
+from yelamu.region import load_region
+
+PIPELINE = Path(__file__).resolve().parent.parent
+OUTPUT_FILES = {"bay": "hand_bay_noaa.geojson", "marsh": "hand_marsh_noaa.geojson"}
+UNCLOSED_LISTED = 25
+SEED_ORDER = ("bay", "marsh", "land")
+
+
+def _path(value: str) -> Path:
+    p = Path(value)
+    return p if p.is_absolute() else PIPELINE / p
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="import_noaa", description=__doc__.split("\n\n")[0])
+    p.add_argument("--projects", nargs="+", required=True, metavar="PROJECT",
+                   help="NOAA project folders under --noaa-dir, e.g. CA37A02 CA37B08")
+    p.add_argument("--noaa-dir", type=_path, default=_path("data/raw/noaa/extracted"))
+    p.add_argument("--seeds", type=_path, help="seeds JSON (without it: report/preview only)")
+    p.add_argument("--region", type=_path, default=_path("regions/full-city.json"),
+                   help="region JSON; its bbox bounds the seeds")
+    p.add_argument("--snap-m", type=float, default=DEFAULT_SNAP_M)
+    p.add_argument("--min-area-m2", type=float, default=DEFAULT_MIN_AREA_M2)
+    p.add_argument("--frame-reach-m", type=float, default=DEFAULT_FRAME_REACH_M)
+    p.add_argument("--closure-reach-m", type=float, default=DEFAULT_CLOSURE_REACH_M)
+    p.add_argument("--join-ends-m", type=float, default=DEFAULT_JOIN_ENDS_M)
+    p.add_argument("--line-classes", type=int, nargs="+", default=sorted(DEFAULT_LINE_CLASSES),
+                   metavar="CODE", help="NOAA FEATURE codes that close areas (default: all)")
+    p.add_argument("--out-dir", type=_path, default=_path("data/full-city/hand"))
+    p.add_argument("--preview", type=Path, help="write a preview PNG (needs Pillow)")
+    p.add_argument("--bbox", type=float, nargs=4, metavar=("W", "S", "E", "N"),
+                   help="lon/lat crop of the preview (default: all project boundaries)")
+    p.add_argument("--preview-assets", type=_path,
+                   help="built asset folder drawn under the preview (pale land / water)")
+    p.add_argument("--report", type=Path, help="also write the report to this text file")
+    args = p.parse_args(argv)
+    for name in ("snap_m", "min_area_m2", "frame_reach_m", "closure_reach_m", "join_ends_m"):
+        if getattr(args, name) < 0:
+            p.error(f"--{name.replace('_', '-')} must be 0 or more")
+    return args
+
+
+def _closure_lines(project: str, report: list[str], closure: Closure) -> None:
+    report.append(
+        f"== {project}: {len(closure.areas)} areas; free line ends {closure.free_ends_before} "
+        f"-> {closure.free_ends_after}; {len(closure.connectors)} closing lines added; "
+        f"{closure.dropped_slivers} slivers dropped; {len(closure.unclosed)} pieces "
+        f"({closure.unclosed_m / 1000:.2f} km) bound no area")
+    pieces = sorted(closure.unclosed, key=lambda g: (-g.length, g.wkb))
+    for g in pieces[:UNCLOSED_LISTED]:
+        c = utm_geom_to_lonlat(g.interpolate(0.5, normalized=True))
+        report.append(f"  unclosed {g.length:8.0f} m  near {c.x:.5f}, {c.y:.5f}")
+    if len(pieces) > UNCLOSED_LISTED:
+        report.append(f"  ... and {len(pieces) - UNCLOSED_LISTED} shorter pieces")
+
+
+def run(args: argparse.Namespace) -> int:
+    report: list[str] = [
+        f"NOAA import: projects {' '.join(args.projects)}; snap {args.snap_m:g} m; min area "
+        f"{args.min_area_m2:g} m2; frame reach {args.frame_reach_m:g} m; closure reach "
+        f"{args.closure_reach_m:g} m; end joins {args.join_ends_m:g} m; line classes "
+        f"{' '.join(map(str, sorted(args.line_classes)))}"]
+    seed_file = SeedFile([], [])
+    if args.seeds:
+        seed_file = load_seed_file(args.seeds, load_region(args.region).bbox)
+        report.append(f"seeds: {args.seeds} ({len(seed_file.seeds)} seeds, "
+                      f"{len(seed_file.closures)} owner closure lines)")
+    unknown = sorted({c.project for c in seed_file.closures} - set(args.projects))
+    if unknown:
+        raise ValueError(f"closure lines name project(s) not imported: {', '.join(unknown)}")
+
+    projects, closures = [], {}
+    for name in args.projects:
+        project = read_project(args.noaa_dir / name)
+        projects.append(project)
+        closures[project.name] = close_linework(
+            select_lines(project.lines, args.line_classes), project.boundary,
+            args.snap_m, args.min_area_m2, project=project.name,
+            frame_reach_m=args.frame_reach_m, closure_reach_m=args.closure_reach_m,
+            join_ends_m=args.join_ends_m,
+            extra_lines=[c.utm() for c in seed_file.closures_for(project.name)])
+        _closure_lines(project.name, report, closures[project.name])
+    areas: list[Area] = [a for c in closures.values() for a in c.areas]
+
+    result: Classification | None = None
+    classes: dict[str, str] = {}
+    if args.seeds:
+        result = classify(areas, seed_file.seeds)
+        classes = {c.area.id: c.cls for c in result.classified}
+    report.append("== candidate areas (id, size, centroid, an inside point for a seed, sheet, "
+                  "line class, seed class)")
+    for area in sorted(areas, key=lambda a: area_ordinal(a.id)):
+        report.append(f"  {area_row(area)}  [{classes.get(area.id, 'unseeded')}]")
+
+    if result is not None:
+        features = areas_to_features(result.classified)
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        for cls in EXPORTED_CLASSES:
+            path = args.out_dir / OUTPUT_FILES[cls]
+            path.write_text(feature_collection_text(features[cls]))
+            report.append(f"wrote {path}: {len(features[cls])} features")
+        hectares: dict[tuple[str, str], float] = defaultdict(float)
+        for c in result.classified:
+            hectares[(c.cls, c.area.project)] += c.area.area_m2 / 1e4
+        for cls in SEED_ORDER:
+            total = sum(v for (k, _), v in hectares.items() if k == cls)
+            per = ", ".join(f"{p} {v:.1f}" for (k, p), v in sorted(hectares.items()) if k == cls)
+            n = sum(c.cls == cls for c in result.classified)
+            report.append(f"{cls}: {n} areas, {total:.1f} ha ({per or 'none'})")
+        report.append(f"unseeded: {len(result.unseeded)} areas (left unchanged): "
+                      + (", ".join(a.id for a in result.unseeded) or "none"))
+        overlaps = cross_project_overlaps(result.classified)
+        report.append(f"overlap between projects: {sum(o[2] for o in overlaps) / 1e4:.1f} ha in "
+                      f"{len(overlaps)} pairs (allowed: the build unions the files)")
+        for a, b, m2 in overlaps:
+            report.append(f"  {a} x {b}: {m2 / 1e4:.1f} ha")
+
+    if args.preview:
+        _preview(args, projects, closures, areas, classes, seed_file)
+        report.append(f"wrote preview {args.preview}")
+    text = "\n".join(report) + "\n"
+    print(text, end="")
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(text)
+    return 0
+
+
+def _preview(args, projects, closures, areas, classes, seed_file) -> None:
+    from yelamu.noaa_preview import make_view, render  # Pillow is imported inside render
+
+    codes = grid = None
+    if args.preview_assets:
+        from yelamu.compare import classify as classify_cells, load_assets, meta_grid
+
+        meta, heights, habitat = load_assets(args.preview_assets)
+        codes, grid = classify_cells(heights, habitat, meta), meta_grid(meta)
+    view = make_view(tuple(args.bbox) if args.bbox else None, [p.boundary for p in projects])
+    lines = [ln for p in projects for ln in select_lines(p.lines, args.line_classes)]
+    connectors = [g for c in closures.values() for g in c.connectors]
+    unclosed = [g for c in closures.values() for g in c.unclosed]
+    title = (f"NOAA candidate areas: {' '.join(p.name for p in projects)}  "
+             f"(snap {args.snap_m:g} m, min {args.min_area_m2:g} m2)")
+    render(args.preview, view, areas, classes, lines, connectors, unclosed,
+           seed_file.seeds, title, codes, grid)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        return run(args)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [ ] **Step 4: Run the whole suite**
+
+Run: `cd pipeline && uv run pytest -q -W error`
+
+Expected: **611 passed, 3 skipped**, no warnings.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add pipeline/tests/test_noaa_preview.py pipeline/tests/test_import_noaa.py pipeline/yelamu/noaa_preview.py pipeline/scripts/import_noaa.py
+git commit -m "feat(pipeline): NOAA import command and area preview"
+```
+
+---
+
+### Task N3: Seeds, generated NOAA water, region wiring and sanity checks
+
+**Files:**
+- Create: `pipeline/tests/test_noaa_shipped.py`
+- Create: `pipeline/data/full-city/hand/noaa_seeds.json`
+- Create: `pipeline/data/full-city/hand/hand_bay_noaa.geojson`
+- Create: `pipeline/data/full-city/hand/hand_marsh_noaa.geojson`
+- Modify: `pipeline/tests/test_handcheck.py`
+- Modify: `pipeline/tests/test_region.py`
+- Modify: `pipeline/regions/full-city.json`
+- Modify: `pipeline/data/full-city/checks.json`
+- Modify: `pipeline/data/full-city/hand/README.md`
+
+The prototype's seeds (open bay from the 1852 and 1857 sheets, the Islais marsh, the peninsula as land, and two closing lines the importer is told to draw: the Islais mouth and the Golden Gate) are committed together with the two **generated** files they produce, so a plain build picks the NOAA water up. The region file lists them after your own hand files; `checks.json` gains six expectations (three places that are dry land today and must be water: the Islais marsh, Islais Cove and South Basin; three that must stay land: Potrero Hill, the Hunters Point ridge and the Ocean Beach dunes). Two existing tests that pinned the old file lists are updated.
+
+**Known limits, stated honestly:** the seeds are the prototype's reading of the preview and every uncertain one carries a `note`; the Islais marsh is cut by a straight line where sheet CA37A02 ends and the neighbouring 1857 area reads as bay; the two importer-drawn closures are choices, not data (the Golden Gate one needed a bend into Marin: the straight version leaked around Lime Point and moved Ocean Beach 100 m inland); the Pacific, Hunters Point's own area and the north-waterfront pieces are unseeded and unchanged; Treasure Island and Yerba Buena Island are not covered by the vectors at all. Everything is `inferred`, and NOAA states the lines' accuracy was never determined.
+
+- [ ] **Step 1: Add the tests**
+
+`pipeline/tests/test_noaa_shipped.py`
+
+```python
+"""The shipped NOAA seeds and generated hand-water files are consistent with the region file."""
+
+import importlib.util
+import sys
+from pathlib import Path
+
+from yelamu.handcheck import check_file
+from yelamu.sources import load_features
+
+SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "import_noaa.py"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("import_noaa", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["import_noaa"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+import_noaa = _load()
+
+
+def test_full_city_region_lists_the_generated_files_after_the_hand_files():
+    from yelamu.noaa import load_seed_file
+    from yelamu.region import load_region
+
+    pipeline = SCRIPT.parent.parent
+    region = load_region(pipeline / "regions" / "full-city.json")
+    for paths, cls in ((region.hand_bay, "bay"), (region.hand_marsh, "marsh")):
+        names = [Path(p).name for p in paths]
+        assert names == [f"hand_{cls}.geojson", import_noaa.OUTPUT_FILES[cls]]
+        generated = pipeline / paths[-1]
+        load_features(generated, allow_empty=True, require_provenance=True)
+        assert check_file(generated, region.bbox).ok
+    seeds = load_seed_file(pipeline / "data" / "full-city" / "hand" / "noaa_seeds.json",
+                           region.bbox)
+    assert seeds.seeds
+```
+
+`pipeline/tests/test_handcheck.py` (modified; apply with `git apply`)
+
+```bash
+git apply --whitespace=nowarn <<'PATCH'
+--- a/pipeline/tests/test_handcheck.py
++++ b/pipeline/tests/test_handcheck.py
+@@ -115,11 +115,12 @@
+     assert main([str(good), "--region", str(tmp_path / "nope.json")]) == 1
+ 
+ 
+-def test_the_shipped_empty_hand_files_pass():
++def test_the_shipped_hand_files_pass():
+     from pathlib import Path
+     root = Path(__file__).resolve().parent.parent
+     files = sorted((root / "data/full-city/hand").glob("*.geojson"))
+-    assert {f.name for f in files} == {"hand_bay.geojson", "hand_marsh.geojson", "hand_ponds.geojson"}
++    assert {f.name for f in files} == {"hand_bay.geojson", "hand_marsh.geojson", "hand_ponds.geojson",
++                                       "hand_bay_noaa.geojson", "hand_marsh_noaa.geojson"}
+     assert main([*map(str, files), "--region", str(root / "regions/full-city.json")]) == 0
+ 
+ 
+PATCH
+```
+
+`pipeline/tests/test_region.py` (modified; apply with `git apply`)
+
+```bash
+git apply --whitespace=nowarn <<'PATCH'
+--- a/pipeline/tests/test_region.py
++++ b/pipeline/tests/test_region.py
+@@ -196,8 +196,8 @@
+     assert region.bbox == (-122.53, 37.70, -122.33, 37.84)
+     assert region.cell_m == 10.0
+     assert region.out == PIPELINE.parent / "viewer" / "public" / "assets" / "real-city"
+-    assert [p.name for p in region.hand_bay] == ["hand_bay.geojson"]
+-    assert [p.name for p in region.hand_marsh] == ["hand_marsh.geojson"]
++    assert [p.name for p in region.hand_bay] == ["hand_bay.geojson", "hand_bay_noaa.geojson"]
++    assert [p.name for p in region.hand_marsh] == ["hand_marsh.geojson", "hand_marsh_noaa.geojson"]
+     assert [p.name for p in region.hand_ponds] == ["hand_ponds.geojson"]
+     assert region.pond_classes == [
+         "Dune-dammed pond or lake", "Dune-dammed headwater lake",
+PATCH
+```
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Run: `cd pipeline && uv run pytest tests/test_noaa_shipped.py tests/test_handcheck.py tests/test_region.py -q`
+
+Expected: **FAIL** (the code under test does not exist yet, or the new assertions do not hold yet).
+
+- [ ] **Step 3: Write the implementation**
+
+`pipeline/data/full-city/hand/noaa_seeds.json`
+
+```json
+{
+  "note": "Seeds and closure lines for scripts/import_noaa.py. Proposed by the import prototype on 2026-11-11 from the preview; every entry with a note needs the owner's confirmation.",
+  "seeds": [
+    {
+      "id": "a02-open-bay-east",
+      "project": "CA37A02",
+      "lon": -122.37,
+      "lat": 37.76,
+      "class": "bay",
+      "source": "NOAA CA37A02 T-00352 (1852): open water east of the mean high water line off Potrero Point",
+      "confidence": "inferred"
+    },
+    {
+      "id": "a02-islais-marsh",
+      "project": "CA37A02",
+      "lon": -122.4003,
+      "lat": 37.7436,
+      "class": "marsh",
+      "source": "NOAA CA37A02 T-00352 (1852): Islais estuary inside the mean high water line, west of the mouth; T-00687 (1857) shows tidal channels there",
+      "confidence": "inferred",
+      "note": "UNCERTAIN: the 1852 sheet only draws the outer shore of the estuary; marsh (not open water) is read from the 1857 channels and the known Islais marsh. Owner to confirm marsh vs bay."
+    },
+    {
+      "id": "a02-peninsula-land",
+      "project": "CA37A02",
+      "lon": -122.4477,
+      "lat": 37.7544,
+      "class": "land",
+      "source": "NOAA CA37A02 T-00352 (1852): the peninsula inland of the mean high water line (Twin Peaks)",
+      "confidence": "inferred"
+    },
+    {
+      "id": "b08-open-bay-east",
+      "project": "CA37B08",
+      "lon": -122.372,
+      "lat": 37.765,
+      "class": "bay",
+      "source": "NOAA CA37B08 T-00687 (1857): open water east of the mean high water line off Potrero Point",
+      "confidence": "inferred",
+      "note": "UNCERTAIN (scope): this 1857 area overlaps the 1852 one almost entirely; it adds the tidal channels of Islais Creek. Drop it if the 1852 survey alone should decide."
+    }
+  ],
+  "closures": [
+    {
+      "id": "a02-islais-mouth",
+      "project": "CA37A02",
+      "coordinates": [[-122.39422, 37.74805], [-122.39295, 37.73934]],
+      "source": "Closure proposed by the importer (unconfirmed): straight line across the Islais estuary at the east end of the 1857 channel network (T-00687), so the estuary is an area of its own",
+      "note": "UNCERTAIN: placement chosen by the import prototype from the preview."
+    },
+    {
+      "id": "a02-golden-gate",
+      "project": "CA37A02",
+      "coordinates": [[-122.4772, 37.8100], [-122.4787, 37.8262], [-122.4815, 37.8270]],
+      "source": "Closure proposed by the importer (unconfirmed): Fort Point to Lime Point across the Golden Gate, so the ocean coast (outside this import's scope) stays a separate, unseeded area",
+      "note": "Scope choice: without it the 1852 Pacific shore would move Ocean Beach up to ~100 m inland. Owner to confirm."
+    },
+    {
+      "id": "a02-ybi-ti-ring",
+      "project": "CA37A02",
+      "coordinates": [[-122.3825, 37.8010], [-122.3555, 37.8010], [-122.3555, 37.8345], [-122.3825, 37.8345], [-122.3825, 37.8010]],
+      "source": "Closure proposed by the importer (unconfirmed): ring in open water around Yerba Buena and Treasure Islands, which the NOAA vectors do not draw (out of scope); the inside is left unseeded and unchanged"
+    },
+    {
+      "id": "b08-ybi-ti-ring",
+      "project": "CA37B08",
+      "coordinates": [[-122.3825, 37.8010], [-122.3555, 37.8010], [-122.3555, 37.8345], [-122.3825, 37.8345], [-122.3825, 37.8010]],
+      "source": "Closure proposed by the importer (unconfirmed): ring in open water around Yerba Buena and Treasure Islands, which the NOAA vectors do not draw (out of scope); the inside is left unseeded and unchanged"
+    }
+  ]
+}
+```
+
+`pipeline/data/full-city/hand/hand_bay_noaa.geojson`
+
+```json
+{"type": "FeatureCollection", "features": [
+{"type":"Feature","properties":{"source":"NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-open-bay-east","confidence":"inferred","area_id":"CA37A02-11","area_m2":170631301,"seed":"a02-open-bay-east"},"geometry":{"type":"Polygon","coordinates":[[[-122.44382,37.80027],[-122.44371,37.80029],[-122.44364,37.80032],[-122.44351,37.80033],[-122.44344,37.80035],[-122.44327,37.80035],[-122.44315,37.80038],[-122.44294,37.80037],[-122.44275,37.80033],[-122.44232,37.80027],[-122.44194,37.80019],[-122.44147,37.8002],[-122.44117,37.80018],[-122.4406,37.80016],[-122.44039,37.80021],[-122.44018,37.80023],[-122.43965,37.80036],[-122.43946,37.80043],[-122.43911,37.80052],[-122.43884,37.80058],[-122.43863,37.80065],[-122.43842,37.80074],[-122.43798,37.80099],[-122.43778,37.80108],[-122.43751,37.80125],[-122.43724,37.80138],[-122.43706,37.80151],[-122.43698,37.8016],[-122.43674,37.80173],[-122.43662,37.80176],[-122.43623,37.80181],[-122.43604,37.80185],[-122.43596,37.80189],[-122.43598,37.80196],[-122.43606,37.80198],[-122.43615,37.80199],[-122.43625,37.80199],[-122.43633,37.80197],[-122.43643,37.80196],[-122.43653,37.80193],[-122.43669,37.80187],[-122.43698,37.80174],[-122.43692,37.80184],[-122.43679,37.80193],[-122.43666,37.80205],[-122.43658,37.80209],[-122.4364,37.80216],[-122.43613,37.80233],[-122.4361,37.80241],[-122.43627,37.80235],[-122.43641,37.80228],[-122.43649,37.80226],[-122.43656,37.80223],[-122.43663,37.80221],[-122.43676,37.8021],[-122.43687,37.80203],[-122.4371,37.8018],[-122.43738,37.80149],[-122.43745,37.80138],[-122.43759,37.80135],[-122.43768,37.80131],[-122.43803,37.80122],[-122.43817,37.80122],[-122.43842,37.80116],[-122.43868,37.80111],[-122.43877,37.80108],[-122.43906,37.80095],[-122.43927,37.80093],[-122.43952,37.80094],[-122.43974,37.80092],[-122.43981,37.80087],[-122.43986,37.80081],[-122.44007,37.8006],[-122.44019,37.80057],[-122.44028,37.80058],[-122.4403,37.80063],[-122.44029,37.80071],[-122.44025,37.80077],[-122.44022,37.80084],[-122.44014,37.80092],[-122.4401,37.80098],[-122.43998,37.80109],[-122.43993,37.80113],[-122.43983,37.80119],[-122.43972,37.80123],[-122.43951,37.80128],[-122.43929,37.80138],[-122.43912,37.80142],[-122.4389,37.80152],[-122.43827,37.80174],[-122.43813,37.80185],[-122.4379,37.80194],[-122.43782,37.802],[-122.43732,37.80229],[-122.43696,37.80246],[-122.43672,37.80259],[-122.43636,37.80283],[-122.43604,37.803],[-122.43595,37.80306],[-122.43583,37.80312],[-122.43559,37.80328],[-122.43544,37.80336],[-122.43524,37.80349],[-122.43499,37.80359],[-122.43474,37.80374],[-122.43437,37.80398],[-122.43398,37.80422],[-122.43303,37.80491],[-122.43284,37.80503],[-122.43268,37.80515],[-122.43236,37.80542],[-122.43226,37.80549],[-122.43217,37.80554],[-122.43192,37.80573],[-122.43172,37.80587],[-122.43166,37.8059],[-122.43157,37.80596],[-122.43139,37.80613],[-122.43128,37.80622],[-122.43123,37.80625],[-122.43118,37.8063],[-122.43088,37.80646],[-122.43082,37.80651],[-122.43047,37.80674],[-122.43038,37.80681],[-122.43022,37.80687],[-122.43013,37.80694],[-122.43012,37.80701],[-122.43013,37.80709],[-122.43016,37.80716],[-122.43009,37.80717],[-122.43002,37.80719],[-122.42995,37.80722],[-122.42986,37.8073],[-122.4298,37.80737],[-122.42981,37.80747],[-122.42984,37.80753],[-122.42984,37.80758],[-122.42982,37.80763],[-122.42975,37.80767],[-122.42967,37.8077],[-122.42949,37.8077],[-122.42945,37.80774],[-122.42942,37.80785],[-122.42934,37.80785],[-122.42924,37.80782],[-122.42916,37.80782],[-122.42907,37.80785],[-122.42898,37.80791],[-122.42891,37.80797],[-122.42887,37.80803],[-122.42875,37.80802],[-122.4287,37.80807],[-122.42851,37.80808],[-122.42839,37.80811],[-122.4283,37.80816],[-122.42821,37.80824],[-122.42816,37.80831],[-122.42811,37.80828],[-122.428,37.80826],[-122.42779,37.80825],[-122.42774,37.80828],[-122.42768,37.80828],[-122.42761,37.80825],[-122.42751,37.80824],[-122.42744,37.80826],[-122.42735,37.80823],[-122.42726,37.80823],[-122.42715,37.80819],[-122.42712,37.80814],[-122.42703,37.80812],[-122.42695,37.80809],[-122.4269,37.80804],[-122.42673,37.80791],[-122.42671,37.80785],[-122.42666,37.80776],[-122.42656,37.80764],[-122.42654,37.80759],[-122.42654,37.80751],[-122.42657,37.80744],[-122.42661,37.80739],[-122.4266,37.80719],[-122.42657,37.80709],[-122.4265,37.807],[-122.42643,37.80694],[-122.42636,37.80692],[-122.42622,37.80695],[-122.42615,37.80689],[-122.42612,37.80684],[-122.42608,37.80677],[-122.42608,37.80667],[-122.42603,37.80663],[-122.42594,37.80661],[-122.42585,37.80661],[-122.42579,37.80659],[-122.42575,37.80656],[-122.42571,37.80647],[-122.42565,37.80644],[-122.42554,37.80644],[-122.42547,37.80646],[-122.42539,37.80642],[-122.42538,37.80636],[-122.4254,37.80621],[-122.42533,37.80617],[-122.42528,37.80601],[-122.42528,37.80588],[-122.42525,37.80579],[-122.42518,37.80577],[-122.42508,37.80579],[-122.42506,37.80585],[-122.42484,37.80587],[-122.42472,37.80586],[-122.42442,37.80586],[-122.42414,37.80593],[-122.42397,37.806],[-122.42381,37.80605],[-122.42322,37.80618],[-122.42308,37.80621],[-122.42288,37.80624],[-122.4228,37.80626],[-122.42271,37.80627],[-122.42258,37.8063],[-122.42237,37.80632],[-122.4223,37.80632],[-122.42211,37.80635],[-122.42175,37.80642],[-122.42123,37.80659],[-122.42109,37.80659],[-122.42095,37.80661],[-122.42076,37.80665],[-122.42056,37.80679],[-122.42035,37.80692],[-122.42026,37.80696],[-122.42018,37.80701],[-122.4201,37.8071],[-122.42006,37.80704],[-122.42002,37.807],[-122.42,37.80695],[-122.41995,37.80691],[-122.41986,37.80692],[-122.41978,37.80692],[-122.4197,37.80682],[-122.41962,37.80679],[-122.41954,37.80681],[-122.41956,37.80656],[-122.41958,37.80648],[-122.41955,37.80643],[-122.41946,37.80635],[-122.41941,37.80626],[-122.41944,37.8062],[-122.41944,37.8061],[-122.4194,37.80604],[-122.41933,37.806],[-122.41927,37.80593],[-122.41922,37.80585],[-122.4192,37.80579],[-122.41915,37.80573],[-122.41868,37.80542],[-122.41853,37.80536],[-122.41831,37.80534],[-122.41808,37.80534],[-122.41782,37.80532],[-122.41779,37.8052],[-122.41772,37.80508],[-122.41737,37.80465],[-122.41735,37.80454],[-122.41738,37.80445],[-122.41736,37.80432],[-122.41732,37.80424],[-122.41714,37.8041],[-122.41695,37.80416],[-122.41696,37.80407],[-122.41654,37.80377],[-122.4164,37.8037],[-122.41623,37.80365],[-122.416,37.80364],[-122.41569,37.8036],[-122.41557,37.80366],[-122.41538,37.80374],[-122.41523,37.80377],[-122.4151,37.80381],[-122.41499,37.80391],[-122.41486,37.80398],[-122.41474,37.80393],[-122.41464,37.80393],[-122.4145,37.80396],[-122.41435,37.80396],[-122.41416,37.80402],[-122.41405,37.80404],[-122.41407,37.80417],[-122.41401,37.80427],[-122.41396,37.80418],[-122.41379,37.80412],[-122.41348,37.80425],[-122.41331,37.80435],[-122.41324,37.80446],[-122.41283,37.80457],[-122.41269,37.80458],[-122.41216,37.80483],[-122.41173,37.80497],[-122.41162,37.80498],[-122.4116,37.80523],[-122.41149,37.80498],[-122.41122,37.80503],[-122.41105,37.8051],[-122.41091,37.80511],[-122.41076,37.80516],[-122.41068,37.80522],[-122.41056,37.80525],[-122.41046,37.80531],[-122.41018,37.80552],[-122.41005,37.80553],[-122.41005,37.80562],[-122.41009,37.80578],[-122.4101,37.80587],[-122.40999,37.8059],[-122.40996,37.80586],[-122.40991,37.80568],[-122.4099,37.80552],[-122.40981,37.80547],[-122.40972,37.80555],[-122.40968,37.80556],[-122.4097,37.80563],[-122.4097,37.8057],[-122.40966,37.80572],[-122.40961,37.80572],[-122.40957,37.80557],[-122.40924,37.80565],[-122.40913,37.80573],[-122.40892,37.80573],[-122.40887,37.80578],[-122.40881,37.80582],[-122.4087,37.80586],[-122.40866,37.80582],[-122.40862,37.8058],[-122.40856,37.8058],[-122.40852,37.80582],[-122.4085,37.80587],[-122.40842,37.80594],[-122.40836,37.80596],[-122.40827,37.80593],[-122.40819,37.80594],[-122.40815,37.80597],[-122.40811,37.80594],[-122.4081,37.80589],[-122.40806,37.80588],[-122.408,37.80588],[-122.40796,37.80593],[-122.40795,37.80596],[-122.40783,37.80599],[-122.40773,37.80605],[-122.4077,37.80612],[-122.4077,37.80618],[-122.40772,37.80629],[-122.4077,37.80634],[-122.40765,37.80635],[-122.4076,37.80632],[-122.40757,37.80626],[-122.40751,37.8062],[-122.40749,37.80615],[-122.40745,37.80612],[-122.40736,37.80609],[-122.4073,37.80608],[-122.40707,37.80605],[-122.40693,37.80604],[-122.4068,37.80599],[-122.40676,37.80595],[-122.40674,37.8059],[-122.40674,37.80583],[-122.40671,37.80571],[-122.40671,37.80565],[-122.40667,37.80559],[-122.40667,37.80554],[-122.40669,37.8055],[-122.40675,37.8055],[-122.40676,37.80541],[-122.40671,37.80535],[-122.40657,37.80533],[-122.40649,37.80531],[-122.40645,37.80524],[-122.40638,37.805],[-122.40617,37.80488],[-122.40604,37.80476],[-122.40579,37.80462],[-122.40569,37.80454],[-122.40562,37.80452],[-122.40553,37.80451],[-122.40531,37.80454],[-122.40518,37.80454],[-122.40511,37.80451],[-122.40503,37.80452],[-122.40495,37.80451],[-122.4049,37.80442],[-122.40486,37.80437],[-122.40474,37.80435],[-122.40453,37.80438],[-122.40445,37.80436],[-122.40444,37.80433],[-122.40438,37.8043],[-122.4043,37.80433],[-122.40427,37.80431],[-122.40416,37.80402],[-122.40409,37.80392],[-122.40397,37.80382],[-122.40383,37.80378],[-122.40356,37.80377],[-122.40351,37.80376],[-122.40347,37.80364],[-122.40346,37.80358],[-122.40347,37.80351],[-122.40348,37.80347],[-122.40351,37.80342],[-122.40357,37.80339],[-122.40359,37.80335],[-122.40359,37.8033],[-122.40353,37.8032],[-122.40348,37.80317],[-122.4034,37.80315],[-122.40332,37.80315],[-122.40323,37.80316],[-122.40316,37.80318],[-122.40315,37.80316],[-122.4032,37.80313],[-122.40322,37.80309],[-122.40303,37.80303],[-122.40297,37.80299],[-122.40293,37.80294],[-122.4029,37.80282],[-122.40277,37.80266],[-122.40262,37.8025],[-122.40256,37.80241],[-122.40235,37.8022],[-122.40225,37.80216],[-122.40221,37.80211],[-122.40211,37.8021],[-122.40207,37.80203],[-122.40201,37.80198],[-122.40193,37.80194],[-122.40188,37.80189],[-122.40183,37.80187],[-122.40176,37.8019],[-122.40177,37.80196],[-122.402,37.8023],[-122.40194,37.80233],[-122.40166,37.80193],[-122.40163,37.80182],[-122.4016,37.80162],[-122.4016,37.80152],[-122.40159,37.80148],[-122.40156,37.80145],[-122.40151,37.80145],[-122.40145,37.80147],[-122.40139,37.80147],[-122.4014,37.80141],[-122.40143,37.80136],[-122.40154,37.80128],[-122.40155,37.80123],[-122.40153,37.80117],[-122.40148,37.80114],[-122.40141,37.80117],[-122.40138,37.8012],[-122.40131,37.80118],[-122.40129,37.80113],[-122.40129,37.80103],[-122.40124,37.80099],[-122.40119,37.80101],[-122.40114,37.801],[-122.4011,37.80097],[-122.40101,37.80094],[-122.40095,37.80094],[-122.40086,37.80089],[-122.40081,37.80087],[-122.40075,37.80086],[-122.4006,37.80073],[-122.40042,37.8007],[-122.40042,37.80062],[-122.4004,37.80056],[-122.4003,37.80052],[-122.4002,37.80051],[-122.40015,37.80049],[-122.40014,37.80037],[-122.40015,37.80033],[-122.4002,37.80028],[-122.40023,37.80026],[-122.40029,37.80024],[-122.4004,37.80026],[-122.40046,37.80022],[-122.40052,37.8002],[-122.40066,37.8002],[-122.40069,37.80016],[-122.40074,37.80013],[-122.40081,37.80013],[-122.40086,37.80009],[-122.40087,37.8],[-122.40071,37.80002],[-122.40064,37.79981],[-122.40057,37.79972],[-122.3997,37.79982],[-122.39967,37.79968],[-122.40097,37.79957],[-122.40089,37.79948],[-122.40084,37.79945],[-122.40082,37.79942],[-122.40088,37.79933],[-122.40092,37.79921],[-122.40092,37.79916],[-122.40087,37.79912],[-122.40063,37.79916],[-122.4005,37.79917],[-122.40038,37.79917],[-122.40027,37.79907],[-122.40003,37.79904],[-122.39989,37.79831],[-122.3978415,37.7985067],[-122.397825,37.7984076],[-122.39958,37.79823],[-122.39986,37.79819],[-122.39978,37.79778],[-122.39973,37.79747],[-122.39951,37.79746],[-122.39887,37.79754],[-122.39749,37.79767],[-122.39657,37.79777],[-122.39655,37.79766],[-122.398,37.7975],[-122.39848,37.79744],[-122.39842,37.79707],[-122.39936,37.79697],[-122.39935,37.79673],[-122.39921,37.79601],[-122.39915,37.79574],[-122.3991,37.79557],[-122.39812,37.79564],[-122.39802,37.795],[-122.39785,37.79499],[-122.39792,37.79459],[-122.39791,37.79449],[-122.3978,37.79447],[-122.39601,37.79462],[-122.39488,37.79475],[-122.39467,37.79486],[-122.39411,37.79532],[-122.39392,37.79543],[-122.39385,37.79535],[-122.39464,37.79472],[-122.39478,37.79462],[-122.39628,37.79449],[-122.39743,37.79435],[-122.39787,37.79428],[-122.39785,37.79419],[-122.39781,37.79411],[-122.39778,37.79405],[-122.39772,37.79398],[-122.39754,37.79392],[-122.39735,37.7939],[-122.39725,37.79393],[-122.39717,37.79397],[-122.39707,37.79396],[-122.39663,37.79398],[-122.39647,37.79326],[-122.39645,37.79324],[-122.39637,37.79324],[-122.39625,37.79326],[-122.39597,37.79329],[-122.39597,37.79341],[-122.39583,37.79342],[-122.39576,37.7933],[-122.39557,37.79331],[-122.39394,37.79455],[-122.39383,37.79447],[-122.39499,37.79356],[-122.39551,37.79319],[-122.39607,37.79276],[-122.39599,37.79267],[-122.39746,37.79159],[-122.39763,37.79145],[-122.39738,37.79124],[-122.39726,37.79125],[-122.39688,37.791],[-122.39689,37.79088],[-122.39711,37.79074],[-122.39724,37.79085],[-122.39762,37.79108],[-122.39786,37.79121],[-122.39793,37.79115],[-122.39737,37.79066],[-122.3971,37.79049],[-122.39669,37.79006],[-122.39713,37.78974],[-122.39692,37.78958],[-122.39648,37.78993],[-122.3963,37.78981],[-122.39578,37.78939],[-122.39545,37.78916],[-122.39522,37.78892],[-122.39506,37.78881],[-122.39474,37.78864],[-122.39427,37.78846],[-122.39417,37.7885],[-122.39398,37.78831],[-122.39365,37.78834],[-122.39345,37.78829],[-122.39326,37.78827],[-122.39292,37.78828],[-122.39262,37.78831],[-122.39254,37.78835],[-122.39249,37.78841],[-122.39261,37.78853],[-122.39252,37.78856],[-122.39237,37.78847],[-122.39229,37.78855],[-122.39218,37.78861],[-122.39207,37.78865],[-122.39198,37.78865],[-122.39189,37.78863],[-122.39188,37.78855],[-122.39202,37.78851],[-122.39208,37.78846],[-122.39208,37.78839],[-122.39198,37.78834],[-122.3917,37.78845],[-122.39072,37.78872],[-122.39059,37.78883],[-122.39059,37.78891],[-122.39053,37.78897],[-122.3905,37.78904],[-122.39051,37.7891],[-122.39054,37.78916],[-122.3905,37.78922],[-122.3904,37.78926],[-122.3903,37.78929],[-122.39004,37.78931],[-122.38991,37.78927],[-122.38955,37.78902],[-122.38923,37.78886],[-122.38908,37.78881],[-122.38901,37.78877],[-122.38896,37.78861],[-122.38895,37.7885],[-122.38887,37.78841],[-122.38883,37.78834],[-122.38883,37.78823],[-122.38885,37.78815],[-122.38889,37.78807],[-122.38895,37.78796],[-122.38903,37.78793],[-122.38929,37.78786],[-122.38945,37.78774],[-122.38971,37.78726],[-122.38982,37.7871],[-122.38994,37.78695],[-122.38995,37.78681],[-122.39001,37.78659],[-122.39001,37.78638],[-122.39003,37.78623],[-122.39006,37.78613],[-122.39006,37.78605],[-122.39004,37.78599],[-122.39011,37.78594],[-122.39019,37.78592],[-122.39031,37.78596],[-122.39043,37.78591],[-122.3905,37.7858],[-122.3905,37.78567],[-122.3906,37.78557],[-122.39068,37.78546],[-122.39073,37.78533],[-122.39064,37.78523],[-122.39065,37.785],[-122.39055,37.78494],[-122.3907,37.78489],[-122.39069,37.78455],[-122.39072,37.7844],[-122.3907,37.78429],[-122.3907,37.78419],[-122.39072,37.7841],[-122.39081,37.78389],[-122.39089,37.78381],[-122.39094,37.78374],[-122.39097,37.78359],[-122.39111,37.78332],[-122.39113,37.78323],[-122.39121,37.78315],[-122.39124,37.78306],[-122.39122,37.78286],[-122.39132,37.7828],[-122.39139,37.78255],[-122.39141,37.78235],[-122.3914,37.78226],[-122.39136,37.78208],[-122.3914,37.78199],[-122.39138,37.78187],[-122.39116,37.7815],[-122.39095,37.78124],[-122.39069,37.78117],[-122.39059,37.78111],[-122.39054,37.781],[-122.39048,37.78092],[-122.3904,37.78084],[-122.39031,37.78083],[-122.39018,37.7808],[-122.39007,37.7808],[-122.39009,37.78064],[-122.39009,37.78054],[-122.39004,37.78038],[-122.38982,37.78024],[-122.3898,37.78017],[-122.38982,37.78006],[-122.38987,37.77992],[-122.38999,37.77971],[-122.39032,37.77929],[-122.39052,37.77896],[-122.39066,37.77866],[-122.39072,37.77856],[-122.39099,37.77837],[-122.3911,37.77826],[-122.39126,37.77817],[-122.39138,37.77814],[-122.39141,37.77795],[-122.39153,37.7778],[-122.39163,37.77759],[-122.39201,37.77717],[-122.39208,37.77704],[-122.39212,37.77692],[-122.39211,37.77681],[-122.39217,37.77672],[-122.39228,37.77661],[-122.39233,37.77647],[-122.39234,37.77635],[-122.39246,37.77629],[-122.39278,37.77626],[-122.39289,37.7763],[-122.39298,37.7764],[-122.39306,37.7766],[-122.39346,37.77693],[-122.39405,37.77749],[-122.39426,37.77762],[-122.39462,37.77772],[-122.39488,37.77778],[-122.39526,37.77785],[-122.3954,37.77786],[-122.39554,37.77786],[-122.39596,37.77782],[-122.39606,37.77782],[-122.39608,37.77789],[-122.39603,37.77796],[-122.39592,37.77799],[-122.39583,37.778],[-122.39567,37.778],[-122.3954,37.77798],[-122.39523,37.77795],[-122.39492,37.77792],[-122.39484,37.77794],[-122.39486,37.778],[-122.39504,37.77819],[-122.39507,37.77827],[-122.39511,37.77834],[-122.39528,37.77854],[-122.39536,37.77874],[-122.39551,37.77898],[-122.39557,37.77906],[-122.39559,37.77916],[-122.3956,37.77943],[-122.39564,37.77952],[-122.39569,37.7796],[-122.39577,37.77976],[-122.39586,37.78001],[-122.39592,37.78012],[-122.396,37.78021],[-122.39634,37.78037],[-122.39665,37.78042],[-122.39676,37.78046],[-122.39693,37.7805],[-122.39718,37.78064],[-122.39731,37.78075],[-122.39734,37.78082],[-122.39737,37.78094],[-122.39744,37.78112],[-122.39747,37.78117],[-122.39754,37.78123],[-122.39762,37.78122],[-122.39772,37.78116],[-122.39789,37.78115],[-122.39813,37.7812],[-122.39824,37.78123],[-122.3985,37.7812],[-122.39879,37.7812],[-122.39895,37.78119],[-122.39913,37.78115],[-122.39945,37.78115],[-122.39953,37.78112],[-122.39975,37.78107],[-122.39984,37.78107],[-122.40038,37.78101],[-122.40063,37.78101],[-122.40082,37.781],[-122.40097,37.78096],[-122.40108,37.78091],[-122.4012,37.78084],[-122.40141,37.78089],[-122.40153,37.78088],[-122.40163,37.78083],[-122.40175,37.78082],[-122.40186,37.78079],[-122.40194,37.78075],[-122.402,37.78068],[-122.40214,37.78064],[-122.4025,37.78056],[-122.40276,37.78048],[-122.40283,37.78045],[-122.40296,37.78043],[-122.4031,37.78039],[-122.40317,37.78033],[-122.40321,37.78027],[-122.40326,37.78017],[-122.40331,37.78013],[-122.40337,37.78021],[-122.40344,37.78027],[-122.40352,37.78032],[-122.40361,37.78032],[-122.40367,37.78027],[-122.40374,37.78024],[-122.40387,37.78024],[-122.40396,37.78025],[-122.40416,37.78016],[-122.40424,37.78014],[-122.40431,37.7801],[-122.40439,37.78009],[-122.40455,37.78011],[-122.40503,37.77994],[-122.40518,37.77991],[-122.40538,37.7799],[-122.40551,37.77988],[-122.40561,37.7799],[-122.4057,37.77995],[-122.40582,37.77995],[-122.40597,37.77992],[-122.40607,37.77988],[-122.40618,37.77981],[-122.40629,37.77979],[-122.4064,37.77979],[-122.40654,37.77977],[-122.40663,37.77978],[-122.40672,37.77975],[-122.40681,37.77973],[-122.40713,37.77971],[-122.40724,37.77967],[-122.40734,37.77962],[-122.4076,37.77955],[-122.40797,37.77947],[-122.40808,37.77944],[-122.40836,37.77943],[-122.4086,37.77939],[-122.40877,37.77938],[-122.40884,37.77934],[-122.4089,37.77929],[-122.40898,37.77933],[-122.40909,37.77933],[-122.40921,37.77932],[-122.40932,37.7793],[-122.40939,37.77932],[-122.40951,37.77932],[-122.40978,37.77927],[-122.40991,37.77927],[-122.41001,37.7793],[-122.41012,37.77935],[-122.41071,37.77944],[-122.41078,37.7795],[-122.41085,37.77952],[-122.41095,37.77951],[-122.4111,37.77946],[-122.41135,37.77933],[-122.41183,37.77915],[-122.41215,37.77913],[-122.41224,37.77914],[-122.41237,37.77917],[-122.41255,37.77926],[-122.41263,37.77926],[-122.41253,37.77916],[-122.41247,37.77908],[-122.41244,37.77901],[-122.41252,37.77895],[-122.41261,37.77894],[-122.41275,37.77891],[-122.41297,37.77884],[-122.41299,37.77878],[-122.4127,37.77861],[-122.41262,37.7786],[-122.4124,37.77851],[-122.41218,37.77847],[-122.41199,37.77845],[-122.41191,37.77845],[-122.41177,37.77849],[-122.41164,37.77843],[-122.41164,37.7783],[-122.41166,37.77822],[-122.41159,37.77819],[-122.41147,37.77817],[-122.41126,37.77815],[-122.41118,37.77812],[-122.41108,37.77805],[-122.41089,37.77794],[-122.41084,37.77788],[-122.41095,37.77781],[-122.41116,37.77776],[-122.41124,37.77776],[-122.41122,37.7777],[-122.41109,37.77768],[-122.411,37.7776],[-122.41086,37.77755],[-122.41071,37.77753],[-122.41041,37.77741],[-122.41025,37.77741],[-122.4101,37.77735],[-122.40986,37.77733],[-122.40964,37.77729],[-122.4094,37.7772],[-122.40929,37.77718],[-122.40889,37.77718],[-122.40881,37.77719],[-122.40865,37.77717],[-122.40838,37.77723],[-122.40829,37.77727],[-122.40811,37.77733],[-122.40799,37.7773],[-122.40789,37.77729],[-122.40779,37.77732],[-122.40771,37.77732],[-122.40756,37.77729],[-122.40741,37.77725],[-122.40727,37.77723],[-122.40719,37.77721],[-122.40709,37.7772],[-122.40697,37.77721],[-122.40685,37.77721],[-122.40664,37.77719],[-122.40642,37.77719],[-122.4062,37.77718],[-122.40551,37.77718],[-122.40521,37.7772],[-122.40494,37.77717],[-122.40474,37.77724],[-122.40461,37.77725],[-122.40447,37.77725],[-122.40433,37.77727],[-122.40423,37.7773],[-122.40401,37.77731],[-122.40382,37.77738],[-122.40314,37.77753],[-122.40304,37.77757],[-122.40288,37.77755],[-122.40272,37.7775],[-122.40248,37.77744],[-122.40216,37.77739],[-122.4017,37.7774],[-122.40158,37.77738],[-122.40142,37.77733],[-122.40125,37.77729],[-122.4008,37.77701],[-122.40067,37.77691],[-122.40054,37.77678],[-122.40037,37.77656],[-122.40033,37.77648],[-122.40008,37.77626],[-122.39991,37.77609],[-122.39976,37.77589],[-122.3997,37.77579],[-122.39968,37.77572],[-122.39968,37.77566],[-122.3997,37.7756],[-122.39982,37.77564],[-122.39989,37.77561],[-122.39997,37.77551],[-122.4,37.77541],[-122.40014,37.77532],[-122.40008,37.77513],[-122.4001,37.775],[-122.40026,37.77492],[-122.40042,37.77494],[-122.40052,37.77507],[-122.40054,37.7752],[-122.40058,37.77531],[-122.40065,37.77539],[-122.40066,37.77559],[-122.4007,37.7757],[-122.40078,37.77581],[-122.40099,37.77591],[-122.40111,37.77595],[-122.40133,37.77609],[-122.40141,37.77613],[-122.40176,37.77616],[-122.40187,37.77613],[-122.40196,37.77609],[-122.40206,37.77606],[-122.4022,37.77598],[-122.40229,37.77598],[-122.40237,37.776],[-122.40247,37.77604],[-122.40256,37.77606],[-122.40273,37.77613],[-122.4028,37.77615],[-122.40296,37.77615],[-122.40304,37.77614],[-122.40317,37.77615],[-122.40326,37.77618],[-122.40339,37.77625],[-122.40366,37.77637],[-122.40374,37.77642],[-122.40387,37.77648],[-122.4041,37.77651],[-122.4043,37.77652],[-122.40454,37.77656],[-122.40488,37.7766],[-122.40506,37.77665],[-122.40538,37.77679],[-122.40558,37.77683],[-122.40574,37.77681],[-122.40588,37.77673],[-122.40597,37.77669],[-122.40614,37.77664],[-122.40635,37.77664],[-122.40656,37.7766],[-122.40675,37.7766],[-122.40686,37.77664],[-122.40702,37.77668],[-122.40711,37.77665],[-122.4073,37.77657],[-122.40743,37.77654],[-122.40757,37.77656],[-122.40768,37.77661],[-122.4078,37.77665],[-122.408,37.77666],[-122.40814,37.77671],[-122.40825,37.77677],[-122.40838,37.77671],[-122.40853,37.7767],[-122.40868,37.7767],[-122.40881,37.77671],[-122.40892,37.77673],[-122.40901,37.77676],[-122.40953,37.77673],[-122.4098,37.77676],[-122.4099,37.77674],[-122.41004,37.77674],[-122.41013,37.77673],[-122.41031,37.77679],[-122.41049,37.77683],[-122.41061,37.77682],[-122.41076,37.77682],[-122.41103,37.77686],[-122.41133,37.77686],[-122.41145,37.77689],[-122.41162,37.77695],[-122.41176,37.77705],[-122.41186,37.77708],[-122.4119,37.77699],[-122.4119,37.77691],[-122.41201,37.77677],[-122.41205,37.77668],[-122.41203,37.77659],[-122.41192,37.7764],[-122.41193,37.77634],[-122.41197,37.77628],[-122.41203,37.77625],[-122.41228,37.77618],[-122.41232,37.77613],[-122.41238,37.77609],[-122.41261,37.77599],[-122.41261,37.77591],[-122.41252,37.77588],[-122.41244,37.77587],[-122.41237,37.7759],[-122.41226,37.77591],[-122.41213,37.77591],[-122.41202,37.77589],[-122.41189,37.77589],[-122.41179,37.77586],[-122.4117,37.7758],[-122.41136,37.77568],[-122.41127,37.77566],[-122.41121,37.77561],[-122.41103,37.77556],[-122.41103,37.77548],[-122.41095,37.77544],[-122.41085,37.77545],[-122.41066,37.77541],[-122.41037,37.77542],[-122.40997,37.77538],[-122.40976,37.77533],[-122.4096,37.77532],[-122.40922,37.77532],[-122.40895,37.7753],[-122.40882,37.7753],[-122.40866,37.77534],[-122.40852,37.77534],[-122.4084,37.77529],[-122.4083,37.77529],[-122.40819,37.7753],[-122.40799,37.77526],[-122.40778,37.77524],[-122.40769,37.7752],[-122.40743,37.77517],[-122.40725,37.77517],[-122.40691,37.77522],[-122.40685,37.77515],[-122.40674,37.77517],[-122.40652,37.77515],[-122.40629,37.77516],[-122.40616,37.77519],[-122.40603,37.77521],[-122.4059,37.77526],[-122.40577,37.77529],[-122.40562,37.77534],[-122.40552,37.77533],[-122.40541,37.77528],[-122.40525,37.77528],[-122.40518,37.77529],[-122.40503,37.77528],[-122.40487,37.77525],[-122.40473,37.77521],[-122.40441,37.77505],[-122.40427,37.775],[-122.40411,37.77498],[-122.40396,37.77499],[-122.40373,37.77496],[-122.40347,37.77494],[-122.40312,37.77494],[-122.40287,37.77492],[-122.40278,37.7749],[-122.40265,37.77493],[-122.40255,37.77497],[-122.40241,37.77501],[-122.4023,37.77503],[-122.40217,37.77504],[-122.40195,37.77511],[-122.40187,37.77515],[-122.40176,37.77518],[-122.40169,37.77516],[-122.40156,37.77505],[-122.40153,37.77499],[-122.40141,37.77484],[-122.4014,37.77478],[-122.40136,37.77473],[-122.40123,37.77468],[-122.40116,37.77463],[-122.40108,37.77449],[-122.40099,37.77442],[-122.40088,37.77435],[-122.40084,37.7743],[-122.40076,37.77414],[-122.40076,37.774],[-122.40085,37.77394],[-122.40089,37.77388],[-122.40096,37.77386],[-122.40106,37.77389],[-122.40116,37.77389],[-122.40135,37.7738],[-122.40142,37.77383],[-122.40155,37.77387],[-122.40162,37.77384],[-122.40165,37.77378],[-122.40159,37.77364],[-122.40158,37.77356],[-122.40161,37.77347],[-122.40161,37.77339],[-122.40155,37.77331],[-122.40151,37.77321],[-122.40151,37.77313],[-122.40154,37.77304],[-122.40159,37.77294],[-122.40163,37.77283],[-122.40172,37.77277],[-122.40175,37.77269],[-122.40179,37.77264],[-122.40183,37.77261],[-122.40194,37.7726],[-122.40202,37.77257],[-122.40208,37.77242],[-122.40218,37.77229],[-122.40227,37.77224],[-122.40239,37.77219],[-122.40255,37.77209],[-122.4027,37.77203],[-122.40308,37.77192],[-122.4032,37.77192],[-122.40334,37.7719],[-122.40358,37.77185],[-122.40367,37.7718],[-122.40389,37.7717],[-122.40396,37.77164],[-122.40407,37.77165],[-122.4044,37.77156],[-122.40454,37.77154],[-122.40463,37.77156],[-122.4048,37.77157],[-122.40518,37.77157],[-122.40535,37.77154],[-122.40547,37.77158],[-122.40567,37.77156],[-122.40579,37.77152],[-122.40588,37.77147],[-122.40603,37.77142],[-122.40617,37.77135],[-122.40636,37.77127],[-122.40653,37.77124],[-122.40667,37.77117],[-122.40687,37.77104],[-122.40696,37.77099],[-122.40713,37.77099],[-122.40721,37.77091],[-122.40753,37.7708],[-122.40759,37.77073],[-122.40773,37.77071],[-122.40807,37.77078],[-122.4082,37.7708],[-122.4085,37.77075],[-122.40879,37.77067],[-122.40893,37.77062],[-122.40909,37.77053],[-122.40926,37.77045],[-122.40935,37.77036],[-122.40945,37.77032],[-122.40955,37.77022],[-122.40977,37.77013],[-122.41002,37.77001],[-122.41032,37.76993],[-122.41055,37.76989],[-122.41065,37.76988],[-122.41097,37.76988],[-122.41118,37.76979],[-122.41151,37.76979],[-122.41168,37.7698],[-122.41188,37.7698],[-122.41202,37.76975],[-122.41231,37.7697],[-122.41241,37.7697],[-122.41267,37.76961],[-122.41276,37.76954],[-122.41287,37.76947],[-122.41297,37.76942],[-122.41319,37.76934],[-122.41333,37.76924],[-122.41359,37.76909],[-122.41382,37.76904],[-122.41386,37.76896],[-122.41408,37.76892],[-122.41428,37.76886],[-122.41438,37.76881],[-122.41447,37.76879],[-122.41457,37.76875],[-122.41464,37.76868],[-122.41487,37.76857],[-122.41498,37.76856],[-122.4151,37.7685],[-122.4153,37.76837],[-122.41543,37.76833],[-122.41559,37.76813],[-122.4159,37.76799],[-122.41596,37.7679],[-122.41593,37.76782],[-122.41591,37.76772],[-122.41593,37.76762],[-122.41593,37.76753],[-122.416,37.76742],[-122.41608,37.76735],[-122.4161,37.76724],[-122.4161,37.76712],[-122.41611,37.76704],[-122.4162,37.76694],[-122.41629,37.76688],[-122.41636,37.76678],[-122.41631,37.76654],[-122.4162,37.76638],[-122.41604,37.76624],[-122.41581,37.76615],[-122.41563,37.76597],[-122.41552,37.76582],[-122.41536,37.76569],[-122.41517,37.76542],[-122.41509,37.76513],[-122.41506,37.76499],[-122.41507,37.76486],[-122.41522,37.76457],[-122.41565,37.76412],[-122.41588,37.76391],[-122.416,37.76388],[-122.41611,37.76383],[-122.41626,37.76367],[-122.41646,37.7636],[-122.41662,37.76351],[-122.417,37.76339],[-122.4172,37.76338],[-122.41762,37.76323],[-122.41848,37.76314],[-122.41866,37.76314],[-122.41884,37.76311],[-122.41897,37.76314],[-122.41906,37.76317],[-122.41919,37.76315],[-122.41923,37.76302],[-122.41929,37.76291],[-122.4194,37.76281],[-122.41956,37.7627],[-122.41979,37.76258],[-122.42025,37.76246],[-122.42043,37.76239],[-122.42059,37.76213],[-122.42084,37.76176],[-122.42104,37.76158],[-122.42114,37.76147],[-122.42121,37.76136],[-122.42108,37.76132],[-122.42095,37.76133],[-122.42062,37.76138],[-122.42052,37.76136],[-122.42036,37.7613],[-122.42025,37.76125],[-122.42003,37.76129],[-122.4199,37.76138],[-122.41966,37.7616],[-122.4196,37.76175],[-122.41947,37.76187],[-122.4193,37.76192],[-122.41916,37.76195],[-122.41903,37.76202],[-122.41894,37.76205],[-122.41874,37.76204],[-122.41863,37.76201],[-122.41845,37.76202],[-122.41832,37.76205],[-122.41818,37.7621],[-122.4177,37.7621],[-122.41739,37.76206],[-122.4172,37.76202],[-122.41703,37.76194],[-122.41691,37.76193],[-122.41681,37.76188],[-122.4166,37.76186],[-122.41643,37.76186],[-122.41605,37.7619],[-122.41589,37.76191],[-122.41566,37.76194],[-122.41546,37.7619],[-122.4153,37.76179],[-122.41519,37.76165],[-122.41517,37.76146],[-122.41518,37.761],[-122.41509,37.76078],[-122.41499,37.76062],[-122.41493,37.76054],[-122.41479,37.76044],[-122.4147,37.76041],[-122.41364,37.76017],[-122.41342,37.76007],[-122.41325,37.75989],[-122.41314,37.75961],[-122.41282,37.75947],[-122.41243,37.75927],[-122.4123,37.75913],[-122.41215,37.75891],[-122.41205,37.7588],[-122.41196,37.7586],[-122.41189,37.75847],[-122.41181,37.75871],[-122.41164,37.75891],[-122.41157,37.75915],[-122.41155,37.75926],[-122.41154,37.75949],[-122.41156,37.75958],[-122.41163,37.7597],[-122.4118,37.75983],[-122.41201,37.75992],[-122.41223,37.76003],[-122.4125,37.76027],[-122.41255,37.76032],[-122.41259,37.76039],[-122.41259,37.76048],[-122.41261,37.76058],[-122.41258,37.76067],[-122.41247,37.76083],[-122.4121,37.76103],[-122.41202,37.76109],[-122.41198,37.76115],[-122.41202,37.76123],[-122.41229,37.76117],[-122.41251,37.7611],[-122.41271,37.76108],[-122.41293,37.76107],[-122.41316,37.76107],[-122.4135,37.76111],[-122.41362,37.7611],[-122.41371,37.76114],[-122.41379,37.7612],[-122.41398,37.76146],[-122.41396,37.76175],[-122.41399,37.76184],[-122.41403,37.76191],[-122.41405,37.76198],[-122.41394,37.76217],[-122.41393,37.76224],[-122.41393,37.76237],[-122.41395,37.76249],[-122.414,37.76261],[-122.41407,37.76274],[-122.41416,37.76287],[-122.41417,37.76294],[-122.41408,37.76312],[-122.41401,37.76321],[-122.41392,37.76329],[-122.41386,37.76337],[-122.41376,37.76402],[-122.41373,37.7641],[-122.41372,37.76416],[-122.41378,37.76432],[-122.4137,37.76448],[-122.41367,37.76456],[-122.41363,37.76464],[-122.41358,37.76471],[-122.41352,37.76476],[-122.41347,37.76483],[-122.41336,37.76505],[-122.41325,37.76512],[-122.41317,37.76527],[-122.41313,37.76537],[-122.41296,37.76556],[-122.4129,37.7656],[-122.41285,37.76574],[-122.41278,37.76586],[-122.41275,37.76593],[-122.41273,37.76604],[-122.41269,37.76611],[-122.41267,37.76625],[-122.41258,37.76654],[-122.41258,37.76668],[-122.41251,37.76689],[-122.4124,37.76717],[-122.41239,37.76723],[-122.41233,37.76736],[-122.41226,37.7676],[-122.41227,37.76779],[-122.41229,37.76787],[-122.41231,37.76804],[-122.41234,37.76811],[-122.41236,37.76821],[-122.41238,37.76837],[-122.41238,37.76846],[-122.41229,37.76861],[-122.41222,37.76878],[-122.41208,37.76897],[-122.41196,37.76908],[-122.41191,37.76911],[-122.41184,37.76912],[-122.41169,37.76908],[-122.4116,37.76911],[-122.41151,37.76912],[-122.41137,37.76918],[-122.41131,37.76925],[-122.41124,37.7693],[-122.41115,37.76932],[-122.411,37.7693],[-122.41077,37.76921],[-122.41069,37.76921],[-122.41051,37.76923],[-122.41015,37.76911],[-122.40997,37.76903],[-122.40977,37.76898],[-122.4096,37.76902],[-122.40951,37.76905],[-122.40937,37.76905],[-122.40927,37.76901],[-122.40915,37.76895],[-122.40901,37.76896],[-122.40885,37.76892],[-122.40854,37.76891],[-122.40845,37.76889],[-122.40836,37.76883],[-122.40817,37.76865],[-122.40807,37.76859],[-122.408,37.76858],[-122.40788,37.76853],[-122.40769,37.7685],[-122.40748,37.76836],[-122.40728,37.76825],[-122.40721,37.76818],[-122.40713,37.76815],[-122.40702,37.76813],[-122.40695,37.76813],[-122.40688,37.76819],[-122.40679,37.7683],[-122.40671,37.7685],[-122.40663,37.76857],[-122.4065,37.76859],[-122.40636,37.76859],[-122.40613,37.76853],[-122.40563,37.76842],[-122.40509,37.76824],[-122.40481,37.76813],[-122.40462,37.76804],[-122.40452,37.76798],[-122.40446,37.7679],[-122.40443,37.76782],[-122.40445,37.76776],[-122.40456,37.76768],[-122.40476,37.7676],[-122.40494,37.76744],[-122.40501,37.76739],[-122.40519,37.76732],[-122.40541,37.7672],[-122.40552,37.76713],[-122.40558,37.76703],[-122.40557,37.76693],[-122.4054,37.76661],[-122.40534,37.76644],[-122.40532,37.76633],[-122.40523,37.76626],[-122.40508,37.76631],[-122.40498,37.76639],[-122.40482,37.76657],[-122.40466,37.76672],[-122.40445,37.76683],[-122.40424,37.76692],[-122.40408,37.76697],[-122.40394,37.76696],[-122.40387,37.76697],[-122.40384,37.7669],[-122.40385,37.76682],[-122.40392,37.76674],[-122.40406,37.76653],[-122.40406,37.76641],[-122.40402,37.76632],[-122.40393,37.76628],[-122.40384,37.76628],[-122.40378,37.76635],[-122.4037,37.76656],[-122.40365,37.76662],[-122.4035,37.76674],[-122.40337,37.76687],[-122.40296,37.76706],[-122.40287,37.76708],[-122.40278,37.76713],[-122.40275,37.76721],[-122.40268,37.76725],[-122.40256,37.76728],[-122.40243,37.76723],[-122.40237,37.76716],[-122.40244,37.76694],[-122.40254,37.76669],[-122.40258,37.76653],[-122.40257,37.76634],[-122.40251,37.76625],[-122.40242,37.7662],[-122.40234,37.76621],[-122.40219,37.76631],[-122.40214,37.76637],[-122.40212,37.76644],[-122.40192,37.76667],[-122.40169,37.76687],[-122.40165,37.76692],[-122.40158,37.76693],[-122.4015,37.76696],[-122.40142,37.76697],[-122.40089,37.7665],[-122.4008,37.76649],[-122.40071,37.76645],[-122.40056,37.76643],[-122.40048,37.7664],[-122.40036,37.76634],[-122.40027,37.76631],[-122.40024,37.76622],[-122.40032,37.76622],[-122.4007,37.76615],[-122.40089,37.76606],[-122.40099,37.76597],[-122.40121,37.76592],[-122.40131,37.76587],[-122.40144,37.76587],[-122.40179,37.76581],[-122.40195,37.76577],[-122.4022,37.76566],[-122.40236,37.76547],[-122.4024,37.76538],[-122.40236,37.76529],[-122.4023,37.76519],[-122.40225,37.76513],[-122.40214,37.76491],[-122.4021,37.76477],[-122.40209,37.7647],[-122.40205,37.76465],[-122.40201,37.76458],[-122.40194,37.76438],[-122.40188,37.76432],[-122.4018,37.76429],[-122.40169,37.76428],[-122.40161,37.7643],[-122.40153,37.76434],[-122.40139,37.76444],[-122.40116,37.7645],[-122.40097,37.76464],[-122.40032,37.76518],[-122.39986,37.76546],[-122.39969,37.76559],[-122.39932,37.7658],[-122.39925,37.76581],[-122.39916,37.76578],[-122.39912,37.76572],[-122.39918,37.76562],[-122.39927,37.76542],[-122.39937,37.76527],[-122.39949,37.76516],[-122.39963,37.76494],[-122.39972,37.76471],[-122.39981,37.76443],[-122.39988,37.76412],[-122.3999,37.76393],[-122.39987,37.76375],[-122.3998,37.76361],[-122.39973,37.76359],[-122.39958,37.76378],[-122.3995,37.76392],[-122.39918,37.76416],[-122.39904,37.76422],[-122.39877,37.76439],[-122.39861,37.76451],[-122.39848,37.76465],[-122.39841,37.7647],[-122.39826,37.76479],[-122.39816,37.76482],[-122.39778,37.76487],[-122.39765,37.76495],[-122.39754,37.76505],[-122.39741,37.76519],[-122.39734,37.76519],[-122.39724,37.76521],[-122.39713,37.76521],[-122.39703,37.76519],[-122.39686,37.76514],[-122.39674,37.76512],[-122.39665,37.76508],[-122.39655,37.76505],[-122.39636,37.76509],[-122.396,37.76511],[-122.39587,37.76511],[-122.39576,37.76513],[-122.39551,37.76513],[-122.3953,37.76517],[-122.39519,37.76517],[-122.39475,37.76499],[-122.39464,37.7649],[-122.39453,37.76486],[-122.39445,37.76482],[-122.39418,37.76475],[-122.39416,37.76463],[-122.3943,37.76438],[-122.39432,37.76427],[-122.3943,37.7642],[-122.39426,37.76411],[-122.39415,37.76408],[-122.39401,37.76406],[-122.39384,37.76398],[-122.39366,37.76393],[-122.39339,37.76382],[-122.39329,37.7638],[-122.39316,37.7638],[-122.39299,37.76386],[-122.39295,37.76395],[-122.39288,37.76405],[-122.39277,37.76409],[-122.39264,37.76408],[-122.39249,37.76404],[-122.39224,37.76392],[-122.39202,37.76395],[-122.39194,37.76394],[-122.39189,37.76391],[-122.39175,37.76388],[-122.3916,37.76379],[-122.39149,37.7637],[-122.39138,37.76371],[-122.39126,37.76375],[-122.39109,37.76383],[-122.391,37.76386],[-122.3909,37.76401],[-122.39072,37.76438],[-122.39069,37.76446],[-122.3905,37.76468],[-122.39041,37.76475],[-122.39025,37.76485],[-122.39016,37.76492],[-122.38999,37.76502],[-122.3898,37.76515],[-122.38981,37.76525],[-122.38984,37.76532],[-122.38991,37.76542],[-122.38994,37.7655],[-122.38995,37.76557],[-122.38989,37.76577],[-122.38987,37.76589],[-122.3897,37.76592],[-122.38962,37.76603],[-122.38949,37.7661],[-122.3894,37.76608],[-122.38931,37.76605],[-122.38921,37.76599],[-122.38915,37.76594],[-122.38906,37.76599],[-122.38892,37.76598],[-122.38834,37.76583],[-122.38818,37.76578],[-122.3881,37.76574],[-122.38803,37.76573],[-122.38792,37.76573],[-122.38776,37.76575],[-122.38756,37.76583],[-122.38739,37.76592],[-122.38732,37.76593],[-122.38721,37.76591],[-122.38716,37.76582],[-122.38725,37.76572],[-122.38736,37.76564],[-122.38748,37.76563],[-122.38769,37.76565],[-122.3878,37.76565],[-122.38789,37.76559],[-122.38818,37.76557],[-122.38825,37.76551],[-122.38836,37.76545],[-122.38846,37.76526],[-122.38848,37.76502],[-122.38855,37.76459],[-122.38865,37.76413],[-122.38862,37.76393],[-122.38872,37.76242],[-122.38871,37.76205],[-122.38863,37.76177],[-122.38844,37.76147],[-122.38826,37.76133],[-122.38809,37.76115],[-122.38791,37.76083],[-122.38737,37.7607],[-122.3871,37.7606],[-122.38702,37.76056],[-122.38702,37.76038],[-122.38694,37.76016],[-122.38685,37.76001],[-122.38679,37.75987],[-122.38671,37.75977],[-122.38653,37.75966],[-122.38648,37.75952],[-122.38638,37.75942],[-122.38617,37.75931],[-122.386,37.75925],[-122.3858,37.75921],[-122.38555,37.75921],[-122.38546,37.75923],[-122.38532,37.75934],[-122.38527,37.7594],[-122.38516,37.75938],[-122.38496,37.75938],[-122.38486,37.75938],[-122.38473,37.7594],[-122.38468,37.75944],[-122.38464,37.75949],[-122.38457,37.75951],[-122.38454,37.75956],[-122.38452,37.75963],[-122.38451,37.75975],[-122.38445,37.75979],[-122.38434,37.75975],[-122.38426,37.75963],[-122.38419,37.75956],[-122.3841,37.75949],[-122.38401,37.75945],[-122.38388,37.75943],[-122.38373,37.75943],[-122.38363,37.75941],[-122.38342,37.75939],[-122.38318,37.75939],[-122.3831,37.7593],[-122.38296,37.75918],[-122.38284,37.75911],[-122.38261,37.75902],[-122.38249,37.75898],[-122.38237,37.75895],[-122.38231,37.75891],[-122.38224,37.75882],[-122.38224,37.7587],[-122.38219,37.75856],[-122.38207,37.75841],[-122.38204,37.7583],[-122.38207,37.7582],[-122.38208,37.75809],[-122.38205,37.75801],[-122.38198,37.75794],[-122.38172,37.7578],[-122.38163,37.75773],[-122.3816,37.75766],[-122.38161,37.75758],[-122.38213,37.75741],[-122.38221,37.75732],[-122.38224,37.75723],[-122.38224,37.75716],[-122.38222,37.75705],[-122.38225,37.75695],[-122.38244,37.75678],[-122.38259,37.75668],[-122.38272,37.75657],[-122.38275,37.75649],[-122.38298,37.75615],[-122.38302,37.75605],[-122.38287,37.75575],[-122.38276,37.75562],[-122.38265,37.75555],[-122.38249,37.75551],[-122.38237,37.75546],[-122.38223,37.75539],[-122.38209,37.75526],[-122.38212,37.75511],[-122.38224,37.75514],[-122.38243,37.75511],[-122.38263,37.75499],[-122.38301,37.755],[-122.38309,37.7549],[-122.38329,37.75489],[-122.38337,37.75485],[-122.3834,37.75475],[-122.38352,37.75462],[-122.38407,37.75487],[-122.38457,37.75504],[-122.38472,37.75515],[-122.38492,37.75526],[-122.38527,37.75536],[-122.38533,37.75542],[-122.38533,37.75553],[-122.38545,37.75566],[-122.38571,37.75582],[-122.38584,37.75591],[-122.38605,37.75601],[-122.3862,37.75607],[-122.38634,37.75612],[-122.38642,37.75614],[-122.38673,37.75608],[-122.38711,37.75599],[-122.38725,37.75591],[-122.38742,37.7558],[-122.38754,37.75571],[-122.38766,37.75561],[-122.38782,37.75544],[-122.38802,37.75529],[-122.38808,37.7552],[-122.38819,37.75521],[-122.38825,37.75525],[-122.3883,37.75533],[-122.38834,37.75542],[-122.3884,37.7555],[-122.38844,37.75558],[-122.38863,37.75575],[-122.38872,37.75581],[-122.38903,37.75595],[-122.38912,37.75597],[-122.38921,37.75596],[-122.38932,37.75592],[-122.3894,37.75579],[-122.38946,37.75574],[-122.38952,37.75561],[-122.38956,37.75546],[-122.38956,37.75539],[-122.38952,37.75527],[-122.38948,37.7552],[-122.38946,37.75513],[-122.38946,37.75503],[-122.38945,37.75496],[-122.38938,37.7549],[-122.38926,37.75474],[-122.38919,37.75467],[-122.38904,37.75456],[-122.389,37.75449],[-122.38908,37.75433],[-122.38924,37.75417],[-122.3893,37.75405],[-122.38942,37.75394],[-122.38946,37.75389],[-122.38952,37.75381],[-122.38959,37.75367],[-122.38968,37.7536],[-122.38987,37.75342],[-122.38993,37.75335],[-122.39,37.75316],[-122.39011,37.75299],[-122.39016,37.75282],[-122.39018,37.75267],[-122.39011,37.75253],[-122.38991,37.75228],[-122.38977,37.75216],[-122.38973,37.752],[-122.38973,37.75189],[-122.38971,37.75182],[-122.38973,37.75171],[-122.38973,37.75161],[-122.38982,37.7514],[-122.38984,37.75133],[-122.38995,37.75133],[-122.39006,37.75137],[-122.39012,37.75141],[-122.3902,37.75143],[-122.3903,37.75144],[-122.39037,37.75148],[-122.39083,37.75162],[-122.39102,37.75156],[-122.39115,37.75151],[-122.39125,37.7514],[-122.39134,37.75135],[-122.39138,37.75129],[-122.39141,37.75121],[-122.39141,37.75102],[-122.39149,37.75092],[-122.3915,37.75085],[-122.3915,37.7507],[-122.39145,37.75056],[-122.39141,37.7505],[-122.39135,37.75036],[-122.39137,37.75028],[-122.39148,37.75031],[-122.39159,37.75036],[-122.3917,37.75035],[-122.39181,37.75028],[-122.39189,37.7501],[-122.39191,37.74998],[-122.39188,37.74969],[-122.39186,37.74959],[-122.39186,37.74952],[-122.39191,37.74944],[-122.39196,37.74939],[-122.39204,37.74935],[-122.39212,37.74928],[-122.39224,37.74921],[-122.39242,37.74934],[-122.39262,37.74946],[-122.39287,37.74967],[-122.39291,37.7496],[-122.39298,37.74952],[-122.39306,37.74955],[-122.39324,37.74959],[-122.39334,37.74959],[-122.39354,37.74952],[-122.3938,37.74946],[-122.39397,37.74949],[-122.39424,37.74945],[-122.39442,37.7494],[-122.39453,37.74938],[-122.39466,37.74938],[-122.39473,37.74921],[-122.39469,37.74906],[-122.3946,37.74897],[-122.39453,37.74892],[-122.39445,37.74888],[-122.39432,37.74876],[-122.3943,37.74866],[-122.39421,37.74852],[-122.39388,37.74837],[-122.39362,37.74824],[-122.39362,37.74819],[-122.39365,37.74807],[-122.39367,37.74788],[-122.39372,37.74773],[-122.39403,37.74777],[-122.3942063,37.7479563],[-122.392963,37.7394293],[-122.39271,37.73943],[-122.39251,37.7394],[-122.39228,37.73938],[-122.3918,37.73939],[-122.39165,37.73937],[-122.39129,37.73927],[-122.39104,37.73919],[-122.39084,37.73917],[-122.39045,37.73918],[-122.39028,37.7392],[-122.38991,37.7393],[-122.38971,37.73934],[-122.38958,37.73934],[-122.38947,37.73933],[-122.38933,37.7393],[-122.38924,37.73929],[-122.38901,37.73929],[-122.38878,37.73936],[-122.38866,37.73938],[-122.38856,37.73938],[-122.38847,37.73939],[-122.38838,37.73941],[-122.38828,37.73942],[-122.38818,37.73945],[-122.38794,37.73958],[-122.38782,37.73966],[-122.38771,37.73975],[-122.38757,37.73984],[-122.38739,37.73992],[-122.38726,37.73992],[-122.38714,37.7399],[-122.38697,37.7399],[-122.38678,37.73994],[-122.38667,37.73992],[-122.38654,37.73988],[-122.38626,37.7399],[-122.38612,37.73992],[-122.38601,37.73995],[-122.38587,37.73997],[-122.38578,37.74],[-122.38514,37.74008],[-122.38494,37.74015],[-122.38462,37.74018],[-122.38453,37.74022],[-122.38423,37.74033],[-122.3839,37.74036],[-122.38379,37.74035],[-122.38366,37.7404],[-122.38341,37.74042],[-122.38317,37.74037],[-122.38302,37.74031],[-122.38269,37.74035],[-122.38257,37.74032],[-122.38249,37.74025],[-122.38241,37.7402],[-122.38209,37.74007],[-122.38202,37.74001],[-122.38197,37.73995],[-122.38184,37.73976],[-122.38178,37.73956],[-122.38173,37.73947],[-122.38176,37.73931],[-122.3818,37.73922],[-122.38179,37.73915],[-122.38176,37.73907],[-122.38176,37.73901],[-122.38154,37.73881],[-122.38128,37.73851],[-122.38104,37.73832],[-122.38089,37.73822],[-122.38079,37.73811],[-122.38035,37.73796],[-122.38013,37.73795],[-122.37991,37.738],[-122.37978,37.73816],[-122.3795,37.73801],[-122.37935,37.73787],[-122.37925,37.73782],[-122.37914,37.7378],[-122.37903,37.73777],[-122.37894,37.7377],[-122.37881,37.73768],[-122.37866,37.73768],[-122.37857,37.73761],[-122.37846,37.73756],[-122.37832,37.73759],[-122.37822,37.73766],[-122.37817,37.73774],[-122.37807,37.7378],[-122.37791,37.73785],[-122.37783,37.73776],[-122.37777,37.73752],[-122.37771,37.73745],[-122.37748,37.73734],[-122.37735,37.7373],[-122.37716,37.73731],[-122.37632,37.73743],[-122.37622,37.7374],[-122.37593,37.73723],[-122.37565,37.73701],[-122.37558,37.73687],[-122.37547,37.73679],[-122.3754,37.73675],[-122.37535,37.73669],[-122.37532,37.73663],[-122.3753,37.73652],[-122.37538,37.73646],[-122.37548,37.73643],[-122.37567,37.73643],[-122.37575,37.73642],[-122.37588,37.73633],[-122.37589,37.73612],[-122.37593,37.73587],[-122.37593,37.73568],[-122.37586,37.73548],[-122.37582,37.73542],[-122.37575,37.73534],[-122.37562,37.73525],[-122.37555,37.73519],[-122.37553,37.73494],[-122.37544,37.73488],[-122.37541,37.73479],[-122.37553,37.73476],[-122.37566,37.73469],[-122.37569,37.73461],[-122.37569,37.73451],[-122.37565,37.73439],[-122.37564,37.73431],[-122.37551,37.73419],[-122.37558,37.73411],[-122.37566,37.73405],[-122.37574,37.73394],[-122.37584,37.73374],[-122.37605,37.73328],[-122.37607,37.73319],[-122.37606,37.7331],[-122.37602,37.73301],[-122.376,37.73293],[-122.37586,37.73281],[-122.37583,37.73272],[-122.37576,37.73262],[-122.37565,37.73247],[-122.37549,37.73229],[-122.37525,37.73197],[-122.37519,37.73185],[-122.37509,37.73173],[-122.37499,37.73164],[-122.37469,37.73145],[-122.37452,37.7313],[-122.37431,37.73118],[-122.37414,37.73102],[-122.3738,37.73089],[-122.37363,37.73079],[-122.3734,37.73061],[-122.37305,37.73046],[-122.37274,37.73034],[-122.3724,37.73023],[-122.37209,37.73014],[-122.37185,37.73008],[-122.37159,37.7299],[-122.37135,37.72982],[-122.37077,37.72965],[-122.37025,37.7296],[-122.36986,37.72954],[-122.36958,37.72955],[-122.3694,37.72957],[-122.36922,37.72957],[-122.36901,37.72961],[-122.36875,37.72971],[-122.36862,37.72977],[-122.36853,37.72983],[-122.36854,37.72999],[-122.36862,37.73006],[-122.36865,37.73015],[-122.36853,37.7302],[-122.36835,37.73012],[-122.36814,37.73004],[-122.36781,37.72999],[-122.36756,37.72989],[-122.36728,37.72986],[-122.36717,37.72978],[-122.36713,37.72964],[-122.36714,37.72933],[-122.36712,37.72924],[-122.36707,37.7291],[-122.36695,37.72902],[-122.36678,37.72881],[-122.36655,37.72863],[-122.36636,37.72852],[-122.36624,37.72844],[-122.36609,37.72841],[-122.36595,37.7284],[-122.3658,37.7284],[-122.36565,37.72836],[-122.3653,37.7283],[-122.36508,37.72821],[-122.36478,37.72821],[-122.3645,37.72807],[-122.36411,37.72802],[-122.36387,37.72804],[-122.36344,37.72796],[-122.36293,37.72793],[-122.36255,37.728],[-122.36227,37.72801],[-122.36204,37.72804],[-122.36186,37.72814],[-122.36176,37.72825],[-122.36177,37.72844],[-122.36164,37.72843],[-122.36151,37.72833],[-122.36139,37.7282],[-122.36124,37.72809],[-122.36116,37.72797],[-122.36104,37.72776],[-122.36099,37.7275],[-122.36099,37.72733],[-122.36094,37.72717],[-122.36092,37.72704],[-122.36092,37.72694],[-122.36096,37.72683],[-122.36106,37.72671],[-122.3611,37.72652],[-122.36112,37.72627],[-122.36112,37.72619],[-122.36104,37.72604],[-122.36101,37.7259],[-122.36083,37.72603],[-122.36073,37.72612],[-122.36057,37.72622],[-122.36019,37.72651],[-122.35965,37.72685],[-122.35931,37.72705],[-122.359,37.72721],[-122.35856,37.72739],[-122.35834,37.72746],[-122.35851,37.72747],[-122.35863,37.72749],[-122.35876,37.72749],[-122.35888,37.7275],[-122.35905,37.72763],[-122.35956,37.72776],[-122.35971,37.72788],[-122.36046,37.72822],[-122.36041,37.7283],[-122.36035,37.72836],[-122.36023,37.72842],[-122.36004,37.72832],[-122.35977,37.72838],[-122.35967,37.72834],[-122.35954,37.7284],[-122.35937,37.72832],[-122.35919,37.7284],[-122.35905,37.72832],[-122.3589,37.72837],[-122.3588,37.72834],[-122.3587,37.72835],[-122.35862,37.7284],[-122.35852,37.72844],[-122.35828,37.72856],[-122.35812,37.72851],[-122.35796,37.72845],[-122.35784,37.7284],[-122.35772,37.72833],[-122.35779,37.72825],[-122.35779,37.72818],[-122.35782,37.72794],[-122.3578,37.72787],[-122.3578,37.72774],[-122.35772,37.72763],[-122.35757,37.7275],[-122.35753,37.72739],[-122.35766,37.7274],[-122.35785,37.72747],[-122.35799,37.72748],[-122.35811,37.72741],[-122.35822,37.72738],[-122.35892,37.72712],[-122.35904,37.72705],[-122.35961,37.72677],[-122.35987,37.72659],[-122.36004,37.72645],[-122.36029,37.72628],[-122.3604,37.72622],[-122.36055,37.72608],[-122.36065,37.72603],[-122.36073,37.72596],[-122.36079,37.72588],[-122.36097,37.72574],[-122.36109,37.72561],[-122.36114,37.72551],[-122.36115,37.72546],[-122.3612,37.72537],[-122.36121,37.72528],[-122.36119,37.72519],[-122.36095,37.72502],[-122.36074,37.72475],[-122.36068,37.72464],[-122.36071,37.72458],[-122.36084,37.72446],[-122.36091,37.72442],[-122.36102,37.72434],[-122.36115,37.72426],[-122.36125,37.72422],[-122.36142,37.72418],[-122.36168,37.72402],[-122.36175,37.72369],[-122.36169,37.7236],[-122.36158,37.72356],[-122.36142,37.72346],[-122.36135,37.72337],[-122.36137,37.7233],[-122.36137,37.72323],[-122.36135,37.72316],[-122.3613,37.72306],[-122.36128,37.72298],[-122.36128,37.72283],[-122.36131,37.72276],[-122.36133,37.72267],[-122.36137,37.72261],[-122.36144,37.72256],[-122.36153,37.72253],[-122.36172,37.72252],[-122.36183,37.72247],[-122.36191,37.72245],[-122.36202,37.72245],[-122.36211,37.72247],[-122.3624,37.72249],[-122.36261,37.72254],[-122.3629,37.72264],[-122.36302,37.72264],[-122.36316,37.72266],[-122.36324,37.7227],[-122.36334,37.72278],[-122.36338,37.72286],[-122.36344,37.72295],[-122.3637,37.72315],[-122.36381,37.72322],[-122.3639,37.72332],[-122.36393,37.72352],[-122.36405,37.72369],[-122.3641,37.72374],[-122.36413,37.72381],[-122.36418,37.72386],[-122.36431,37.72403],[-122.36444,37.72411],[-122.36464,37.72419],[-122.36474,37.72421],[-122.36486,37.72417],[-122.36496,37.72418],[-122.36509,37.72428],[-122.36542,37.72421],[-122.36549,37.72421],[-122.3656,37.72419],[-122.36573,37.7242],[-122.36597,37.7242],[-122.3662,37.72417],[-122.3663,37.72413],[-122.3664,37.7241],[-122.36651,37.72408],[-122.3667,37.72402],[-122.36678,37.72396],[-122.36717,37.72377],[-122.36723,37.72373],[-122.36731,37.7236],[-122.36738,37.72355],[-122.36747,37.72352],[-122.36757,37.72345],[-122.36763,37.72338],[-122.36776,37.7234],[-122.36804,37.72356],[-122.36829,37.72361],[-122.3684,37.72359],[-122.36852,37.72358],[-122.36865,37.72366],[-122.36878,37.72377],[-122.36901,37.72376],[-122.36909,37.72382],[-122.36926,37.72382],[-122.36942,37.72392],[-122.36947,37.72399],[-122.36966,37.72401],[-122.36975,37.72404],[-122.36985,37.72411],[-122.3699,37.72416],[-122.36997,37.72418],[-122.37014,37.72419],[-122.37027,37.72418],[-122.37033,37.72412],[-122.37042,37.72411],[-122.37048,37.72419],[-122.37055,37.72425],[-122.37057,37.72432],[-122.37055,37.72437],[-122.37055,37.72463],[-122.37068,37.72475],[-122.37072,37.72481],[-122.37078,37.72487],[-122.3709,37.72502],[-122.37094,37.72509],[-122.37108,37.72516],[-122.37124,37.72518],[-122.37146,37.72522],[-122.37153,37.72526],[-122.37163,37.7253],[-122.37175,37.72532],[-122.37186,37.72528],[-122.3722,37.72522],[-122.3723,37.72518],[-122.37237,37.72514],[-122.37247,37.72512],[-122.37268,37.7251],[-122.37299,37.72504],[-122.37306,37.72499],[-122.37316,37.72495],[-122.37321,37.72502],[-122.37324,37.72509],[-122.37327,37.72527],[-122.37321,37.7256],[-122.37326,37.72574],[-122.37339,37.72596],[-122.37359,37.72608],[-122.37395,37.72622],[-122.37411,37.72624],[-122.37426,37.7263],[-122.37466,37.72643],[-122.37522,37.72654],[-122.37545,37.72655],[-122.37564,37.72655],[-122.37591,37.72651],[-122.37622,37.72645],[-122.37658,37.72635],[-122.37691,37.72622],[-122.37718,37.72615],[-122.37731,37.72602],[-122.37745,37.72596],[-122.37814,37.72557],[-122.3783,37.72552],[-122.37845,37.72553],[-122.37861,37.72553],[-122.37884,37.72548],[-122.37914,37.7254],[-122.37924,37.72535],[-122.37933,37.72526],[-122.37939,37.72517],[-122.37945,37.72503],[-122.37951,37.72512],[-122.37952,37.72522],[-122.37946,37.72533],[-122.37933,37.72549],[-122.37922,37.72555],[-122.3791,37.72559],[-122.37901,37.72561],[-122.37874,37.72565],[-122.37849,37.72568],[-122.37833,37.72572],[-122.37811,37.72579],[-122.37803,37.72586],[-122.37798,37.72595],[-122.37808,37.72604],[-122.37819,37.72609],[-122.37831,37.72608],[-122.37843,37.72609],[-122.37878,37.72616],[-122.37899,37.72618],[-122.37918,37.72621],[-122.37938,37.72621],[-122.37953,37.72626],[-122.3797,37.72633],[-122.37993,37.72638],[-122.38009,37.72639],[-122.38047,37.7263],[-122.38079,37.7263],[-122.38119,37.72633],[-122.38151,37.72631],[-122.38172,37.72627],[-122.38187,37.72617],[-122.38194,37.72606],[-122.38195,37.72597],[-122.38195,37.72584],[-122.38192,37.72577],[-122.3819,37.72566],[-122.38178,37.72548],[-122.38156,37.72519],[-122.38141,37.72508],[-122.38126,37.72501],[-122.3812,37.72495],[-122.38111,37.72482],[-122.38112,37.72472],[-122.38115,37.72463],[-122.38116,37.72456],[-122.38122,37.72445],[-122.38127,37.72425],[-122.38134,37.7242],[-122.38133,37.72405],[-122.38128,37.72396],[-122.38142,37.72399],[-122.38154,37.72403],[-122.3818,37.72405],[-122.38193,37.72405],[-122.38207,37.72404],[-122.38224,37.72401],[-122.38239,37.72401],[-122.38276,37.72406],[-122.38289,37.7241],[-122.38297,37.72415],[-122.38306,37.72422],[-122.38326,37.72433],[-122.38328,37.72442],[-122.38334,37.72457],[-122.38338,37.72471],[-122.38342,37.7248],[-122.38344,37.72487],[-122.38344,37.72499],[-122.38348,37.72509],[-122.3835,37.7252],[-122.38355,37.72528],[-122.38368,37.72533],[-122.38379,37.72539],[-122.38385,37.72547],[-122.38393,37.72562],[-122.3841,37.72567],[-122.38417,37.72567],[-122.38429,37.72571],[-122.38444,37.72573],[-122.3845,37.72578],[-122.38461,37.72593],[-122.38462,37.72601],[-122.38471,37.72604],[-122.38493,37.72609],[-122.38514,37.72617],[-122.38524,37.72625],[-122.38535,37.72631],[-122.38542,37.72636],[-122.38566,37.72658],[-122.38592,37.72671],[-122.38607,37.72676],[-122.38624,37.72674],[-122.38661,37.72667],[-122.38673,37.72657],[-122.38684,37.72654],[-122.38699,37.72648],[-122.38714,37.72646],[-122.3872,37.72647],[-122.38728,37.72647],[-122.38739,37.72651],[-122.38754,37.72652],[-122.38772,37.72655],[-122.38779,37.72657],[-122.3879,37.72658],[-122.38802,37.72661],[-122.3881,37.72664],[-122.38819,37.72669],[-122.38826,37.72671],[-122.38852,37.72677],[-122.38857,37.72677],[-122.38873,37.72679],[-122.38878,37.72681],[-122.38889,37.72681],[-122.389,37.7268],[-122.3891,37.72678],[-122.38939,37.7267],[-122.38964,37.72666],[-122.38989,37.72665],[-122.39004,37.72667],[-122.39018,37.7267],[-122.39027,37.72668],[-122.39036,37.72665],[-122.39046,37.72663],[-122.39057,37.72662],[-122.3907,37.72659],[-122.39075,37.72663],[-122.39092,37.72661],[-122.39099,37.72662],[-122.39114,37.72661],[-122.39121,37.72662],[-122.39146,37.72662],[-122.39158,37.72658],[-122.39172,37.72658],[-122.3918,37.72656],[-122.39187,37.72656],[-122.39192,37.72655],[-122.3921,37.72644],[-122.3922,37.7264],[-122.39228,37.72634],[-122.39233,37.72632],[-122.3924,37.72618],[-122.39247,37.7261],[-122.39257,37.72604],[-122.3927,37.72598],[-122.39279,37.7259],[-122.39282,37.72583],[-122.39281,37.72576],[-122.39277,37.72563],[-122.39277,37.72555],[-122.39272,37.7254],[-122.39252,37.72511],[-122.39248,37.72494],[-122.39246,37.72489],[-122.3924,37.72481],[-122.39219,37.72464],[-122.39183,37.72446],[-122.3917,37.72442],[-122.39165,37.72438],[-122.39151,37.7243],[-122.39147,37.72425],[-122.39143,37.72422],[-122.39142,37.72418],[-122.39136,37.72411],[-122.39103,37.72358],[-122.39093,37.7234],[-122.39084,37.72332],[-122.39076,37.72323],[-122.39048,37.72302],[-122.39034,37.7229],[-122.39025,37.72275],[-122.39019,37.72261],[-122.39015,37.72247],[-122.39014,37.72235],[-122.39018,37.72227],[-122.39024,37.72219],[-122.39045,37.72204],[-122.39067,37.72194],[-122.39071,37.72187],[-122.3907,37.72181],[-122.39065,37.72178],[-122.3905,37.7218],[-122.39039,37.72179],[-122.39027,37.72181],[-122.39018,37.72181],[-122.39007,37.72183],[-122.38988,37.72183],[-122.3895,37.72173],[-122.38922,37.72163],[-122.38913,37.72161],[-122.38905,37.72161],[-122.38897,37.72163],[-122.38871,37.72163],[-122.38824,37.72166],[-122.38809,37.72165],[-122.3875,37.72169],[-122.38704,37.72169],[-122.38673,37.72162],[-122.38662,37.72158],[-122.38648,37.72156],[-122.38633,37.72156],[-122.38625,37.72146],[-122.38623,37.72142],[-122.38623,37.72137],[-122.38626,37.72131],[-122.38626,37.72128],[-122.38624,37.72124],[-122.3862,37.7212],[-122.38611,37.72119],[-122.38599,37.72108],[-122.38595,37.72094],[-122.38586,37.7209],[-122.38575,37.7208],[-122.38564,37.72067],[-122.38548,37.72057],[-122.3854,37.72045],[-122.3853,37.72038],[-122.38514,37.72034],[-122.38501,37.72023],[-122.38459,37.72005],[-122.38449,37.72002],[-122.38391,37.72016],[-122.38374,37.72017],[-122.38364,37.72009],[-122.38353,37.71997],[-122.38353,37.71987],[-122.38367,37.7197],[-122.38375,37.71962],[-122.38386,37.7196],[-122.38407,37.71962],[-122.3842,37.7196],[-122.38436,37.71956],[-122.38455,37.71944],[-122.38472,37.71927],[-122.38505,37.71908],[-122.38526,37.71887],[-122.38534,37.71883],[-122.38541,37.71882],[-122.38585,37.71871],[-122.38609,37.71863],[-122.3863,37.71857],[-122.38644,37.71851],[-122.38656,37.71848],[-122.38668,37.71846],[-122.38677,37.71843],[-122.38683,37.71838],[-122.38707,37.71834],[-122.38718,37.71831],[-122.38728,37.71826],[-122.38729,37.71818],[-122.38737,37.71783],[-122.38758,37.7177],[-122.38778,37.71759],[-122.38787,37.71749],[-122.38792,37.71739],[-122.38793,37.71728],[-122.38792,37.7172],[-122.38785,37.71704],[-122.38766,37.71691],[-122.38756,37.71682],[-122.38742,37.71672],[-122.38735,37.71669],[-122.38723,37.71666],[-122.38714,37.71658],[-122.38706,37.71647],[-122.38709,37.71639],[-122.38715,37.71628],[-122.38719,37.71617],[-122.3873,37.71608],[-122.38737,37.716],[-122.3874,37.71592],[-122.3874,37.71582],[-122.38735,37.71561],[-122.38735,37.71548],[-122.38724,37.71541],[-122.38714,37.71536],[-122.38708,37.71529],[-122.38701,37.71525],[-122.38694,37.71507],[-122.38679,37.71498],[-122.38675,37.71482],[-122.38666,37.71473],[-122.38661,37.71463],[-122.38653,37.71458],[-122.38633,37.7144],[-122.38623,37.71433],[-122.38617,37.71427],[-122.38597,37.71419],[-122.38586,37.71412],[-122.3857,37.71408],[-122.38562,37.71401],[-122.38546,37.7138],[-122.38527,37.71366],[-122.38496,37.71353],[-122.38483,37.71357],[-122.38478,37.71352],[-122.38471,37.71342],[-122.38463,37.71334],[-122.38449,37.71329],[-122.38428,37.71332],[-122.3842,37.71332],[-122.38414,37.71322],[-122.38411,37.71309],[-122.38405,37.713],[-122.38399,37.71294],[-122.38398,37.71283],[-122.38401,37.71271],[-122.38409,37.71248],[-122.38418,37.71233],[-122.38439,37.71222],[-122.3845,37.71212],[-122.38461,37.71206],[-122.38472,37.71186],[-122.38489,37.71176],[-122.38499,37.71169],[-122.3851,37.71163],[-122.38516,37.71157],[-122.3854,37.71145],[-122.38552,37.71137],[-122.38571,37.7112],[-122.3858,37.71116],[-122.38595,37.71111],[-122.38606,37.71106],[-122.38623,37.71103],[-122.38631,37.71097],[-122.38641,37.71087],[-122.38646,37.7108],[-122.38651,37.71075],[-122.38668,37.71063],[-122.38681,37.71055],[-122.38688,37.7104],[-122.38698,37.71037],[-122.38734,37.71036],[-122.38749,37.7103],[-122.38765,37.71032],[-122.3879,37.71021],[-122.38804,37.71016],[-122.38828,37.71009],[-122.3884,37.71007],[-122.38865,37.70998],[-122.38888,37.71002],[-122.38899,37.71001],[-122.38911,37.70998],[-122.38923,37.70997],[-122.38936,37.70998],[-122.38952,37.70997],[-122.38965,37.70993],[-122.38977,37.70993],[-122.38985,37.70989],[-122.38995,37.70988],[-122.39009,37.70988],[-122.39033,37.70977],[-122.3905,37.70972],[-122.39065,37.70961],[-122.39084,37.70939],[-122.3911,37.70916],[-122.39127,37.70902],[-122.39139,37.70895],[-122.39155,37.70876],[-122.39166,37.70866],[-122.39179,37.70858],[-122.39197,37.70842],[-122.39212,37.70833],[-122.39224,37.7082],[-122.39227,37.70814],[-122.39234,37.70808],[-122.39241,37.70795],[-122.39247,37.70789],[-122.39252,37.70786],[-122.39268,37.70772],[-122.39292,37.70748],[-122.393,37.70742],[-122.39308,37.70738],[-122.39313,37.70732],[-122.39319,37.70729],[-122.39329,37.70721],[-122.39338,37.70709],[-122.39358,37.707],[-122.39365,37.70695],[-122.39371,37.70692],[-122.39375,37.70688],[-122.39681,37.70619],[-122.39681,37.685],[-122.348,37.685],[-122.348,37.906],[-122.397,37.906],[-122.44665,37.906],[-122.44665,37.90101],[-122.44838,37.89217],[-122.44845,37.8921],[-122.44847,37.892],[-122.44846,37.89192],[-122.44828,37.89182],[-122.44819,37.89164],[-122.44807,37.89155],[-122.44791,37.89147],[-122.44786,37.89139],[-122.44764,37.89127],[-122.44762,37.89119],[-122.44759,37.89114],[-122.44753,37.89108],[-122.44753,37.89095],[-122.44755,37.89081],[-122.44761,37.89077],[-122.44761,37.89069],[-122.44758,37.8905],[-122.44772,37.89038],[-122.44773,37.89021],[-122.44763,37.88999],[-122.44756,37.88991],[-122.44757,37.88977],[-122.44746,37.88968],[-122.44739,37.88954],[-122.44733,37.88938],[-122.44721,37.88924],[-122.44695,37.88899],[-122.44669,37.88886],[-122.44635,37.88878],[-122.44621,37.8887],[-122.44617,37.88863],[-122.44612,37.88847],[-122.44602,37.8884],[-122.44594,37.88836],[-122.44583,37.88825],[-122.44579,37.8882],[-122.44573,37.8881],[-122.44563,37.88799],[-122.44539,37.88783],[-122.44533,37.88775],[-122.44523,37.88787],[-122.44514,37.8878],[-122.44499,37.88774],[-122.44485,37.88763],[-122.44487,37.88755],[-122.44484,37.88748],[-122.44487,37.88741],[-122.44487,37.88723],[-122.44483,37.88715],[-122.44478,37.88709],[-122.44473,37.88701],[-122.44474,37.88696],[-122.44479,37.88686],[-122.44487,37.88678],[-122.44492,37.88666],[-122.44494,37.88657],[-122.44488,37.88641],[-122.44481,37.88637],[-122.44473,37.88627],[-122.44473,37.88603],[-122.44454,37.8858],[-122.44449,37.88575],[-122.4444,37.88569],[-122.44431,37.88567],[-122.44418,37.8857],[-122.44403,37.88571],[-122.44382,37.88571],[-122.44372,37.88566],[-122.44371,37.88552],[-122.4438,37.88547],[-122.44383,37.88541],[-122.44382,37.88533],[-122.44375,37.8853],[-122.4437,37.88522],[-122.44357,37.88512],[-122.44353,37.88508],[-122.44345,37.88505],[-122.44329,37.88503],[-122.44323,37.88495],[-122.44318,37.88486],[-122.44309,37.88474],[-122.44312,37.88467],[-122.44322,37.88463],[-122.44319,37.88457],[-122.44319,37.88449],[-122.44311,37.88443],[-122.44306,37.88437],[-122.44294,37.88437],[-122.44283,37.88432],[-122.44273,37.88425],[-122.44262,37.88421],[-122.4425,37.88418],[-122.44243,37.88422],[-122.44231,37.88418],[-122.44207,37.88418],[-122.44192,37.88417],[-122.44178,37.88421],[-122.44173,37.88425],[-122.44171,37.88433],[-122.44166,37.88436],[-122.44159,37.88436],[-122.44152,37.88423],[-122.44146,37.88405],[-122.44141,37.88394],[-122.44129,37.88393],[-122.44125,37.88401],[-122.4412,37.88397],[-122.44116,37.88391],[-122.44101,37.8839],[-122.44097,37.88381],[-122.44085,37.88377],[-122.44084,37.88362],[-122.44082,37.88354],[-122.44073,37.88344],[-122.44064,37.8834],[-122.44054,37.8834],[-122.44056,37.88329],[-122.44041,37.88313],[-122.44034,37.88286],[-122.44019,37.88279],[-122.44013,37.88274],[-122.44003,37.88261],[-122.43998,37.88251],[-122.43985,37.88243],[-122.43966,37.88238],[-122.43947,37.88239],[-122.43945,37.88247],[-122.43937,37.88253],[-122.43925,37.8826],[-122.43916,37.88259],[-122.43911,37.88249],[-122.43903,37.88228],[-122.43893,37.8822],[-122.43884,37.88224],[-122.43881,37.88231],[-122.43873,37.88222],[-122.43877,37.88213],[-122.43874,37.88203],[-122.43863,37.88183],[-122.43853,37.8818],[-122.43838,37.88178],[-122.43832,37.88173],[-122.43832,37.88163],[-122.43842,37.88156],[-122.4386,37.88135],[-122.4386,37.88124],[-122.43864,37.88116],[-122.43856,37.88113],[-122.43846,37.88113],[-122.43843,37.88104],[-122.43849,37.88098],[-122.43866,37.88091],[-122.43873,37.8808],[-122.43876,37.88064],[-122.4388,37.88056],[-122.43893,37.8805],[-122.43895,37.88041],[-122.43893,37.88028],[-122.43887,37.88015],[-122.43897,37.88007],[-122.43897,37.87995],[-122.43893,37.87987],[-122.43903,37.87976],[-122.43906,37.87969],[-122.43921,37.8796],[-122.43936,37.87953],[-122.43951,37.87952],[-122.43973,37.87955],[-122.4399,37.8796],[-122.44001,37.87958],[-122.4401,37.8797],[-122.44023,37.87972],[-122.44038,37.87978],[-122.44062,37.87996],[-122.44072,37.88008],[-122.44087,37.88036],[-122.44104,37.88046],[-122.44141,37.88052],[-122.44155,37.88051],[-122.44189,37.88042],[-122.44209,37.88038],[-122.44227,37.88043],[-122.44237,37.8805],[-122.4424,37.88055],[-122.44213,37.8805],[-122.44198,37.8805],[-122.44189,37.88055],[-122.44187,37.88062],[-122.4421,37.88076],[-122.44224,37.88097],[-122.4423,37.88108],[-122.44236,37.88115],[-122.44252,37.88119],[-122.44257,37.88135],[-122.44262,37.8814],[-122.44264,37.88149],[-122.4428,37.88157],[-122.44283,37.88165],[-122.44304,37.88176],[-122.44316,37.88167],[-122.44326,37.88164],[-122.44335,37.88154],[-122.44338,37.88148],[-122.44347,37.88139],[-122.44368,37.8813],[-122.44375,37.88124],[-122.44392,37.88106],[-122.44396,37.881],[-122.44396,37.88093],[-122.44391,37.88081],[-122.44387,37.88077],[-122.44378,37.88063],[-122.44367,37.88056],[-122.4436,37.88054],[-122.44353,37.88049],[-122.44343,37.88036],[-122.4434,37.88015],[-122.44334,37.8801],[-122.44326,37.88015],[-122.44313,37.88019],[-122.443,37.88021],[-122.44275,37.88028],[-122.44261,37.88031],[-122.44253,37.88038],[-122.44249,37.88048],[-122.44243,37.88044],[-122.44237,37.88029],[-122.44247,37.88022],[-122.44266,37.88015],[-122.44272,37.8801],[-122.44311,37.87998],[-122.44334,37.8799],[-122.44338,37.8798],[-122.44347,37.87982],[-122.44362,37.87973],[-122.44394,37.87961],[-122.44412,37.87948],[-122.44421,37.87925],[-122.4442,37.879],[-122.44425,37.87889],[-122.44451,37.87877],[-122.44463,37.87868],[-122.44475,37.87854],[-122.44479,37.87843],[-122.44492,37.87842],[-122.44499,37.87835],[-122.44501,37.87826],[-122.44501,37.87817],[-122.44495,37.87803],[-122.4449,37.87798],[-122.4447,37.87797],[-122.4447,37.87788],[-122.44481,37.87788],[-122.44488,37.87783],[-122.44488,37.87775],[-122.44485,37.8777],[-122.44484,37.87765],[-122.44484,37.87759],[-122.44486,37.8775],[-122.44481,37.8774],[-122.44463,37.87727],[-122.44453,37.87715],[-122.44445,37.87715],[-122.44446,37.87698],[-122.44445,37.87685],[-122.44442,37.87673],[-122.44427,37.87653],[-122.4443,37.87644],[-122.44436,37.87636],[-122.44429,37.87619],[-122.44425,37.87614],[-122.44422,37.87602],[-122.44414,37.8759],[-122.44387,37.8758],[-122.44388,37.87573],[-122.44398,37.87575],[-122.44411,37.87572],[-122.44424,37.87571],[-122.44445,37.87579],[-122.44454,37.87581],[-122.4448,37.87577],[-122.44495,37.87572],[-122.44509,37.87565],[-122.44524,37.87561],[-122.44535,37.87555],[-122.44549,37.87549],[-122.44554,37.8754],[-122.44559,37.87536],[-122.44575,37.8753],[-122.44596,37.87525],[-122.44609,37.87516],[-122.44629,37.87511],[-122.44643,37.87509],[-122.44657,37.87506],[-122.44682,37.87498],[-122.44695,37.87488],[-122.44697,37.87482],[-122.44704,37.87481],[-122.44712,37.87483],[-122.44719,37.87486],[-122.44728,37.87486],[-122.44738,37.87484],[-122.44756,37.87488],[-122.44788,37.875],[-122.44797,37.875],[-122.44826,37.87494],[-122.44849,37.87488],[-122.44859,37.87476],[-122.44859,37.87466],[-122.44853,37.87462],[-122.44859,37.87457],[-122.4487,37.8745],[-122.44882,37.87445],[-122.44898,37.87434],[-122.44905,37.87431],[-122.44922,37.87426],[-122.44962,37.87409],[-122.44986,37.87386],[-122.44989,37.87379],[-122.44989,37.87354],[-122.44983,37.87346],[-122.44971,37.87334],[-122.44967,37.87323],[-122.44959,37.87291],[-122.44968,37.87288],[-122.4499,37.87285],[-122.45002,37.87281],[-122.45014,37.87273],[-122.45024,37.87268],[-122.45028,37.87254],[-122.45031,37.87247],[-122.45032,37.87239],[-122.45034,37.87233],[-122.45039,37.87222],[-122.45043,37.87217],[-122.45045,37.87208],[-122.45048,37.87205],[-122.45061,37.87196],[-122.45064,37.8719],[-122.45072,37.87188],[-122.45076,37.87186],[-122.45096,37.87186],[-122.45101,37.87187],[-122.45107,37.87186],[-122.45112,37.87182],[-122.45117,37.87182],[-122.45127,37.87184],[-122.45135,37.87184],[-122.45146,37.8719],[-122.45147,37.87196],[-122.45153,37.872],[-122.45163,37.872],[-122.4517,37.87198],[-122.45177,37.87195],[-122.45184,37.87189],[-122.45191,37.87189],[-122.45201,37.87191],[-122.45206,37.87199],[-122.45212,37.87216],[-122.45215,37.8723],[-122.45225,37.87252],[-122.45234,37.87263],[-122.45241,37.87267],[-122.45254,37.87287],[-122.45261,37.87293],[-122.45269,37.87296],[-122.45281,37.87297],[-122.45298,37.87304],[-122.45308,37.87309],[-122.45319,37.87313],[-122.45334,37.87317],[-122.4534,37.87323],[-122.45344,37.8733],[-122.45354,37.87341],[-122.45366,37.87347],[-122.45389,37.87345],[-122.454,37.87345],[-122.45408,37.8735],[-122.45412,37.87354],[-122.45418,37.87356],[-122.45427,37.87353],[-122.45436,37.87352],[-122.45454,37.8736],[-122.45461,37.87364],[-122.45468,37.87371],[-122.45475,37.8737],[-122.45486,37.87371],[-122.45489,37.87377],[-122.45495,37.87382],[-122.45504,37.87383],[-122.4551,37.87385],[-122.45516,37.8739],[-122.45521,37.87397],[-122.45527,37.87402],[-122.45531,37.87407],[-122.45534,37.87413],[-122.45535,37.87418],[-122.45542,37.87424],[-122.4555,37.87428],[-122.45554,37.87433],[-122.45556,37.87442],[-122.45564,37.87445],[-122.4557,37.87452],[-122.45569,37.87459],[-122.45571,37.87464],[-122.45572,37.8748],[-122.45577,37.87483],[-122.4558,37.87505],[-122.45586,37.87511],[-122.45597,37.87512],[-122.45603,37.87518],[-122.45614,37.87519],[-122.45618,37.87526],[-122.45618,37.87532],[-122.45624,37.87531],[-122.45631,37.87533],[-122.45657,37.87544],[-122.45683,37.87547],[-122.45696,37.87547],[-122.4572,37.8754],[-122.45736,37.8754],[-122.45742,37.87543],[-122.45749,37.87548],[-122.45754,37.87553],[-122.45763,37.87559],[-122.45764,37.87564],[-122.4577,37.87567],[-122.45776,37.87568],[-122.45781,37.8757],[-122.45798,37.87574],[-122.4581,37.87576],[-122.45817,37.8758],[-122.45818,37.87589],[-122.45822,37.87594],[-122.45826,37.87596],[-122.45834,37.87596],[-122.45841,37.87624],[-122.45853,37.87635],[-122.45855,37.87648],[-122.4586,37.87654],[-122.45856,37.87663],[-122.4586,37.87668],[-122.45862,37.8768],[-122.4586,37.87687],[-122.45849,37.87696],[-122.45841,37.87704],[-122.45828,37.87712],[-122.45821,37.87719],[-122.4582,37.87733],[-122.45825,37.87739],[-122.45828,37.87748],[-122.45832,37.87756],[-122.45836,37.87771],[-122.45839,37.87776],[-122.45843,37.87788],[-122.45853,37.87792],[-122.45855,37.87805],[-122.45859,37.87809],[-122.45863,37.87816],[-122.45865,37.87823],[-122.45868,37.87827],[-122.45877,37.8783],[-122.45885,37.87828],[-122.45895,37.87827],[-122.45905,37.87827],[-122.45911,37.87824],[-122.45916,37.87818],[-122.45918,37.87812],[-122.45926,37.87806],[-122.45931,37.87811],[-122.45938,37.87813],[-122.45945,37.87821],[-122.45961,37.87832],[-122.45968,37.87833],[-122.45979,37.87833],[-122.4599,37.87829],[-122.45998,37.87821],[-122.46014,37.878],[-122.46031,37.87781],[-122.4606,37.87763],[-122.46093,37.87741],[-122.46117,37.87729],[-122.46142,37.87723],[-122.46168,37.87721],[-122.46179,37.87721],[-122.46183,37.87717],[-122.46188,37.87715],[-122.46205,37.87712],[-122.46222,37.87718],[-122.4623,37.87715],[-122.46238,37.87715],[-122.46245,37.87717],[-122.46259,37.87719],[-122.46269,37.87717],[-122.46281,37.87719],[-122.46294,37.8773],[-122.46308,37.87735],[-122.46317,37.87737],[-122.46333,37.87756],[-122.46346,37.87754],[-122.46353,37.87763],[-122.46366,37.87765],[-122.46371,37.8777],[-122.46379,37.87774],[-122.46391,37.87777],[-122.46399,37.87776],[-122.46407,37.87781],[-122.46417,37.87781],[-122.46423,37.87784],[-122.46428,37.87793],[-122.4643,37.87803],[-122.46437,37.87816],[-122.46446,37.87823],[-122.46448,37.87833],[-122.46458,37.87837],[-122.46464,37.87846],[-122.46465,37.87859],[-122.46471,37.87871],[-122.46478,37.87882],[-122.4648,37.87892],[-122.46481,37.87906],[-122.46492,37.87917],[-122.46497,37.87927],[-122.46506,37.87932],[-122.46513,37.87933],[-122.46528,37.87941],[-122.46532,37.87944],[-122.46547,37.87987],[-122.46554,37.87991],[-122.46562,37.87997],[-122.46572,37.88002],[-122.46582,37.88013],[-122.46583,37.88019],[-122.46581,37.88025],[-122.46574,37.88029],[-122.46565,37.88029],[-122.46563,37.88033],[-122.46571,37.88036],[-122.46578,37.88034],[-122.46594,37.88032],[-122.46599,37.88036],[-122.46597,37.88042],[-122.46593,37.88047],[-122.46592,37.88052],[-122.466,37.88048],[-122.46607,37.8804],[-122.46615,37.88038],[-122.46621,37.88045],[-122.4663,37.88053],[-122.4664,37.88053],[-122.46645,37.88057],[-122.46654,37.88062],[-122.46661,37.88065],[-122.46668,37.88067],[-122.46676,37.88071],[-122.46682,37.88076],[-122.46685,37.88087],[-122.46694,37.88096],[-122.46714,37.88119],[-122.4673,37.88123],[-122.4674,37.88127],[-122.46769,37.88132],[-122.46786,37.88137],[-122.46795,37.88138],[-122.46809,37.88138],[-122.46816,37.88141],[-122.46831,37.88151],[-122.46844,37.88158],[-122.46865,37.88163],[-122.46886,37.8815],[-122.46896,37.88152],[-122.46926,37.88164],[-122.46941,37.88164],[-122.46954,37.88165],[-122.46973,37.88177],[-122.46991,37.88181],[-122.4701,37.88188],[-122.4702,37.88195],[-122.47034,37.88203],[-122.47042,37.88205],[-122.47055,37.88205],[-122.47065,37.88207],[-122.47076,37.88211],[-122.47092,37.88226],[-122.47125,37.88232],[-122.47155,37.88235],[-122.47172,37.88233],[-122.47201,37.88233],[-122.47213,37.88234],[-122.47224,37.88231],[-122.47243,37.88258],[-122.47275,37.88299],[-122.47281,37.88311],[-122.47301,37.88336],[-122.47307,37.8835],[-122.47349,37.8841],[-122.47369,37.88432],[-122.47429,37.88508],[-122.47478,37.88548],[-122.47491,37.88561],[-122.4752,37.88585],[-122.47544,37.88598],[-122.47571,37.8862],[-122.47599,37.88638],[-122.47625,37.88657],[-122.47661,37.88681],[-122.47682,37.88698],[-122.47776,37.88759],[-122.47804,37.8878],[-122.47808,37.88788],[-122.47808,37.88795],[-122.47811,37.88807],[-122.47814,37.88813],[-122.47834,37.88827],[-122.4784,37.88837],[-122.47844,37.88847],[-122.4785,37.88853],[-122.47856,37.88862],[-122.47862,37.88868],[-122.47873,37.88872],[-122.4788,37.8888],[-122.47891,37.88881],[-122.47901,37.88881],[-122.47913,37.88884],[-122.47917,37.88891],[-122.47923,37.88899],[-122.47929,37.88904],[-122.47936,37.88906],[-122.47946,37.88907],[-122.47955,37.88906],[-122.47976,37.88898],[-122.47985,37.889],[-122.47999,37.88901],[-122.48008,37.889],[-122.48021,37.88901],[-122.48054,37.88907],[-122.48063,37.88906],[-122.4808,37.8891],[-122.48117,37.88917],[-122.4814,37.88919],[-122.48156,37.88924],[-122.48166,37.8893],[-122.48176,37.88939],[-122.48192,37.88944],[-122.4821,37.88954],[-122.48216,37.88962],[-122.48229,37.88983],[-122.48234,37.88999],[-122.48235,37.89009],[-122.48234,37.89021],[-122.48235,37.8903],[-122.48231,37.89052],[-122.48231,37.89071],[-122.48235,37.89098],[-122.48236,37.89122],[-122.48234,37.89132],[-122.48234,37.89144],[-122.48229,37.89157],[-122.48228,37.8917],[-122.48226,37.8918],[-122.48226,37.89193],[-122.48228,37.89206],[-122.48236,37.89211],[-122.48256,37.89209],[-122.48281,37.89204],[-122.48304,37.89194],[-122.48311,37.89188],[-122.48317,37.89185],[-122.48325,37.89177],[-122.48328,37.89171],[-122.48332,37.89166],[-122.48334,37.89159],[-122.48348,37.89139],[-122.4835,37.89134],[-122.48357,37.89122],[-122.48369,37.89111],[-122.48386,37.89103],[-122.48395,37.89101],[-122.4841,37.89105],[-122.48427,37.89108],[-122.48444,37.89108],[-122.48461,37.89105],[-122.48468,37.89103],[-122.48481,37.89102],[-122.4849,37.89099],[-122.48497,37.89101],[-122.48495,37.8911],[-122.48501,37.89123],[-122.48511,37.89136],[-122.4852,37.89142],[-122.48524,37.89151],[-122.48523,37.89162],[-122.48517,37.89194],[-122.48518,37.89211],[-122.48526,37.89224],[-122.48529,37.89234],[-122.48529,37.89243],[-122.48534,37.89255],[-122.48555,37.8927],[-122.48561,37.8928],[-122.48585,37.89293],[-122.48594,37.89303],[-122.48616,37.89313],[-122.48625,37.89313],[-122.48639,37.89309],[-122.48647,37.89317],[-122.48661,37.89347],[-122.48669,37.89355],[-122.48678,37.8936],[-122.48689,37.89364],[-122.48689,37.89371],[-122.48706,37.89379],[-122.48711,37.89388],[-122.48721,37.89394],[-122.48732,37.89396],[-122.48745,37.89401],[-122.4875,37.89412],[-122.48757,37.89437],[-122.48764,37.89446],[-122.4877,37.89451],[-122.48782,37.89454],[-122.48794,37.89458],[-122.48804,37.8946],[-122.48814,37.89461],[-122.48838,37.89461],[-122.48846,37.89459],[-122.48857,37.89458],[-122.4887,37.89465],[-122.48881,37.89472],[-122.489,37.89491],[-122.48908,37.89498],[-122.48916,37.89503],[-122.48929,37.89508],[-122.48943,37.89511],[-122.48958,37.8951],[-122.48683,37.89923],[-122.48696,37.89924],[-122.48716,37.89918],[-122.48736,37.89905],[-122.48762,37.89901],[-122.48787,37.89903],[-122.48821,37.89896],[-122.48856,37.89885],[-122.48879,37.89869],[-122.48895,37.89855],[-122.48904,37.89846],[-122.48901,37.89826],[-122.48909,37.89819],[-122.4893,37.89809],[-122.48967,37.89802],[-122.48978,37.89796],[-122.4901,37.8977],[-122.49023,37.8977],[-122.49037,37.89769],[-122.49051,37.89763],[-122.49029,37.89745],[-122.4902,37.89727],[-122.49022,37.89688],[-122.4902,37.89676],[-122.49019,37.8966],[-122.49021,37.89652],[-122.49027,37.89644],[-122.49034,37.89637],[-122.49055,37.8962],[-122.49071,37.89612],[-122.49081,37.89603],[-122.4909,37.89588],[-122.49093,37.89575],[-122.49091,37.8956],[-122.4909,37.89541],[-122.49106,37.89525],[-122.49134,37.89511],[-122.49178,37.89499],[-122.49208,37.89487],[-122.49229,37.89474],[-122.4923,37.89467],[-122.49235,37.89459],[-122.49244,37.89456],[-122.49249,37.89439],[-122.49253,37.8943],[-122.49264,37.89417],[-122.49259,37.89408],[-122.49252,37.89386],[-122.49254,37.8938],[-122.49255,37.89368],[-122.49254,37.89361],[-122.49259,37.89351],[-122.49273,37.89354],[-122.49282,37.89352],[-122.4929,37.89349],[-122.49303,37.89342],[-122.49318,37.89337],[-122.49329,37.89339],[-122.49355,37.89349],[-122.49368,37.89347],[-122.4938,37.89348],[-122.49392,37.89348],[-122.49399,37.89345],[-122.49412,37.89343],[-122.49421,37.89344],[-122.49447,37.89349],[-122.49456,37.89347],[-122.49467,37.89347],[-122.4948,37.8935],[-122.49519,37.89351],[-122.49531,37.89345],[-122.49541,37.8936],[-122.49548,37.89366],[-122.49558,37.89372],[-122.49567,37.89374],[-122.49576,37.89377],[-122.4959,37.89379],[-122.49597,37.89381],[-122.49617,37.89381],[-122.49644,37.89378],[-122.49665,37.8938],[-122.49672,37.8938],[-122.49682,37.89375],[-122.49689,37.89373],[-122.49712,37.8937],[-122.49721,37.8937],[-122.49732,37.89368],[-122.49756,37.89359],[-122.49776,37.89358],[-122.49798,37.89347],[-122.49826,37.89339],[-122.49844,37.89341],[-122.49855,37.89343],[-122.49866,37.8934],[-122.49874,37.8934],[-122.49884,37.89343],[-122.49892,37.89344],[-122.49905,37.89344],[-122.49914,37.89345],[-122.49922,37.89347],[-122.49935,37.89352],[-122.49951,37.89356],[-122.49961,37.89357],[-122.49974,37.89363],[-122.4999,37.89387],[-122.49993,37.89396],[-122.49994,37.89404],[-122.49987,37.89425],[-122.4998,37.89434],[-122.49969,37.89443],[-122.49941,37.89452],[-122.49907,37.89452],[-122.49898,37.89457],[-122.4988,37.89457],[-122.49869,37.89456],[-122.49859,37.89458],[-122.49849,37.89463],[-122.49834,37.89468],[-122.49827,37.89474],[-122.49812,37.89483],[-122.49807,37.89489],[-122.49806,37.89495],[-122.49806,37.89501],[-122.49809,37.89509],[-122.49809,37.89522],[-122.49817,37.89531],[-122.49843,37.89554],[-122.4986,37.89571],[-122.49878,37.89581],[-122.49892,37.89585],[-122.49906,37.89592],[-122.49912,37.89598],[-122.49916,37.89606],[-122.49916,37.89612],[-122.49903,37.89639],[-122.49905,37.89649],[-122.49905,37.89656],[-122.49914,37.89669],[-122.49913,37.89676],[-122.49919,37.89704],[-122.49926,37.89715],[-122.49932,37.89718],[-122.49937,37.89723],[-122.49941,37.89732],[-122.49949,37.89746],[-122.49957,37.89756],[-122.49972,37.89761],[-122.49978,37.89772],[-122.49978,37.8978],[-122.49983,37.89791],[-122.49993,37.89807],[-122.49994,37.89814],[-122.49994,37.89846],[-122.49992,37.89864],[-122.49988,37.89873],[-122.49973,37.89887],[-122.49958,37.89894],[-122.49912,37.89908],[-122.499,37.89911],[-122.49887,37.89916],[-122.49872,37.89917],[-122.49857,37.89923],[-122.49835,37.89938],[-122.49828,37.8996],[-122.4983,37.89982],[-122.49837,37.89998],[-122.49842,37.90016],[-122.49849,37.9003],[-122.49861,37.90047],[-122.49868,37.9006],[-122.49868,37.90067],[-122.49866,37.90077],[-122.49868,37.90085],[-122.49868,37.90096],[-122.49866,37.90102],[-122.49865,37.90117],[-122.49871,37.90126],[-122.49884,37.90123],[-122.49899,37.90118],[-122.49916,37.90107],[-122.49934,37.90098],[-122.49976,37.90084],[-122.49996,37.90085],[-122.50048,37.90091],[-122.50071,37.90097],[-122.50097,37.90093],[-122.50106,37.90088],[-122.50121,37.90069],[-122.50128,37.90066],[-122.50145,37.90055],[-122.50148,37.90046],[-122.50154,37.90037],[-122.50163,37.90031],[-122.50174,37.90025],[-122.50176,37.90015],[-122.50189,37.90005],[-122.50208,37.89996],[-122.50221,37.89985],[-122.50239,37.89978],[-122.50244,37.89969],[-122.50259,37.89927],[-122.50264,37.89917],[-122.50311,37.89905],[-122.50324,37.89895],[-122.50332,37.89885],[-122.50341,37.89865],[-122.5035,37.89861],[-122.50362,37.89857],[-122.5039,37.8986],[-122.50424,37.89865],[-122.5045,37.89866],[-122.50486,37.89874],[-122.50503,37.89877],[-122.50529,37.89872],[-122.50586,37.89867],[-122.50643,37.89867],[-122.5067,37.89869],[-122.5068,37.89862],[-122.50675,37.89852],[-122.50652,37.89842],[-122.50641,37.89831],[-122.50615,37.89799],[-122.50605,37.8979],[-122.50601,37.89779],[-122.50594,37.89766],[-122.50584,37.89755],[-122.50576,37.89744],[-122.50573,37.89727],[-122.50567,37.89717],[-122.50554,37.89705],[-122.50548,37.89696],[-122.5052,37.89676],[-122.50512,37.89667],[-122.50507,37.89652],[-122.50507,37.89639],[-122.5049,37.89632],[-122.50481,37.89623],[-122.50476,37.89614],[-122.50474,37.89606],[-122.50474,37.89573],[-122.50472,37.89565],[-122.50465,37.89548],[-122.50454,37.8953],[-122.50451,37.89512],[-122.50447,37.89502],[-122.50443,37.89495],[-122.50438,37.89477],[-122.50435,37.89464],[-122.50439,37.89448],[-122.50452,37.89425],[-122.50459,37.89416],[-122.50461,37.89408],[-122.50465,37.89399],[-122.50477,37.89385],[-122.50485,37.8937],[-122.50484,37.89353],[-122.50475,37.89333],[-122.50466,37.89317],[-122.50455,37.89302],[-122.50436,37.89288],[-122.5043,37.89279],[-122.50421,37.89277],[-122.50412,37.89267],[-122.50406,37.89253],[-122.50407,37.89243],[-122.50411,37.89233],[-122.50409,37.89222],[-122.50422,37.89216],[-122.50437,37.89193],[-122.5044,37.89187],[-122.50441,37.89181],[-122.50439,37.89174],[-122.50439,37.89167],[-122.50442,37.89158],[-122.50449,37.89149],[-122.50468,37.89112],[-122.5047,37.89099],[-122.50475,37.89091],[-122.50479,37.8908],[-122.50478,37.89069],[-122.50474,37.89064],[-122.50457,37.89048],[-122.50441,37.89037],[-122.50421,37.89027],[-122.50415,37.89014],[-122.50416,37.89007],[-122.50423,37.88988],[-122.50424,37.8898],[-122.50432,37.88949],[-122.50432,37.8894],[-122.50395,37.88924],[-122.50378,37.88914],[-122.50364,37.88904],[-122.50348,37.88891],[-122.50323,37.88869],[-122.50264,37.8883],[-122.50245,37.88823],[-122.50236,37.88821],[-122.50227,37.88815],[-122.50224,37.8881],[-122.50222,37.88802],[-122.50216,37.88793],[-122.50213,37.88782],[-122.50215,37.88772],[-122.50212,37.88761],[-122.50203,37.88752],[-122.50203,37.88743],[-122.50197,37.88737],[-122.50197,37.88728],[-122.50187,37.88719],[-122.50182,37.88712],[-122.50167,37.88702],[-122.50158,37.88693],[-122.50158,37.88686],[-122.5016,37.88679],[-122.50161,37.8867],[-122.50161,37.88662],[-122.50156,37.88651],[-122.50156,37.88639],[-122.50154,37.8863],[-122.50149,37.88624],[-122.50168,37.88618],[-122.5018,37.88609],[-122.50187,37.88598],[-122.50196,37.88591],[-122.50202,37.88581],[-122.5021,37.88563],[-122.5022,37.88556],[-122.50222,37.88548],[-122.50245,37.88506],[-122.50269,37.88458],[-122.50273,37.88444],[-122.50273,37.88424],[-122.50272,37.88417],[-122.50268,37.88408],[-122.50248,37.88384],[-122.50236,37.88368],[-122.50225,37.8836],[-122.50215,37.88353],[-122.50169,37.88338],[-122.50137,37.88321],[-122.5013,37.88315],[-122.50117,37.88308],[-122.50091,37.88289],[-122.50079,37.88276],[-122.50071,37.88272],[-122.50064,37.88264],[-122.50057,37.88254],[-122.50055,37.88245],[-122.50046,37.88227],[-122.50042,37.88215],[-122.50035,37.88206],[-122.50013,37.88185],[-122.49989,37.88169],[-122.49974,37.88162],[-122.49963,37.88155],[-122.49953,37.88144],[-122.49914,37.88113],[-122.49897,37.88096],[-122.49889,37.88086],[-122.49884,37.88074],[-122.49878,37.88063],[-122.49873,37.8805],[-122.49866,37.88038],[-122.49864,37.88028],[-122.4986,37.88021],[-122.49842,37.88014],[-122.49832,37.88005],[-122.49826,37.87996],[-122.49803,37.87948],[-122.49793,37.87932],[-122.49784,37.87925],[-122.4978,37.87917],[-122.49772,37.87907],[-122.49754,37.87891],[-122.49747,37.87883],[-122.49743,37.87873],[-122.49748,37.87864],[-122.4975,37.87856],[-122.49755,37.87848],[-122.49765,37.8784],[-122.49776,37.87828],[-122.49776,37.87797],[-122.49775,37.8779],[-122.49772,37.87781],[-122.49771,37.87773],[-122.49768,37.87762],[-122.49762,37.8775],[-122.4976,37.87744],[-122.4976,37.87733],[-122.49762,37.87724],[-122.49763,37.87707],[-122.49768,37.87701],[-122.49786,37.877],[-122.49827,37.8771],[-122.49865,37.87732],[-122.49939,37.87768],[-122.49953,37.87773],[-122.49991,37.87779],[-122.49999,37.87782],[-122.50008,37.87788],[-122.50021,37.87798],[-122.50029,37.87807],[-122.50037,37.87813],[-122.50041,37.87821],[-122.50046,37.87828],[-122.50056,37.87839],[-122.50058,37.87853],[-122.50081,37.87888],[-122.50093,37.87902],[-122.50114,37.8792],[-122.50128,37.87927],[-122.50135,37.87938],[-122.50147,37.87954],[-122.50166,37.87974],[-122.50183,37.87983],[-122.50221,37.87997],[-122.50249,37.88006],[-122.50269,37.88015],[-122.50289,37.8802],[-122.50302,37.88021],[-122.50316,37.88019],[-122.50338,37.88013],[-122.50354,37.88015],[-122.50365,37.88017],[-122.50393,37.88028],[-122.50406,37.88032],[-122.50415,37.88036],[-122.50434,37.8804],[-122.50449,37.88042],[-122.50459,37.88048],[-122.50465,37.88054],[-122.50468,37.88059],[-122.5047,37.88067],[-122.50447,37.88088],[-122.50444,37.88105],[-122.5042,37.88134],[-122.50409,37.88149],[-122.50399,37.88169],[-122.50409,37.88198],[-122.50439,37.88235],[-122.50449,37.88242],[-122.50455,37.88251],[-122.50473,37.88268],[-122.505,37.88278],[-122.50508,37.88286],[-122.50519,37.88292],[-122.50557,37.88308],[-122.50568,37.88311],[-122.50572,37.88317],[-122.50578,37.88321],[-122.506,37.8833],[-122.50621,37.88338],[-122.50637,37.88342],[-122.50643,37.88343],[-122.50655,37.88343],[-122.50662,37.88346],[-122.50667,37.88352],[-122.50674,37.88355],[-122.50684,37.88357],[-122.5069,37.88356],[-122.50699,37.88352],[-122.50704,37.88354],[-122.5071,37.88358],[-122.50722,37.88359],[-122.50733,37.88363],[-122.50739,37.88364],[-122.5075,37.88364],[-122.50758,37.88367],[-122.50763,37.88371],[-122.50769,37.88373],[-122.50781,37.88371],[-122.50796,37.88379],[-122.50805,37.88377],[-122.50817,37.88376],[-122.50833,37.88378],[-122.50841,37.88378],[-122.50855,37.88375],[-122.50866,37.8837],[-122.50869,37.88366],[-122.5087,37.88362],[-122.5087,37.88348],[-122.50873,37.88342],[-122.50881,37.88333],[-122.50888,37.88317],[-122.50894,37.88311],[-122.509,37.88307],[-122.50921,37.88297],[-122.50934,37.88293],[-122.50956,37.88282],[-122.50961,37.88277],[-122.50968,37.88276],[-122.50977,37.8828],[-122.50984,37.88281],[-122.50992,37.88277],[-122.51021,37.88267],[-122.51038,37.88267],[-122.51056,37.88273],[-122.51085,37.88286],[-122.51098,37.88293],[-122.51111,37.88306],[-122.51121,37.88313],[-122.51125,37.88327],[-122.51136,37.88348],[-122.51157,37.8837],[-122.51174,37.88382],[-122.51196,37.8839],[-122.51207,37.88395],[-122.51212,37.88401],[-122.51214,37.88406],[-122.51215,37.88423],[-122.51213,37.8844],[-122.51208,37.88445],[-122.512,37.8845],[-122.51187,37.8846],[-122.51175,37.88466],[-122.51142,37.88479],[-122.51136,37.88482],[-122.51135,37.88498],[-122.51111,37.88517],[-122.51105,37.88526],[-122.51093,37.88531],[-122.51071,37.88543],[-122.51059,37.88548],[-122.51051,37.88548],[-122.51035,37.88546],[-122.51015,37.88548],[-122.50991,37.88552],[-122.50983,37.88558],[-122.50964,37.88578],[-122.50958,37.88591],[-122.50932,37.88632],[-122.50917,37.88649],[-122.50901,37.88658],[-122.50888,37.88661],[-122.50857,37.88665],[-122.50834,37.88669],[-122.50825,37.88675],[-122.50821,37.88683],[-122.50822,37.88692],[-122.50825,37.887],[-122.50836,37.88711],[-122.50845,37.88718],[-122.50856,37.88723],[-122.50875,37.88727],[-122.50884,37.88727],[-122.50895,37.88725],[-122.50913,37.88725],[-122.50924,37.88726],[-122.50935,37.88729],[-122.50961,37.88733],[-122.50974,37.88737],[-122.50989,37.88739],[-122.51005,37.8874],[-122.51018,37.88742],[-122.51026,37.88744],[-122.51034,37.88755],[-122.51042,37.88759],[-122.51051,37.88761],[-122.5106,37.88767],[-122.51082,37.88779],[-122.51091,37.88779],[-122.51095,37.88781],[-122.51102,37.88788],[-122.51112,37.88806],[-122.51117,37.88812],[-122.51137,37.88825],[-122.5117,37.88841],[-122.51173,37.88846],[-122.51174,37.88853],[-122.51176,37.88859],[-122.51182,37.8887],[-122.51188,37.88878],[-122.51197,37.88886],[-122.51209,37.88893],[-122.5122,37.88897],[-122.51228,37.88903],[-122.51239,37.88917],[-122.51247,37.88923],[-122.51289,37.88936],[-122.51308,37.88947],[-122.51321,37.88964],[-122.51323,37.88986],[-122.51318,37.89008],[-122.51317,37.89022],[-122.51317,37.89031],[-122.51321,37.8904],[-122.51315,37.89053],[-122.51292,37.89079],[-122.51268,37.89114],[-122.51263,37.8913],[-122.51268,37.89146],[-122.51284,37.89151],[-122.513,37.89152],[-122.51333,37.89149],[-122.51342,37.89146],[-122.51354,37.8914],[-122.51365,37.89133],[-122.51377,37.89124],[-122.51397,37.891],[-122.51404,37.8909],[-122.51411,37.89084],[-122.51428,37.89067],[-122.5144,37.89063],[-122.51462,37.89059],[-122.5147,37.89055],[-122.51479,37.89052],[-122.51494,37.89051],[-122.51502,37.89051],[-122.51525,37.89053],[-122.51544,37.89053],[-122.51586,37.89071],[-122.51591,37.89077],[-122.51618,37.89088],[-122.51627,37.89096],[-122.5164,37.89105],[-122.51645,37.89121],[-122.5167,37.89136],[-122.51673,37.89144],[-122.51671,37.89152],[-122.51671,37.89159],[-122.51674,37.89167],[-122.51685,37.89181],[-122.51684,37.89189],[-122.51677,37.89205],[-122.51675,37.89214],[-122.5166,37.8923],[-122.51637,37.8924],[-122.51628,37.89254],[-122.51629,37.89283],[-122.51618,37.893],[-122.51615,37.89315],[-122.51616,37.89336],[-122.51623,37.89343],[-122.51632,37.89349],[-122.51653,37.89366],[-122.51669,37.89383],[-122.51683,37.89403],[-122.51694,37.89417],[-122.51698,37.89424],[-122.51697,37.89432],[-122.51685,37.89441],[-122.51675,37.89445],[-122.5167,37.89449],[-122.51663,37.89458],[-122.51659,37.89465],[-122.51651,37.89467],[-122.51631,37.89463],[-122.51613,37.89466],[-122.516,37.8947],[-122.51587,37.89477],[-122.51573,37.89486],[-122.51563,37.89511],[-122.51561,37.89523],[-122.51562,37.89539],[-122.51566,37.89558],[-122.51566,37.89579],[-122.51568,37.89591],[-122.51564,37.89607],[-122.51551,37.89626],[-122.51546,37.89638],[-122.51548,37.89651],[-122.51549,37.89675],[-122.51548,37.89683],[-122.51543,37.89697],[-122.51537,37.89707],[-122.51534,37.89716],[-122.51532,37.89726],[-122.51524,37.89737],[-122.51516,37.89743],[-122.51506,37.89748],[-122.51495,37.89751],[-122.51486,37.89756],[-122.51476,37.89764],[-122.51456,37.89777],[-122.51436,37.89788],[-122.51411,37.89799],[-122.51404,37.89805],[-122.514,37.89811],[-122.514,37.89819],[-122.51405,37.8983],[-122.51418,37.89842],[-122.51458,37.89874],[-122.51468,37.89883],[-122.51479,37.89898],[-122.51489,37.89908],[-122.51503,37.89933],[-122.51513,37.89942],[-122.51516,37.89954],[-122.51519,37.89962],[-122.51523,37.89966],[-122.5153,37.89969],[-122.51536,37.89973],[-122.5154,37.89978],[-122.51541,37.89987],[-122.51549,37.89996],[-122.51556,37.89998],[-122.51563,37.89998],[-122.51569,37.89995],[-122.51579,37.89983],[-122.51583,37.89976],[-122.51586,37.89967],[-122.51597,37.89953],[-122.51606,37.89945],[-122.5161,37.89939],[-122.51609,37.89933],[-122.51602,37.89919],[-122.516,37.8991],[-122.51602,37.899],[-122.51602,37.89886],[-122.516,37.8988],[-122.51595,37.8987],[-122.51595,37.8986],[-122.51599,37.89844],[-122.51614,37.89814],[-122.51614,37.89804],[-122.51616,37.89797],[-122.5162,37.89793],[-122.51628,37.89787],[-122.51647,37.89763],[-122.5165,37.89756],[-122.51655,37.89739],[-122.51659,37.89735],[-122.51677,37.89721],[-122.51686,37.89709],[-122.51693,37.89693],[-122.51695,37.89681],[-122.51701,37.89664],[-122.51707,37.89658],[-122.51716,37.89643],[-122.51721,37.89633],[-122.51724,37.89624],[-122.51731,37.89608],[-122.51745,37.89593],[-122.51762,37.89573],[-122.51771,37.89564],[-122.51774,37.89558],[-122.51776,37.89548],[-122.51781,37.89543],[-122.5179,37.89539],[-122.51798,37.89533],[-122.51802,37.89528],[-122.51805,37.89518],[-122.5181,37.89509],[-122.51812,37.89501],[-122.51817,37.89495],[-122.5185,37.89464],[-122.51864,37.89448],[-122.51878,37.89418],[-122.51879,37.89411],[-122.51886,37.89397],[-122.51901,37.89376],[-122.5192,37.89358],[-122.5193,37.89344],[-122.51942,37.89334],[-122.51952,37.89331],[-122.51976,37.89328],[-122.51989,37.89323],[-122.51997,37.89316],[-122.52003,37.89304],[-122.52009,37.89297],[-122.52022,37.89287],[-122.5203,37.89278],[-122.52033,37.89269],[-122.52041,37.89254],[-122.5204,37.89246],[-122.52044,37.89236],[-122.5205,37.89228],[-122.52051,37.89222],[-122.52054,37.89216],[-122.52062,37.89209],[-122.52071,37.89204],[-122.52085,37.89201],[-122.52094,37.89197],[-122.52107,37.89195],[-122.52141,37.89193],[-122.52159,37.89191],[-122.52166,37.89188],[-122.52176,37.89187],[-122.52182,37.89188],[-122.52189,37.8919],[-122.52209,37.89204],[-122.52227,37.89223],[-122.52231,37.89231],[-122.5223,37.89238],[-122.52232,37.89247],[-122.52235,37.89252],[-122.52253,37.89262],[-122.52262,37.89265],[-122.52272,37.89267],[-122.52293,37.89269],[-122.52306,37.89271],[-122.52318,37.89275],[-122.52329,37.89283],[-122.52333,37.89292],[-122.52331,37.89308],[-122.52326,37.89317],[-122.52318,37.89324],[-122.5231,37.89328],[-122.52297,37.89331],[-122.52287,37.89335],[-122.52282,37.89338],[-122.52269,37.89349],[-122.52262,37.89353],[-122.52253,37.89355],[-122.5222,37.89371],[-122.52208,37.8938],[-122.52197,37.89385],[-122.52196,37.89396],[-122.52202,37.89403],[-122.52212,37.8941],[-122.52222,37.89434],[-122.52228,37.89456],[-122.52239,37.89476],[-122.52245,37.89491],[-122.52251,37.89498],[-122.52256,37.89516],[-122.52255,37.89532],[-122.52257,37.89546],[-122.52302,37.89601],[-122.52305,37.89614],[-122.52305,37.89646],[-122.52303,37.89665],[-122.52304,37.89678],[-122.52311,37.89688],[-122.52333,37.89708],[-122.52341,37.89726],[-122.52346,37.89733],[-122.52363,37.89747],[-122.52367,37.89756],[-122.52369,37.89762],[-122.52368,37.89772],[-122.52361,37.89798],[-122.5236,37.89806],[-122.52365,37.89814],[-122.52372,37.89815],[-122.52381,37.89815],[-122.5239,37.89814],[-122.5241,37.89806],[-122.52433,37.89785],[-122.52443,37.89772],[-122.52456,37.89757],[-122.52466,37.89756],[-122.52483,37.8975],[-122.52493,37.8975],[-122.52518,37.89753],[-122.52539,37.89759],[-122.52567,37.89786],[-122.52574,37.89806],[-122.52576,37.89829],[-122.52579,37.8985],[-122.52581,37.89881],[-122.52593,37.89897],[-122.52596,37.89903],[-122.52599,37.89912],[-122.52599,37.89922],[-122.52595,37.89932],[-122.52595,37.89943],[-122.52597,37.89951],[-122.52603,37.89956],[-122.52617,37.89961],[-122.52628,37.89964],[-122.5265,37.89979],[-122.52657,37.89988],[-122.52661,37.89997],[-122.52664,37.90008],[-122.52664,37.90024],[-122.52661,37.90037],[-122.52652,37.90053],[-122.52642,37.90061],[-122.52596,37.9008],[-122.52589,37.90084],[-122.52578,37.90093],[-122.52565,37.90121],[-122.52563,37.90135],[-122.52558,37.90148],[-122.52553,37.90158],[-122.52547,37.90166],[-122.52526,37.9018],[-122.52521,37.90189],[-122.52513,37.90207],[-122.52503,37.90219],[-122.52486,37.90231],[-122.5247,37.90241],[-122.5246,37.90257],[-122.52456,37.9027],[-122.52449,37.9028],[-122.52437,37.9029],[-122.52415,37.90303],[-122.52409,37.90308],[-122.524,37.90319],[-122.52385,37.90335],[-122.52376,37.90339],[-122.52364,37.90342],[-122.52351,37.90343],[-122.5234,37.90343],[-122.52333,37.90342],[-122.52322,37.90337],[-122.52309,37.90336],[-122.52297,37.90338],[-122.52277,37.90347],[-122.52264,37.90351],[-122.52248,37.90354],[-122.52231,37.90353],[-122.52197,37.90347],[-122.52185,37.90343],[-122.52173,37.90338],[-122.52159,37.90336],[-122.52139,37.90336],[-122.52102,37.90338],[-122.52074,37.90341],[-122.52047,37.90338],[-122.52027,37.90334],[-122.52002,37.90326],[-122.51972,37.90313],[-122.51945,37.90304],[-122.51933,37.90302],[-122.51915,37.90306],[-122.51907,37.90312],[-122.51905,37.90318],[-122.51905,37.90327],[-122.51912,37.90335],[-122.5197,37.9037],[-122.51981,37.90375],[-122.51993,37.90383],[-122.51997,37.90387],[-122.52002,37.90401],[-122.52003,37.90422],[-122.51992,37.90438],[-122.51985,37.90453],[-122.51981,37.90465],[-122.51982,37.90481],[-122.51989,37.90496],[-122.51998,37.90504],[-122.52011,37.90513],[-122.52025,37.90516],[-122.52043,37.9051],[-122.52067,37.90499],[-122.5208,37.90489],[-122.52093,37.90457],[-122.52098,37.90449],[-122.52105,37.90441],[-122.52114,37.90423],[-122.52123,37.90416],[-122.52134,37.90412],[-122.52149,37.9041],[-122.52167,37.9041],[-122.52188,37.90415],[-122.52206,37.90422],[-122.52215,37.90432],[-122.52214,37.90442],[-122.52205,37.90467],[-122.52203,37.90476],[-122.52202,37.90487],[-122.52208,37.90494],[-122.52267,37.90521],[-122.52274,37.9053],[-122.52277,37.90539],[-122.52277,37.9055],[-122.52279,37.9057],[-122.52281,37.90577],[-122.52286,37.90586],[-122.5229,37.90591],[-122.52297,37.90595],[-122.52307,37.90598],[-122.5232,37.90599],[-122.52327,37.90594],[-122.52333,37.90588],[-122.52338,37.90581],[-122.52344,37.9057],[-122.52344,37.90546],[-122.52346,37.90531],[-122.52353,37.90526],[-122.52361,37.90523],[-122.52368,37.90525],[-122.52386,37.90537],[-122.52394,37.9054],[-122.52437,37.90542],[-122.52456,37.90542],[-122.52477,37.90538],[-122.52496,37.90523],[-122.52509,37.90506],[-122.5252,37.90486],[-122.52526,37.90466],[-122.52526,37.90454],[-122.5252,37.90433],[-122.52509,37.90416],[-122.52494,37.90402],[-122.52508,37.90402],[-122.52519,37.90403],[-122.52526,37.90406],[-122.52539,37.90408],[-122.5256,37.90413],[-122.52582,37.90414],[-122.52596,37.90411],[-122.52605,37.90406],[-122.52618,37.90394],[-122.52635,37.9038],[-122.52643,37.90372],[-122.52653,37.90354],[-122.52661,37.90347],[-122.52664,37.90338],[-122.52674,37.90331],[-122.52683,37.90323],[-122.52685,37.90311],[-122.52691,37.90301],[-122.52694,37.90293],[-122.52694,37.9028],[-122.52705,37.90273],[-122.52707,37.90264],[-122.52712,37.90257],[-122.52718,37.90232],[-122.52725,37.90197],[-122.52731,37.90188],[-122.52738,37.90184],[-122.52749,37.90181],[-122.5279,37.90179],[-122.52806,37.90174],[-122.52813,37.90169],[-122.52814,37.9016],[-122.52822,37.90138],[-122.52843,37.90111],[-122.52867,37.90087],[-122.52869,37.90076],[-122.52868,37.90064],[-122.52862,37.90047],[-122.52856,37.90034],[-122.52859,37.90023],[-122.52866,37.90015],[-122.52882,37.90005],[-122.52898,37.89998],[-122.52917,37.89988],[-122.52926,37.89971],[-122.52927,37.89955],[-122.52929,37.89946],[-122.52928,37.89938],[-122.52939,37.89932],[-122.52948,37.89923],[-122.52952,37.8991],[-122.52955,37.89894],[-122.52961,37.8988],[-122.52972,37.89867],[-122.52982,37.89857],[-122.52989,37.89854],[-122.52996,37.89845],[-122.53008,37.8984],[-122.53017,37.89839],[-122.53023,37.8984],[-122.53029,37.89842],[-122.53057,37.89859],[-122.53074,37.89864],[-122.53081,37.89872],[-122.53089,37.89876],[-122.53114,37.89884],[-122.53122,37.89885],[-122.53152,37.89885],[-122.53164,37.89887],[-122.53172,37.89894],[-122.53175,37.89916],[-122.53196,37.89938],[-122.53203,37.89943],[-122.53213,37.89942],[-122.53218,37.8994],[-122.53236,37.89925],[-122.53243,37.89924],[-122.53254,37.89926],[-122.53263,37.89928],[-122.53289,37.89938],[-122.53305,37.89945],[-122.53321,37.89949],[-122.5333,37.89952],[-122.53343,37.89953],[-122.53358,37.89957],[-122.534,37.89973],[-122.53407,37.89981],[-122.53419,37.89988],[-122.53435,37.89995],[-122.5347,37.90005],[-122.53486,37.90007],[-122.53492,37.90002],[-122.53484,37.89993],[-122.53467,37.89981],[-122.53427,37.89968],[-122.53386,37.89947],[-122.53356,37.89929],[-122.53337,37.89915],[-122.53298,37.89871],[-122.53271,37.89844],[-122.53242,37.8982],[-122.53167,37.89755],[-122.53125,37.89714],[-122.53124,37.897],[-122.53129,37.89685],[-122.53137,37.89672],[-122.53153,37.89661],[-122.53166,37.89658],[-122.53181,37.89652],[-122.5319,37.89651],[-122.53203,37.89652],[-122.53216,37.89654],[-122.53234,37.8965],[-122.5325,37.89649],[-122.53261,37.89653],[-122.5327,37.89655],[-122.5331,37.89676],[-122.5332,37.89686],[-122.53332,37.89706],[-122.53334,37.89712],[-122.53334,37.89717],[-122.53339,37.89723],[-122.53345,37.89728],[-122.53367,37.8974],[-122.53391,37.89746],[-122.53434,37.89759],[-122.53467,37.89758],[-122.53486,37.89745],[-122.53502,37.89737],[-122.53534,37.89725],[-122.53532,37.89718],[-122.53535,37.89708],[-122.53535,37.89699],[-122.53533,37.89686],[-122.53527,37.89674],[-122.53523,37.89669],[-122.53522,37.89656],[-122.53498,37.89638],[-122.53494,37.89631],[-122.53494,37.89626],[-122.53498,37.89622],[-122.53505,37.89622],[-122.53513,37.89626],[-122.53522,37.89634],[-122.53539,37.89644],[-122.53547,37.89647],[-122.53558,37.89647],[-122.53567,37.89644],[-122.53578,37.89647],[-122.53589,37.89654],[-122.53605,37.8966],[-122.53619,37.89661],[-122.53628,37.89663],[-122.53636,37.89676],[-122.53647,37.89688],[-122.53655,37.89692],[-122.53661,37.89697],[-122.53669,37.89701],[-122.53687,37.89715],[-122.53694,37.89718],[-122.53708,37.89721],[-122.53719,37.89723],[-122.53729,37.89723],[-122.53734,37.89717],[-122.53738,37.89709],[-122.53741,37.89698],[-122.53737,37.89692],[-122.53732,37.89687],[-122.53725,37.89682],[-122.53721,37.89677],[-122.53718,37.89671],[-122.53718,37.89662],[-122.53719,37.89658],[-122.53728,37.89653],[-122.53743,37.89653],[-122.53754,37.89648],[-122.53757,37.89639],[-122.53757,37.89633],[-122.53755,37.89627],[-122.53747,37.89621],[-122.53742,37.89613],[-122.53741,37.89596],[-122.5375,37.89588],[-122.53754,37.89582],[-122.53753,37.89573],[-122.53741,37.8956],[-122.53728,37.89549],[-122.53721,37.89541],[-122.5372,37.8953],[-122.53716,37.89523],[-122.53712,37.89518],[-122.5371,37.8951],[-122.53712,37.89504],[-122.53712,37.89497],[-122.53714,37.89489],[-122.53719,37.89483],[-122.53724,37.89479],[-122.53728,37.89474],[-122.5373,37.8947],[-122.53755,37.89453],[-122.53763,37.89444],[-122.53759,37.89439],[-122.53748,37.89439],[-122.53733,37.89442],[-122.53723,37.89446],[-122.53712,37.89453],[-122.53687,37.89463],[-122.53674,37.89472],[-122.53661,37.89484],[-122.53635,37.89495],[-122.53612,37.895],[-122.53595,37.895],[-122.53584,37.89494],[-122.53565,37.89481],[-122.53552,37.89478],[-122.53529,37.89478],[-122.53515,37.89479],[-122.53489,37.89476],[-122.53469,37.89475],[-122.53459,37.89469],[-122.53431,37.89455],[-122.53417,37.89438],[-122.53388,37.89422],[-122.53363,37.89402],[-122.53351,37.89388],[-122.53338,37.89378],[-122.53326,37.89369],[-122.53275,37.89338],[-122.53266,37.8933],[-122.53252,37.89313],[-122.53247,37.89305],[-122.53238,37.89287],[-122.53225,37.8928],[-122.53206,37.89282],[-122.5319,37.89282],[-122.5317,37.89275],[-122.53158,37.89269],[-122.5315,37.89259],[-122.53146,37.89249],[-122.53144,37.89239],[-122.53139,37.89234],[-122.5313,37.89234],[-122.53108,37.89238],[-122.53088,37.89238],[-122.53074,37.89235],[-122.53064,37.89232],[-122.53055,37.89229],[-122.53044,37.89224],[-122.5304,37.89216],[-122.53026,37.89207],[-122.53011,37.89195],[-122.53005,37.89186],[-122.53004,37.89178],[-122.52998,37.89171],[-122.52988,37.89167],[-122.52976,37.89167],[-122.5297,37.89162],[-122.52966,37.89151],[-122.5296,37.89141],[-122.52959,37.89147],[-122.52961,37.89156],[-122.52965,37.89165],[-122.52971,37.8917],[-122.52982,37.89173],[-122.52995,37.89181],[-122.52999,37.89191],[-122.53001,37.89199],[-122.5301,37.89202],[-122.53029,37.8922],[-122.53031,37.89228],[-122.53025,37.89231],[-122.53014,37.89234],[-122.53006,37.89235],[-122.53001,37.89239],[-122.52995,37.89241],[-122.52987,37.89236],[-122.52973,37.8923],[-122.52967,37.8923],[-122.52955,37.89233],[-122.52952,37.89228],[-122.52951,37.89213],[-122.52944,37.89195],[-122.52938,37.89185],[-122.52923,37.89173],[-122.52918,37.89167],[-122.52908,37.89158],[-122.52899,37.89153],[-122.52886,37.89149],[-122.5287,37.89147],[-122.52843,37.89139],[-122.52837,37.89138],[-122.52832,37.89135],[-122.52826,37.89126],[-122.52826,37.8912],[-122.5283,37.89112],[-122.52836,37.89104],[-122.52838,37.89092],[-122.52845,37.89078],[-122.52845,37.8907],[-122.52839,37.89048],[-122.52837,37.89037],[-122.52825,37.89011],[-122.52813,37.89001],[-122.52775,37.8899],[-122.52766,37.88979],[-122.52764,37.88972],[-122.52764,37.88965],[-122.52767,37.88943],[-122.52765,37.88937],[-122.52718,37.88925],[-122.52713,37.88917],[-122.52713,37.88897],[-122.52709,37.88886],[-122.527,37.88868],[-122.52696,37.88846],[-122.52687,37.8883],[-122.52687,37.88817],[-122.52693,37.88795],[-122.52693,37.88787],[-122.52704,37.88766],[-122.52711,37.88755],[-122.52722,37.88748],[-122.5272,37.88742],[-122.52716,37.88735],[-122.5271,37.88728],[-122.52699,37.88723],[-122.52684,37.88712],[-122.52669,37.88707],[-122.52655,37.88706],[-122.52646,37.88701],[-122.52625,37.88692],[-122.52614,37.88693],[-122.52595,37.88686],[-122.52582,37.88683],[-122.5257,37.88682],[-122.52555,37.88676],[-122.5254,37.88668],[-122.52532,37.8866],[-122.52519,37.88643],[-122.52499,37.8863],[-122.52489,37.88626],[-122.52483,37.88625],[-122.52446,37.88612],[-122.52441,37.88608],[-122.52436,37.88602],[-122.52425,37.88586],[-122.52418,37.88568],[-122.52411,37.88537],[-122.52397,37.88526],[-122.52401,37.88522],[-122.52411,37.88509],[-122.52415,37.88501],[-122.52415,37.88486],[-122.52411,37.88479],[-122.52407,37.88469],[-122.52412,37.8846],[-122.52438,37.88445],[-122.52452,37.88439],[-122.52456,37.88432],[-122.5246,37.88427],[-122.52469,37.88423],[-122.52481,37.88419],[-122.52516,37.88393],[-122.52532,37.88375],[-122.52544,37.88354],[-122.52548,37.88319],[-122.52546,37.88301],[-122.52541,37.88283],[-122.52535,37.88267],[-122.52536,37.88239],[-122.52543,37.88225],[-122.52554,37.88216],[-122.52552,37.88199],[-122.52553,37.8817],[-122.52567,37.88156],[-122.52604,37.88147],[-122.5262,37.88135],[-122.52632,37.8813],[-122.52658,37.88123],[-122.52681,37.88115],[-122.5271,37.8809],[-122.52721,37.88083],[-122.52737,37.88058],[-122.52739,37.8805],[-122.5274,37.88027],[-122.52745,37.88017],[-122.52747,37.88007],[-122.52755,37.88002],[-122.5276,37.87994],[-122.52778,37.87984],[-122.52785,37.87978],[-122.52803,37.8797],[-122.52825,37.87958],[-122.52841,37.87941],[-122.52848,37.87932],[-122.5286,37.87925],[-122.52866,37.87919],[-122.52873,37.87902],[-122.5289,37.87884],[-122.52893,37.87872],[-122.52898,37.87865],[-122.52902,37.87862],[-122.52907,37.87853],[-122.52912,37.87848],[-122.52924,37.87842],[-122.52932,37.8784],[-122.52944,37.87839],[-122.52955,37.87841],[-122.52966,37.87841],[-122.52978,37.87847],[-122.5299,37.8785],[-122.53017,37.87853],[-122.5303,37.87853],[-122.53046,37.87849],[-122.53073,37.8784],[-122.53083,37.8784],[-122.53088,37.87842],[-122.53094,37.87843],[-122.5312,37.87852],[-122.53126,37.87853],[-122.53143,37.8785],[-122.5316,37.87845],[-122.53181,37.8784],[-122.53208,37.87838],[-122.53234,37.87838],[-122.53257,37.87839],[-122.53267,37.87843],[-122.53288,37.87847],[-122.53307,37.87853],[-122.53335,37.87859],[-122.53358,37.87861],[-122.53398,37.87858],[-122.53417,37.87858],[-122.53429,37.87856],[-122.53442,37.87856],[-122.53454,37.87859],[-122.53466,37.87864],[-122.53489,37.87864],[-122.53514,37.87863],[-122.53526,37.87861],[-122.53532,37.87855],[-122.53534,37.87849],[-122.53523,37.8784],[-122.53513,37.87838],[-122.5351,37.87831],[-122.5351,37.87823],[-122.53516,37.87815],[-122.5352,37.87808],[-122.53512,37.87804],[-122.53505,37.87798],[-122.53506,37.87786],[-122.53509,37.8778],[-122.53516,37.87778],[-122.53534,37.87778],[-122.53542,37.8778],[-122.53551,37.87779],[-122.53557,37.87773],[-122.53552,37.87767],[-122.5354,37.8776],[-122.53527,37.87756],[-122.53498,37.87749],[-122.53473,37.87749],[-122.53452,37.87751],[-122.53427,37.87755],[-122.53414,37.87755],[-122.53409,37.87754],[-122.53406,37.87747],[-122.53405,37.87739],[-122.53405,37.87728],[-122.53403,37.87722],[-122.53395,37.8771],[-122.53379,37.87702],[-122.53365,37.877],[-122.5334,37.87705],[-122.53327,37.87705],[-122.53299,37.877],[-122.53283,37.87698],[-122.53274,37.87696],[-122.53261,37.87691],[-122.53224,37.87681],[-122.53208,37.87681],[-122.53178,37.87675],[-122.5316,37.87666],[-122.53144,37.87655],[-122.53128,37.87647],[-122.53107,37.87638],[-122.53093,37.87633],[-122.53081,37.8763],[-122.53071,37.8763],[-122.53055,37.87632],[-122.53019,37.87649],[-122.52999,37.87654],[-122.52987,37.87654],[-122.52908,37.87646],[-122.5289,37.87635],[-122.52872,37.87611],[-122.52863,37.87595],[-122.52861,37.87576],[-122.52855,37.87552],[-122.52849,37.8752],[-122.52853,37.87501],[-122.52856,37.87479],[-122.52859,37.87469],[-122.52866,37.87463],[-122.52874,37.87452],[-122.52875,37.87447],[-122.52875,37.87433],[-122.52869,37.87428],[-122.52861,37.87411],[-122.5286,37.87398],[-122.52854,37.87383],[-122.52846,37.87379],[-122.52838,37.87373],[-122.52829,37.87362],[-122.52826,37.87348],[-122.52816,37.87319],[-122.52807,37.87304],[-122.52802,37.87293],[-122.52796,37.87283],[-122.52778,37.87267],[-122.52767,37.8725],[-122.52762,37.87247],[-122.52751,37.87243],[-122.52741,37.87236],[-122.52738,37.87233],[-122.52731,37.8723],[-122.52723,37.87244],[-122.52719,37.87247],[-122.52712,37.87251],[-122.52702,37.87252],[-122.52691,37.87255],[-122.52687,37.8726],[-122.52683,37.87267],[-122.52681,37.87273],[-122.5268,37.87283],[-122.52674,37.87293],[-122.52667,37.87299],[-122.52662,37.87307],[-122.52662,37.87313],[-122.52668,37.87322],[-122.52665,37.8733],[-122.52659,37.87336],[-122.52659,37.87344],[-122.52663,37.87356],[-122.52663,37.87366],[-122.5266,37.87374],[-122.52656,37.87379],[-122.52654,37.87386],[-122.52657,37.87392],[-122.52659,37.874],[-122.52658,37.87416],[-122.52662,37.87424],[-122.52663,37.87431],[-122.52662,37.87448],[-122.52667,37.87456],[-122.52666,37.87464],[-122.52655,37.8748],[-122.52645,37.87491],[-122.5264,37.87502],[-122.52638,37.87513],[-122.52639,37.87523],[-122.52637,37.87532],[-122.52642,37.87537],[-122.52646,37.87545],[-122.52649,37.8756],[-122.52657,37.87576],[-122.52665,37.87581],[-122.52677,37.87585],[-122.52684,37.87589],[-122.52688,37.87595],[-122.52693,37.876],[-122.52699,37.87612],[-122.527,37.87623],[-122.52705,37.87634],[-122.52704,37.87642],[-122.52701,37.87652],[-122.52683,37.87676],[-122.5267,37.87687],[-122.52641,37.87701],[-122.52608,37.87712],[-122.52584,37.87712],[-122.52562,37.87709],[-122.52513,37.87696],[-122.52497,37.87701],[-122.52491,37.87706],[-122.52484,37.87709],[-122.52478,37.87715],[-122.52461,37.87721],[-122.52439,37.87721],[-122.52414,37.87728],[-122.52403,37.87736],[-122.5239,37.87755],[-122.52373,37.87763],[-122.52369,37.87777],[-122.52371,37.87789],[-122.52379,37.87806],[-122.52382,37.87818],[-122.52389,37.87828],[-122.52392,37.87836],[-122.52394,37.87844],[-122.52394,37.87859],[-122.52395,37.87868],[-122.52383,37.87881],[-122.5237,37.87897],[-122.52349,37.87913],[-122.52335,37.8792],[-122.52282,37.87936],[-122.52264,37.87946],[-122.5224,37.8797],[-122.52233,37.87975],[-122.52224,37.87993],[-122.52208,37.88011],[-122.52203,37.88023],[-122.52195,37.88032],[-122.52175,37.88042],[-122.52173,37.88051],[-122.52164,37.88068],[-122.52152,37.88074],[-122.52143,37.88073],[-122.5213,37.88073],[-122.52102,37.8807],[-122.52079,37.88072],[-122.5205,37.88071],[-122.52028,37.88069],[-122.52011,37.88065],[-122.51991,37.88058],[-122.5198,37.88047],[-122.51956,37.8803],[-122.51938,37.88027],[-122.51918,37.88015],[-122.51904,37.88004],[-122.51883,37.87998],[-122.5188,37.87985],[-122.51875,37.87975],[-122.51878,37.87965],[-122.51872,37.87955],[-122.51856,37.87955],[-122.51844,37.8796],[-122.51822,37.87967],[-122.51807,37.8797],[-122.51789,37.87975],[-122.51775,37.87974],[-122.51759,37.87967],[-122.51745,37.87955],[-122.51745,37.87943],[-122.51743,37.87932],[-122.51739,37.87923],[-122.51703,37.87923],[-122.51695,37.87912],[-122.51692,37.87895],[-122.51686,37.87877],[-122.51692,37.87864],[-122.51703,37.87848],[-122.51694,37.87838],[-122.51674,37.87831],[-122.51657,37.87824],[-122.51634,37.87824],[-122.51616,37.87832],[-122.51601,37.87828],[-122.51566,37.87829],[-122.51548,37.87825],[-122.51537,37.87818],[-122.5152,37.87786],[-122.51514,37.87777],[-122.51503,37.87776],[-122.51472,37.87789],[-122.51453,37.87796],[-122.51427,37.87784],[-122.51406,37.87782],[-122.5138,37.87782],[-122.51367,37.87779],[-122.51333,37.87737],[-122.51321,37.8772],[-122.51309,37.87718],[-122.51277,37.87718],[-122.51264,37.87714],[-122.51253,37.87703],[-122.5125,37.87687],[-122.51245,37.87676],[-122.5123,37.87667],[-122.51216,37.87635],[-122.51199,37.87628],[-122.51185,37.8763],[-122.51158,37.87627],[-122.51136,37.87622],[-122.51117,37.87607],[-122.5111,37.8759],[-122.51105,37.87566],[-122.51104,37.87545],[-122.51084,37.87531],[-122.51078,37.87517],[-122.51065,37.87505],[-122.51059,37.87491],[-122.51058,37.87472],[-122.51063,37.87452],[-122.51082,37.8743],[-122.51109,37.87411],[-122.51141,37.87403],[-122.51181,37.8739],[-122.51205,37.87383],[-122.51232,37.87356],[-122.51252,37.87343],[-122.51289,37.87332],[-122.51324,37.87333],[-122.51343,37.8733],[-122.51358,37.87319],[-122.51385,37.87278],[-122.51402,37.87261],[-122.51412,37.87245],[-122.51415,37.87221],[-122.51414,37.87208],[-122.51423,37.87192],[-122.51419,37.87169],[-122.51418,37.8715],[-122.51421,37.87128],[-122.51413,37.87114],[-122.51398,37.87096],[-122.51389,37.87089],[-122.51378,37.87084],[-122.51348,37.87063],[-122.51327,37.87054],[-122.51318,37.87047],[-122.51314,37.87038],[-122.51312,37.87028],[-122.51298,37.87009],[-122.51288,37.86998],[-122.51266,37.86995],[-122.51247,37.86996],[-122.5123,37.87003],[-122.51224,37.87016],[-122.51223,37.87042],[-122.51219,37.87063],[-122.51215,37.87074],[-122.51206,37.87086],[-122.51197,37.87091],[-122.51177,37.87104],[-122.51159,37.87107],[-122.51143,37.87107],[-122.51135,37.87103],[-122.51112,37.87081],[-122.5111,37.87074],[-122.51105,37.87065],[-122.51103,37.87055],[-122.51103,37.87046],[-122.51106,37.87038],[-122.51113,37.87031],[-122.51118,37.87021],[-122.51125,37.87014],[-122.51136,37.86997],[-122.51139,37.86982],[-122.51135,37.86975],[-122.51127,37.86969],[-122.51118,37.86966],[-122.5108,37.8696],[-122.51066,37.86959],[-122.51055,37.86957],[-122.51044,37.8695],[-122.51038,37.86944],[-122.51028,37.86922],[-122.51028,37.86911],[-122.5103,37.86903],[-122.51029,37.86893],[-122.51026,37.86886],[-122.51009,37.86875],[-122.50958,37.86867],[-122.50947,37.86866],[-122.50923,37.86865],[-122.50908,37.86866],[-122.50897,37.86875],[-122.5089,37.86882],[-122.50888,37.8689],[-122.50887,37.86899],[-122.50878,37.86927],[-122.50869,37.86938],[-122.50864,37.86942],[-122.50858,37.86954],[-122.50854,37.86966],[-122.50854,37.86972],[-122.5086,37.86991],[-122.50866,37.87002],[-122.50861,37.87023],[-122.50846,37.8705],[-122.50838,37.8706],[-122.50839,37.87066],[-122.50845,37.87086],[-122.50849,37.87094],[-122.50854,37.87109],[-122.5085,37.8713],[-122.50843,37.87144],[-122.50829,37.87157],[-122.50818,37.87162],[-122.50803,37.87164],[-122.5079,37.87169],[-122.50787,37.87174],[-122.50784,37.87177],[-122.50775,37.87181],[-122.50746,37.87167],[-122.50738,37.87162],[-122.50729,37.87158],[-122.5072,37.87156],[-122.50706,37.87157],[-122.50692,37.87161],[-122.50669,37.87165],[-122.50649,37.87173],[-122.50631,37.87179],[-122.50607,37.87189],[-122.50596,37.87192],[-122.50584,37.87192],[-122.50573,37.8719],[-122.50557,37.87189],[-122.50525,37.87191],[-122.5051,37.87196],[-122.50492,37.872],[-122.50481,37.87195],[-122.5048,37.87185],[-122.50459,37.8716],[-122.50453,37.87147],[-122.50449,37.87142],[-122.50449,37.87136],[-122.5044,37.87137],[-122.50431,37.87129],[-122.50421,37.87122],[-122.50405,37.87118],[-122.50388,37.8711],[-122.50374,37.87099],[-122.50363,37.87085],[-122.5036,37.87074],[-122.50363,37.87065],[-122.50369,37.87056],[-122.50371,37.87046],[-122.50379,37.87041],[-122.50379,37.87034],[-122.50389,37.8703],[-122.50399,37.8702],[-122.50442,37.87006],[-122.50464,37.86996],[-122.50492,37.86981],[-122.50512,37.86965],[-122.50534,37.86942],[-122.50553,37.86918],[-122.50561,37.86901],[-122.50562,37.86895],[-122.50559,37.86888],[-122.50561,37.86878],[-122.50567,37.86863],[-122.50579,37.8682],[-122.5058,37.86796],[-122.50575,37.86779],[-122.50562,37.86769],[-122.50533,37.86753],[-122.5047,37.86713],[-122.50455,37.86707],[-122.50433,37.86713],[-122.50403,37.8672],[-122.50392,37.86718],[-122.50374,37.86711],[-122.50363,37.86703],[-122.50343,37.86685],[-122.50322,37.86658],[-122.50312,37.86634],[-122.503,37.86625],[-122.50282,37.86621],[-122.50242,37.86623],[-122.50229,37.86623],[-122.50213,37.86617],[-122.50198,37.86608],[-122.50181,37.86595],[-122.50147,37.86577],[-122.50138,37.86567],[-122.50125,37.8656],[-122.50116,37.86551],[-122.50106,37.86543],[-122.50094,37.86536],[-122.50088,37.86528],[-122.5008,37.86508],[-122.5007,37.86492],[-122.50066,37.86487],[-122.50058,37.86483],[-122.50052,37.86488],[-122.50048,37.86501],[-122.50045,37.86506],[-122.50037,37.86511],[-122.50029,37.86511],[-122.50024,37.86504],[-122.50022,37.86499],[-122.50022,37.86484],[-122.50017,37.8648],[-122.50005,37.86505],[-122.49997,37.86514],[-122.49981,37.86519],[-122.49964,37.86522],[-122.49945,37.86522],[-122.49933,37.86529],[-122.49922,37.86542],[-122.49902,37.86561],[-122.49891,37.86566],[-122.49878,37.86567],[-122.49865,37.86569],[-122.49834,37.86575],[-122.49826,37.8658],[-122.4982,37.86586],[-122.4981,37.86593],[-122.498,37.86599],[-122.49789,37.86603],[-122.49774,37.86605],[-122.49763,37.866],[-122.49759,37.86585],[-122.49754,37.86579],[-122.49739,37.86564],[-122.49726,37.86555],[-122.49728,37.86533],[-122.49726,37.86522],[-122.49723,37.86513],[-122.49722,37.86505],[-122.49723,37.86494],[-122.49722,37.86486],[-122.49719,37.86472],[-122.49715,37.86459],[-122.49712,37.86441],[-122.49712,37.86432],[-122.49706,37.8641],[-122.49696,37.86403],[-122.49681,37.86401],[-122.49664,37.86395],[-122.49654,37.86385],[-122.49648,37.86376],[-122.49641,37.86368],[-122.49632,37.86352],[-122.4963,37.86344],[-122.49629,37.86333],[-122.49625,37.86316],[-122.49617,37.86308],[-122.49606,37.86303],[-122.49579,37.86304],[-122.49571,37.86299],[-122.49552,37.86293],[-122.49539,37.86294],[-122.49524,37.86288],[-122.49505,37.86266],[-122.49487,37.8625],[-122.49462,37.86234],[-122.49453,37.86226],[-122.49442,37.86218],[-122.49431,37.86215],[-122.49419,37.86215],[-122.49407,37.86212],[-122.49396,37.86201],[-122.49374,37.86197],[-122.49359,37.86187],[-122.49343,37.86185],[-122.49303,37.86185],[-122.49281,37.86182],[-122.4927,37.86177],[-122.49264,37.86169],[-122.49257,37.86156],[-122.49249,37.86145],[-122.49236,37.86137],[-122.49221,37.86133],[-122.49208,37.8613],[-122.49168,37.86133],[-122.49153,37.86131],[-122.49136,37.86132],[-122.49092,37.86131],[-122.49062,37.86135],[-122.49053,37.86138],[-122.49038,37.86141],[-122.4902,37.86146],[-122.48991,37.86147],[-122.48998,37.86133],[-122.49005,37.86128],[-122.49005,37.86118],[-122.49003,37.86106],[-122.49009,37.86097],[-122.49007,37.86088],[-122.49003,37.86079],[-122.49001,37.8607],[-122.49013,37.86042],[-122.49013,37.8602],[-122.49011,37.86007],[-122.49007,37.85993],[-122.48995,37.85976],[-122.48972,37.85962],[-122.48942,37.85956],[-122.48911,37.85956],[-122.48903,37.85954],[-122.48875,37.85951],[-122.48854,37.85951],[-122.48831,37.85966],[-122.4882,37.85961],[-122.48795,37.85956],[-122.48777,37.85954],[-122.48771,37.85952],[-122.48759,37.85951],[-122.48746,37.85951],[-122.48725,37.85952],[-122.48707,37.85949],[-122.4868,37.85942],[-122.48614,37.85932],[-122.48599,37.85929],[-122.48588,37.85924],[-122.48569,37.85906],[-122.48569,37.85896],[-122.48563,37.85889],[-122.4856,37.85884],[-122.48549,37.85881],[-122.48527,37.85871],[-122.48518,37.85868],[-122.48505,37.8586],[-122.48503,37.85854],[-122.48497,37.85849],[-122.48488,37.85846],[-122.48481,37.85845],[-122.48471,37.85841],[-122.48459,37.85838],[-122.48439,37.8583],[-122.48418,37.85823],[-122.48386,37.85811],[-122.48374,37.85808],[-122.4835,37.85804],[-122.48328,37.85798],[-122.48322,37.85792],[-122.48308,37.85792],[-122.4829,37.85785],[-122.48264,37.85771],[-122.48258,37.85767],[-122.4825,37.8576],[-122.48232,37.85751],[-122.48221,37.85743],[-122.48215,37.8574],[-122.482,37.8573],[-122.48185,37.85717],[-122.48175,37.85712],[-122.48155,37.85685],[-122.48143,37.85673],[-122.48118,37.85653],[-122.48079,37.85634],[-122.48067,37.8563],[-122.48056,37.85624],[-122.48051,37.85615],[-122.48048,37.85604],[-122.48049,37.8559],[-122.48046,37.85577],[-122.48023,37.85532],[-122.48014,37.85517],[-122.47993,37.85511],[-122.47979,37.85502],[-122.47971,37.85492],[-122.47973,37.85484],[-122.47968,37.85474],[-122.47967,37.85468],[-122.47969,37.8546],[-122.47975,37.85455],[-122.47981,37.85448],[-122.47983,37.85429],[-122.47994,37.85401],[-122.47994,37.85381],[-122.47991,37.85374],[-122.47985,37.8537],[-122.47978,37.85369],[-122.47983,37.85361],[-122.47983,37.8535],[-122.47979,37.85333],[-122.4797,37.85319],[-122.4796,37.85313],[-122.47947,37.85278],[-122.47954,37.85269],[-122.47964,37.85259],[-122.47967,37.85249],[-122.47963,37.85242],[-122.47951,37.85227],[-122.47954,37.85216],[-122.4796,37.85207],[-122.47962,37.85198],[-122.47962,37.85187],[-122.4796,37.85179],[-122.47954,37.85169],[-122.47945,37.85158],[-122.47938,37.85156],[-122.47933,37.85149],[-122.47929,37.85138],[-122.47934,37.85131],[-122.47942,37.85133],[-122.47958,37.8513],[-122.47972,37.85126],[-122.47979,37.85115],[-122.4798,37.85099],[-122.4799,37.85084],[-122.47995,37.8508],[-122.47995,37.85069],[-122.47999,37.85062],[-122.47995,37.85045],[-122.48002,37.85036],[-122.48009,37.85029],[-122.48021,37.85023],[-122.48031,37.85007],[-122.48036,37.84997],[-122.48038,37.84991],[-122.4805,37.84974],[-122.48059,37.84949],[-122.48066,37.8494],[-122.48068,37.84929],[-122.48073,37.84918],[-122.48075,37.84886],[-122.48077,37.84869],[-122.48077,37.84858],[-122.48069,37.84837],[-122.48069,37.84809],[-122.48067,37.84799],[-122.48065,37.8478],[-122.48055,37.84761],[-122.48053,37.84753],[-122.48053,37.84748],[-122.4804,37.84738],[-122.48041,37.84729],[-122.48045,37.8472],[-122.48047,37.8471],[-122.48038,37.84702],[-122.48027,37.84697],[-122.48009,37.84685],[-122.47992,37.84683],[-122.47978,37.84678],[-122.47962,37.84668],[-122.47941,37.84665],[-122.47922,37.84665],[-122.47905,37.84667],[-122.47894,37.8466],[-122.47881,37.8466],[-122.47871,37.84651],[-122.47859,37.84647],[-122.47842,37.84623],[-122.47828,37.84618],[-122.47823,37.84609],[-122.47799,37.84589],[-122.47794,37.84583],[-122.47779,37.84571],[-122.47771,37.84568],[-122.47777,37.84561],[-122.4778,37.84548],[-122.47776,37.84505],[-122.4777,37.84487],[-122.47762,37.84476],[-122.47757,37.84472],[-122.47748,37.84467],[-122.47761,37.84453],[-122.47763,37.84443],[-122.47761,37.84435],[-122.47757,37.84425],[-122.47753,37.84419],[-122.4774,37.84408],[-122.47732,37.84403],[-122.4773,37.84395],[-122.47745,37.84375],[-122.47746,37.8437],[-122.47746,37.84363],[-122.47745,37.84357],[-122.47742,37.84348],[-122.47737,37.84342],[-122.4773,37.84336],[-122.47722,37.84337],[-122.47724,37.84327],[-122.47735,37.84321],[-122.47747,37.84305],[-122.47748,37.84273],[-122.47744,37.84265],[-122.47735,37.84259],[-122.47716,37.84241],[-122.47714,37.84236],[-122.47718,37.84226],[-122.4772,37.84217],[-122.47721,37.84206],[-122.47714,37.84182],[-122.4771,37.84176],[-122.47704,37.8417],[-122.47681,37.84153],[-122.47674,37.84143],[-122.47658,37.84133],[-122.47635,37.84129],[-122.47627,37.84129],[-122.47619,37.8413],[-122.47607,37.84134],[-122.47607,37.84143],[-122.47608,37.84149],[-122.47597,37.84154],[-122.47589,37.84148],[-122.47593,37.84141],[-122.47591,37.84131],[-122.47575,37.84129],[-122.47567,37.84126],[-122.47569,37.84117],[-122.47574,37.84111],[-122.47588,37.84106],[-122.47594,37.84103],[-122.47589,37.84093],[-122.47587,37.84082],[-122.47589,37.84067],[-122.47585,37.84056],[-122.47572,37.84041],[-122.47551,37.8402],[-122.47527,37.84002],[-122.47515,37.83996],[-122.47519,37.83987],[-122.47521,37.83979],[-122.47519,37.83969],[-122.47513,37.83956],[-122.47511,37.83949],[-122.47505,37.83941],[-122.47486,37.83936],[-122.47476,37.83932],[-122.4748,37.83919],[-122.47477,37.8391],[-122.47472,37.83901],[-122.4747,37.83894],[-122.47449,37.83893],[-122.47443,37.83885],[-122.47446,37.83874],[-122.47455,37.8386],[-122.47453,37.83852],[-122.47427,37.83851],[-122.47406,37.83846],[-122.47396,37.83833],[-122.47372,37.83827],[-122.47366,37.83822],[-122.4736,37.83811],[-122.47346,37.83806],[-122.47337,37.83797],[-122.4734,37.83788],[-122.47337,37.83782],[-122.47329,37.83773],[-122.47335,37.83763],[-122.4733,37.83752],[-122.47312,37.8375],[-122.47312,37.83738],[-122.47307,37.83728],[-122.47305,37.83718],[-122.47305,37.83705],[-122.47301,37.83677],[-122.47295,37.8366],[-122.47293,37.8365],[-122.47287,37.83642],[-122.47283,37.83634],[-122.47277,37.83627],[-122.47251,37.83604],[-122.47245,37.83612],[-122.47231,37.83614],[-122.4722,37.83607],[-122.47222,37.83598],[-122.47237,37.83599],[-122.47243,37.83593],[-122.47242,37.83579],[-122.47247,37.83563],[-122.4726,37.83547],[-122.47266,37.83532],[-122.47261,37.83511],[-122.47261,37.83502],[-122.47265,37.83491],[-122.47255,37.83476],[-122.47246,37.83454],[-122.47261,37.83413],[-122.47283,37.8339],[-122.47304,37.8338],[-122.47319,37.83368],[-122.47325,37.83362],[-122.47331,37.83354],[-122.47329,37.83345],[-122.47325,37.83336],[-122.47316,37.83324],[-122.47307,37.83306],[-122.47305,37.83285],[-122.473,37.8327],[-122.47299,37.83261],[-122.47306,37.83227],[-122.47304,37.83207],[-122.47308,37.83176],[-122.47307,37.83164],[-122.47311,37.83157],[-122.47323,37.83154],[-122.47335,37.83165],[-122.47347,37.83182],[-122.47369,37.83203],[-122.47372,37.83221],[-122.47382,37.83231],[-122.47413,37.83248],[-122.47422,37.83255],[-122.47426,37.83264],[-122.4742,37.83283],[-122.47411,37.83303],[-122.4741,37.83312],[-122.47411,37.83321],[-122.47424,37.83328],[-122.47435,37.83332],[-122.47513,37.83334],[-122.47559,37.83334],[-122.47584,37.83332],[-122.47604,37.83329],[-122.47704,37.83317],[-122.4773,37.83312],[-122.47764,37.83302],[-122.47791,37.83297],[-122.47825,37.8328],[-122.47844,37.83274],[-122.47848,37.83268],[-122.47851,37.83244],[-122.47855,37.83236],[-122.4786,37.83222],[-122.47855,37.83212],[-122.47841,37.83196],[-122.47818,37.83182],[-122.47805,37.83173],[-122.47799,37.83163],[-122.47801,37.83138],[-122.47804,37.83131],[-122.47815,37.83127],[-122.47826,37.83124],[-122.47833,37.83117],[-122.47842,37.8311],[-122.4787,37.83108],[-122.47882,37.83105],[-122.47889,37.83099],[-122.47889,37.83082],[-122.47901,37.83073],[-122.47925,37.83052],[-122.47956,37.83014],[-122.47956,37.83],[-122.47954,37.82989],[-122.4795,37.82983],[-122.47962,37.82979],[-122.47964,37.82971],[-122.47957,37.82961],[-122.47954,37.82948],[-122.47947,37.82939],[-122.47935,37.82932],[-122.47935,37.8292],[-122.47932,37.82909],[-122.47923,37.82897],[-122.47922,37.82888],[-122.47926,37.82878],[-122.47941,37.8286],[-122.4794,37.82844],[-122.47934,37.82831],[-122.47929,37.82826],[-122.47934,37.82813],[-122.47932,37.82805],[-122.47928,37.82791],[-122.47925,37.82784],[-122.47917,37.82778],[-122.47916,37.82772],[-122.47927,37.8277],[-122.47933,37.82765],[-122.47936,37.82757],[-122.4794,37.82739],[-122.47939,37.8273],[-122.47937,37.82722],[-122.47939,37.82708],[-122.47943,37.82698],[-122.47945,37.82688],[-122.47932,37.82668],[-122.47923,37.82647],[-122.4792404,37.8263544],[-122.4787,37.8262],[-122.4786041,37.825164],[-122.47852,37.82515],[-122.47857,37.82506],[-122.4785949,37.825065],[-122.4772674,37.8107283],[-122.47718,37.81067],[-122.47713,37.81061],[-122.47708,37.81051],[-122.47701,37.81045],[-122.47702,37.81037],[-122.4771,37.81021],[-122.47712,37.81009],[-122.47717,37.80998],[-122.47717,37.8099],[-122.47715,37.80981],[-122.47715,37.80969],[-122.47708,37.80954],[-122.47706,37.80944],[-122.47698,37.80928],[-122.47691,37.8092],[-122.47684,37.80914],[-122.47665,37.80905],[-122.47656,37.80898],[-122.47645,37.80891],[-122.47624,37.80885],[-122.47609,37.80885],[-122.476,37.80879],[-122.4756,37.8088],[-122.47538,37.80877],[-122.47527,37.80871],[-122.47516,37.80869],[-122.47471,37.80868],[-122.47449,37.80866],[-122.47428,37.80863],[-122.47402,37.80857],[-122.47373,37.80856],[-122.47361,37.80863],[-122.47321,37.80869],[-122.47308,37.80872],[-122.47277,37.80875],[-122.47248,37.80879],[-122.4724,37.80873],[-122.47224,37.80873],[-122.47191,37.80869],[-122.47172,37.80854],[-122.47155,37.80843],[-122.47146,37.80835],[-122.47139,37.80824],[-122.47138,37.80813],[-122.47136,37.80807],[-122.47129,37.80799],[-122.47109,37.80783],[-122.47099,37.80779],[-122.47085,37.80775],[-122.47065,37.80768],[-122.47039,37.80763],[-122.47024,37.80762],[-122.46996,37.80764],[-122.46973,37.80754],[-122.46947,37.80749],[-122.46934,37.80745],[-122.4688,37.80731],[-122.4682,37.80713],[-122.4679,37.80703],[-122.46768,37.80693],[-122.46748,37.80678],[-122.46733,37.80662],[-122.46703,37.80634],[-122.46678,37.80589],[-122.46665,37.8056],[-122.46643,37.80495],[-122.46634,37.80482],[-122.46624,37.80472],[-122.4661,37.80461],[-122.4659,37.80448],[-122.46556,37.80437],[-122.46535,37.80431],[-122.46495,37.80424],[-122.46465,37.80424],[-122.46442,37.80425],[-122.46427,37.80429],[-122.46409,37.8043],[-122.46389,37.80427],[-122.46374,37.8043],[-122.46344,37.80432],[-122.46334,37.80434],[-122.46306,37.80436],[-122.46289,37.80439],[-122.46147,37.80456],[-122.46118,37.80458],[-122.461,37.80464],[-122.46083,37.80466],[-122.46064,37.80467],[-122.46028,37.80471],[-122.46013,37.80471],[-122.45983,37.80475],[-122.45956,37.80481],[-122.45908,37.80488],[-122.4585,37.80498],[-122.45833,37.80502],[-122.45804,37.80507],[-122.45789,37.80512],[-122.4576,37.8052],[-122.45713,37.80536],[-122.45648,37.80555],[-122.45609,37.80569],[-122.45589,37.80572],[-122.45549,37.80576],[-122.45537,37.80578],[-122.45494,37.80581],[-122.45479,37.80586],[-122.45464,37.80586],[-122.45452,37.80587],[-122.45436,37.80591],[-122.45427,37.80592],[-122.45393,37.80598],[-122.45367,37.80604],[-122.45353,37.80608],[-122.45324,37.80608],[-122.45312,37.80612],[-122.45292,37.80613],[-122.45266,37.80616],[-122.45251,37.80616],[-122.4524,37.80617],[-122.45204,37.80624],[-122.45171,37.80628],[-122.45141,37.8063],[-122.45127,37.80632],[-122.45111,37.80633],[-122.45081,37.80637],[-122.45023,37.8064],[-122.44964,37.8064],[-122.44946,37.80635],[-122.44896,37.80629],[-122.4488,37.80629],[-122.44841,37.80623],[-122.44827,37.8062],[-122.44787,37.8062],[-122.44769,37.80614],[-122.4475,37.80612],[-122.44735,37.80612],[-122.44689,37.80601],[-122.44671,37.8059],[-122.44653,37.80572],[-122.4464,37.80556],[-122.44635,37.80543],[-122.44634,37.80532],[-122.44635,37.80524],[-122.44639,37.80516],[-122.4464,37.8051],[-122.44647,37.805],[-122.44657,37.8048],[-122.44651,37.80475],[-122.44625,37.80457],[-122.44589,37.80436],[-122.44558,37.80416],[-122.445,37.80384],[-122.44468,37.8036],[-122.44419,37.8034],[-122.44408,37.80334],[-122.4438,37.80311],[-122.44346,37.80286],[-122.44299,37.8026],[-122.44262,37.80232],[-122.4424,37.80213],[-122.44221,37.80192],[-122.44197,37.8016],[-122.44181,37.80144],[-122.44164,37.80132],[-122.44153,37.80128],[-122.44141,37.80122],[-122.44135,37.80117],[-122.44124,37.80106],[-122.44125,37.80099],[-122.44133,37.80101],[-122.44142,37.80105],[-122.44155,37.80106],[-122.44169,37.80109],[-122.44181,37.80115],[-122.44208,37.8012],[-122.44221,37.80139],[-122.44235,37.8015],[-122.44249,37.80173],[-122.4427,37.80197],[-122.44304,37.80231],[-122.44311,37.80237],[-122.44321,37.80243],[-122.44334,37.80249],[-122.44341,37.80254],[-122.444,37.80301],[-122.44409,37.80313],[-122.4442,37.80319],[-122.44455,37.80332],[-122.44482,37.80341],[-122.44497,37.80352],[-122.44506,37.80352],[-122.44497,37.8034],[-122.44485,37.8033],[-122.44437,37.80312],[-122.44426,37.80307],[-122.4442,37.80303],[-122.44403,37.80288],[-122.4439,37.80278],[-122.44378,37.80267],[-122.44363,37.80258],[-122.44356,37.8025],[-122.44349,37.80244],[-122.44336,37.80228],[-122.44308,37.80209],[-122.44303,37.80202],[-122.44297,37.80197],[-122.44293,37.80191],[-122.44283,37.8018],[-122.44272,37.80171],[-122.44266,37.80158],[-122.44262,37.80146],[-122.44256,37.80135],[-122.44259,37.80124],[-122.44268,37.80116],[-122.44277,37.80105],[-122.44284,37.80103],[-122.44292,37.80097],[-122.44301,37.80097],[-122.44306,37.80099],[-122.44321,37.80108],[-122.44326,37.8011],[-122.44335,37.80111],[-122.44346,37.80114],[-122.44354,37.80123],[-122.44359,37.80118],[-122.44358,37.80112],[-122.44366,37.80107],[-122.4437,37.80101],[-122.44389,37.80103],[-122.44406,37.80096],[-122.4442,37.80092],[-122.44429,37.80097],[-122.4443,37.80107],[-122.44442,37.80134],[-122.44436,37.80141],[-122.44437,37.80147],[-122.4444,37.80156],[-122.44439,37.80162],[-122.44444,37.80189],[-122.44442,37.80202],[-122.44442,37.80216],[-122.44451,37.80231],[-122.44457,37.80236],[-122.4448,37.80264],[-122.44502,37.80279],[-122.44538,37.80297],[-122.44551,37.803],[-122.44558,37.80304],[-122.44568,37.80307],[-122.44578,37.80308],[-122.44599,37.80304],[-122.44621,37.80308],[-122.44633,37.80302],[-122.44645,37.80298],[-122.44653,37.80297],[-122.44666,37.80292],[-122.44677,37.80285],[-122.44699,37.80279],[-122.44711,37.80273],[-122.44719,37.80266],[-122.44729,37.80273],[-122.44735,37.80272],[-122.44741,37.8027],[-122.44746,37.80267],[-122.4475,37.80262],[-122.44746,37.80258],[-122.44731,37.80262],[-122.44725,37.80262],[-122.44717,37.80259],[-122.44704,37.80251],[-122.44699,37.80251],[-122.44695,37.80244],[-122.44701,37.8024],[-122.44719,37.80235],[-122.44722,37.80224],[-122.44728,37.80219],[-122.44751,37.80212],[-122.4476,37.80207],[-122.44766,37.80205],[-122.44766,37.802],[-122.44777,37.80197],[-122.44785,37.80197],[-122.4479,37.80195],[-122.44798,37.80194],[-122.44804,37.80195],[-122.4481,37.80197],[-122.44815,37.80211],[-122.44818,37.80217],[-122.44819,37.80222],[-122.44818,37.80233],[-122.44821,37.8024],[-122.4482,37.80246],[-122.44821,37.80254],[-122.44824,37.80258],[-122.44829,37.80261],[-122.44833,37.80266],[-122.44833,37.8027],[-122.44844,37.8028],[-122.44849,37.80283],[-122.44861,37.80286],[-122.44862,37.80292],[-122.44871,37.80296],[-122.44879,37.80295],[-122.44886,37.80293],[-122.44901,37.80299],[-122.44916,37.80303],[-122.44927,37.80303],[-122.44952,37.803],[-122.44961,37.80294],[-122.4497,37.80296],[-122.44981,37.80293],[-122.44991,37.80286],[-122.44996,37.80281],[-122.45004,37.80276],[-122.45004,37.80268],[-122.45007,37.80261],[-122.45015,37.80255],[-122.45032,37.80255],[-122.45038,37.80254],[-122.45045,37.80249],[-122.45051,37.80249],[-122.45058,37.8025],[-122.45065,37.80253],[-122.45071,37.80258],[-122.45078,37.80266],[-122.45084,37.80278],[-122.45083,37.80286],[-122.45084,37.80297],[-122.45076,37.80322],[-122.4508,37.80329],[-122.45089,37.80334],[-122.45098,37.80337],[-122.45107,37.80342],[-122.45114,37.80347],[-122.45115,37.80354],[-122.45124,37.80364],[-122.45129,37.80367],[-122.45138,37.8037],[-122.45143,37.80373],[-122.4515,37.80388],[-122.45149,37.80394],[-122.45147,37.80398],[-122.45148,37.80412],[-122.45158,37.8041],[-122.45168,37.80407],[-122.45177,37.80411],[-122.45185,37.80412],[-122.45191,37.80412],[-122.45198,37.8041],[-122.45206,37.80409],[-122.45217,37.80411],[-122.45227,37.80417],[-122.45235,37.80423],[-122.45234,37.80436],[-122.45231,37.80443],[-122.4523,37.80453],[-122.45233,37.80457],[-122.45245,37.80464],[-122.45238,37.8047],[-122.45238,37.80481],[-122.45244,37.8049],[-122.45244,37.80482],[-122.45247,37.80475],[-122.45252,37.80471],[-122.45256,37.80464],[-122.45255,37.80458],[-122.45248,37.80453],[-122.45244,37.80448],[-122.45242,37.80442],[-122.45244,37.80437],[-122.45243,37.80429],[-122.45249,37.80423],[-122.45256,37.80419],[-122.45268,37.8042],[-122.45285,37.80426],[-122.45296,37.80427],[-122.45314,37.80423],[-122.45322,37.80417],[-122.45335,37.8041],[-122.45338,37.80401],[-122.45342,37.80395],[-122.45343,37.8039],[-122.4535,37.80382],[-122.45377,37.80381],[-122.4539,37.80378],[-122.45399,37.8038],[-122.45408,37.80385],[-122.45418,37.80388],[-122.45429,37.80398],[-122.45436,37.80401],[-122.45443,37.80408],[-122.45447,37.80414],[-122.45454,37.8042],[-122.45466,37.80423],[-122.45473,37.8043],[-122.45487,37.80431],[-122.45495,37.80426],[-122.45517,37.80422],[-122.45527,37.80418],[-122.45544,37.80403],[-122.45547,37.80397],[-122.45553,37.80393],[-122.45561,37.80391],[-122.45568,37.80387],[-122.45573,37.80383],[-122.45576,37.80374],[-122.45586,37.80373],[-122.45595,37.80368],[-122.45605,37.8037],[-122.45617,37.8037],[-122.45628,37.80366],[-122.45641,37.80354],[-122.45656,37.80349],[-122.45676,37.80349],[-122.45685,37.80347],[-122.45703,37.80338],[-122.45716,37.80338],[-122.45724,37.8034],[-122.45736,37.80347],[-122.45743,37.80355],[-122.45752,37.80373],[-122.45766,37.80386],[-122.4578,37.80395],[-122.45798,37.80396],[-122.45817,37.8039],[-122.45829,37.8038],[-122.45847,37.8037],[-122.45858,37.80361],[-122.4587,37.80358],[-122.45878,37.80361],[-122.45913,37.80371],[-122.45921,37.80371],[-122.45929,37.80377],[-122.45934,37.80386],[-122.4594,37.80392],[-122.45955,37.80394],[-122.45964,37.80402],[-122.45977,37.80403],[-122.4599,37.80407],[-122.45994,37.80401],[-122.45985,37.80397],[-122.45973,37.80397],[-122.45964,37.80389],[-122.45957,37.80385],[-122.45945,37.80381],[-122.45939,37.80374],[-122.45939,37.80367],[-122.45943,37.8036],[-122.4595,37.80353],[-122.4597,37.80344],[-122.45981,37.80334],[-122.45984,37.80321],[-122.45983,37.80311],[-122.45993,37.80313],[-122.46,37.80319],[-122.46005,37.80326],[-122.46014,37.80327],[-122.46021,37.8033],[-122.46022,37.80341],[-122.4603,37.80345],[-122.46032,37.80327],[-122.46023,37.80322],[-122.4601,37.80318],[-122.46003,37.8031],[-122.4599,37.80306],[-122.4598,37.80305],[-122.45957,37.80298],[-122.45941,37.80296],[-122.45921,37.80292],[-122.45895,37.80284],[-122.45889,37.80277],[-122.4589,37.8027],[-122.45897,37.8026],[-122.45908,37.80256],[-122.45915,37.8025],[-122.45921,37.80241],[-122.45899,37.80248],[-122.4589,37.80254],[-122.45883,37.80261],[-122.45877,37.80269],[-122.45877,37.80278],[-122.45884,37.80286],[-122.45893,37.80291],[-122.45905,37.80294],[-122.45918,37.80299],[-122.45925,37.803],[-122.45935,37.80303],[-122.45943,37.80303],[-122.45952,37.80305],[-122.45964,37.8031],[-122.45969,37.80316],[-122.45969,37.80323],[-122.45966,37.80331],[-122.45956,37.80339],[-122.45948,37.80343],[-122.45933,37.80356],[-122.45922,37.80357],[-122.45896,37.8035],[-122.45885,37.80346],[-122.45859,37.80341],[-122.45851,37.80341],[-122.45835,37.80358],[-122.45825,37.80363],[-122.45808,37.80376],[-122.45797,37.80381],[-122.4578,37.80374],[-122.45773,37.8037],[-122.45768,37.80364],[-122.45762,37.8035],[-122.45747,37.80331],[-122.45732,37.80319],[-122.4572,37.80316],[-122.45697,37.80314],[-122.45686,37.80317],[-122.45662,37.80318],[-122.45651,37.8032],[-122.45636,37.80327],[-122.45593,37.8034],[-122.45572,37.8034],[-122.45556,37.80321],[-122.45556,37.80329],[-122.45558,37.80339],[-122.45551,37.80349],[-122.45541,37.80352],[-122.45534,37.80355],[-122.4553,37.80361],[-122.45527,37.80368],[-122.4552,37.80372],[-122.455,37.80382],[-122.45492,37.80382],[-122.4548,37.80374],[-122.45457,37.80364],[-122.45441,37.80358],[-122.45432,37.80347],[-122.45421,37.80347],[-122.4541,37.80348],[-122.45381,37.8034],[-122.45373,37.80345],[-122.45366,37.80342],[-122.45359,37.80336],[-122.45355,37.80326],[-122.45347,37.80315],[-122.45352,37.80305],[-122.4536,37.80299],[-122.45363,37.80293],[-122.45363,37.80286],[-122.45357,37.8028],[-122.45348,37.80274],[-122.4534,37.80271],[-122.45345,37.8026],[-122.45356,37.80253],[-122.45358,37.80244],[-122.45344,37.80251],[-122.45326,37.80264],[-122.45331,37.80274],[-122.45341,37.80278],[-122.45351,37.80287],[-122.45352,37.80295],[-122.45343,37.80299],[-122.45335,37.80304],[-122.45335,37.80318],[-122.45345,37.80326],[-122.4535,37.80335],[-122.45354,37.80345],[-122.45347,37.80349],[-122.45333,37.80351],[-122.45327,37.80359],[-122.45318,37.80368],[-122.45318,37.80376],[-122.45315,37.80384],[-122.45307,37.80392],[-122.453,37.80397],[-122.4529,37.80393],[-122.45282,37.80388],[-122.45274,37.80385],[-122.45261,37.80385],[-122.45248,37.80383],[-122.45237,37.80377],[-122.45228,37.8037],[-122.45223,37.80362],[-122.45213,37.80356],[-122.45192,37.80352],[-122.4518,37.80348],[-122.45156,37.80329],[-122.45153,37.80323],[-122.45152,37.80315],[-122.45153,37.80308],[-122.45152,37.80297],[-122.45153,37.8029],[-122.45153,37.80264],[-122.4515,37.80256],[-122.45144,37.80248],[-122.45141,37.8024],[-122.45136,37.80233],[-122.45127,37.80229],[-122.45113,37.80227],[-122.45085,37.80225],[-122.45067,37.80229],[-122.45047,37.80224],[-122.45038,37.80224],[-122.45028,37.80227],[-122.45018,37.80232],[-122.45008,37.80234],[-122.44992,37.80239],[-122.44984,37.80246],[-122.44981,37.80252],[-122.44974,37.8026],[-122.44967,37.80263],[-122.44956,37.80271],[-122.44947,37.80268],[-122.44942,37.80261],[-122.44941,37.80255],[-122.44941,37.80247],[-122.44932,37.80227],[-122.44923,37.80214],[-122.44905,37.80193],[-122.44896,37.80187],[-122.44849,37.8017],[-122.44834,37.80173],[-122.44824,37.80172],[-122.44808,37.80164],[-122.44798,37.80161],[-122.44788,37.80161],[-122.4477,37.8017],[-122.44757,37.80174],[-122.44747,37.80173],[-122.44741,37.80179],[-122.44731,37.80178],[-122.44723,37.80179],[-122.44727,37.8019],[-122.44701,37.80197],[-122.44696,37.80209],[-122.44689,37.80214],[-122.44666,37.8022],[-122.44659,37.80224],[-122.44652,37.80252],[-122.44651,37.80259],[-122.44644,37.80268],[-122.4463,37.80276],[-122.44613,37.80281],[-122.44601,37.80282],[-122.44577,37.80279],[-122.44546,37.80268],[-122.44532,37.80262],[-122.44518,37.80254],[-122.44512,37.80246],[-122.44507,37.80241],[-122.44492,37.80231],[-122.44487,37.80223],[-122.44485,37.80217],[-122.44481,37.80211],[-122.44479,37.80202],[-122.44479,37.80185],[-122.44475,37.8017],[-122.44479,37.8015],[-122.4448,37.80139],[-122.4448,37.80118],[-122.44474,37.80107],[-122.44474,37.80099],[-122.44477,37.80085],[-122.44468,37.80077],[-122.4446,37.80065],[-122.44468,37.80063],[-122.44477,37.80065],[-122.44492,37.80078],[-122.44503,37.80074],[-122.44517,37.80065],[-122.44523,37.80055],[-122.44526,37.80046],[-122.44531,37.80039],[-122.4454,37.80029],[-122.44529,37.8003],[-122.44516,37.80034],[-122.44508,37.80038],[-122.44513,37.80043],[-122.44512,37.80055],[-122.44504,37.80063],[-122.44494,37.80067],[-122.44486,37.80064],[-122.44479,37.80057],[-122.44472,37.80055],[-122.44463,37.80049],[-122.4446,37.80043],[-122.44452,37.80038],[-122.44446,37.80041],[-122.44438,37.80042],[-122.4443,37.80042],[-122.44412,37.80035],[-122.44394,37.80038],[-122.44387,37.80033],[-122.44395,37.80027],[-122.44382,37.80027]],[[-122.45186,37.80387],[-122.45172,37.80378],[-122.45165,37.8037],[-122.45165,37.80361],[-122.45183,37.80372],[-122.45197,37.80375],[-122.45208,37.80376],[-122.45206,37.80383],[-122.45186,37.80387]],[[-122.44923,37.80267],[-122.44916,37.80264],[-122.44911,37.80259],[-122.4491,37.80246],[-122.44911,37.80241],[-122.44917,37.80235],[-122.44926,37.80241],[-122.44929,37.80246],[-122.44929,37.80257],[-122.44933,37.80266],[-122.44929,37.80271],[-122.44923,37.80267]],[[-122.44348,37.80092],[-122.44335,37.8009],[-122.44324,37.80091],[-122.44303,37.80087],[-122.44286,37.80075],[-122.4429,37.80068],[-122.44301,37.80063],[-122.44316,37.80063],[-122.44325,37.80056],[-122.4434,37.80052],[-122.44353,37.80058],[-122.44374,37.80065],[-122.44393,37.80066],[-122.44404,37.80064],[-122.4441,37.80071],[-122.44413,37.80077],[-122.44402,37.8008],[-122.44392,37.80077],[-122.44381,37.80082],[-122.44348,37.80092]],[[-122.45106,37.80323],[-122.45097,37.8032],[-122.45095,37.80312],[-122.45095,37.80302],[-122.45099,37.80297],[-122.451,37.80292],[-122.45104,37.80285],[-122.45104,37.80277],[-122.45093,37.80257],[-122.45087,37.80248],[-122.45094,37.80245],[-122.45103,37.8025],[-122.45113,37.80257],[-122.45118,37.80263],[-122.4512,37.80268],[-122.45121,37.80275],[-122.4512,37.80282],[-122.45113,37.80299],[-122.45113,37.80315],[-122.45118,37.8032],[-122.45126,37.80323],[-122.45131,37.80329],[-122.45124,37.80331],[-122.45106,37.80323]],[[-122.44853,37.80244],[-122.44845,37.80241],[-122.44842,37.80233],[-122.44845,37.80218],[-122.44843,37.80209],[-122.44836,37.802],[-122.44834,37.80194],[-122.44841,37.80192],[-122.44852,37.80196],[-122.44861,37.80198],[-122.44876,37.80203],[-122.44887,37.80208],[-122.44899,37.80216],[-122.44903,37.8023],[-122.44903,37.80235],[-122.44897,37.80241],[-122.44897,37.8026],[-122.44893,37.80271],[-122.44885,37.80272],[-122.44877,37.80268],[-122.4487,37.80266],[-122.44859,37.80259],[-122.44853,37.80244]],[[-122.42413,37.82792],[-122.42398,37.82785],[-122.42383,37.82776],[-122.42374,37.82766],[-122.42352,37.82753],[-122.42336,37.82748],[-122.42306,37.82735],[-122.42294,37.82723],[-122.42285,37.82717],[-122.4227,37.82711],[-122.42255,37.82706],[-122.42236,37.82694],[-122.4222,37.82689],[-122.42209,37.82684],[-122.42194,37.82674],[-122.42184,37.82669],[-122.42178,37.82662],[-122.42171,37.82657],[-122.42162,37.82652],[-122.42151,37.82643],[-122.42127,37.82628],[-122.42112,37.82608],[-122.42108,37.826],[-122.42095,37.82596],[-122.42076,37.82595],[-122.42073,37.82585],[-122.42073,37.82576],[-122.42079,37.82567],[-122.42079,37.82556],[-122.42081,37.82548],[-122.42087,37.82542],[-122.42096,37.82528],[-122.42096,37.82521],[-122.42127,37.82507],[-122.42139,37.82505],[-122.42153,37.82509],[-122.4217,37.8251],[-122.4218,37.82515],[-122.42191,37.82517],[-122.422,37.82516],[-122.42209,37.82518],[-122.42225,37.8253],[-122.42245,37.8253],[-122.42261,37.82537],[-122.42273,37.82547],[-122.42288,37.82572],[-122.42298,37.82581],[-122.42324,37.82581],[-122.42334,37.82588],[-122.42351,37.82594],[-122.42376,37.82613],[-122.42378,37.82626],[-122.42382,37.82634],[-122.42388,37.8265],[-122.42412,37.82655],[-122.42428,37.82656],[-122.42444,37.82652],[-122.42454,37.82669],[-122.42454,37.82684],[-122.42452,37.82697],[-122.42442,37.82708],[-122.42436,37.82718],[-122.4244,37.82727],[-122.42449,37.82736],[-122.42473,37.82757],[-122.42494,37.82761],[-122.42503,37.82769],[-122.42522,37.82769],[-122.42541,37.82778],[-122.42556,37.82782],[-122.42555,37.82799],[-122.42553,37.82809],[-122.42543,37.82822],[-122.42524,37.82826],[-122.42502,37.82827],[-122.42471,37.8282],[-122.42455,37.82811],[-122.42437,37.82798],[-122.42413,37.82792]],[[-122.46579,37.87383],[-122.46534,37.87376],[-122.46522,37.87372],[-122.46517,37.87368],[-122.46517,37.87356],[-122.46511,37.87344],[-122.46467,37.87316],[-122.46458,37.87307],[-122.46449,37.873],[-122.46443,37.87291],[-122.46436,37.87274],[-122.46433,37.87252],[-122.46429,37.87233],[-122.46421,37.87212],[-122.46419,37.87201],[-122.46415,37.87189],[-122.46417,37.8715],[-122.46418,37.87142],[-122.46423,37.87126],[-122.46425,37.87107],[-122.46423,37.87097],[-122.46422,37.87081],[-122.46415,37.8707],[-122.46405,37.87061],[-122.4639,37.8705],[-122.4638,37.87044],[-122.46365,37.8702],[-122.46336,37.86995],[-122.46314,37.86972],[-122.46307,37.86963],[-122.46308,37.86956],[-122.46303,37.86944],[-122.46297,37.86926],[-122.46295,37.8691],[-122.46295,37.869],[-122.46303,37.86878],[-122.46304,37.86867],[-122.46301,37.86834],[-122.4629,37.8682],[-122.46272,37.86809],[-122.46227,37.86797],[-122.46211,37.86787],[-122.46182,37.86775],[-122.46165,37.86767],[-122.46151,37.86752],[-122.46135,37.8674],[-122.4613,37.86732],[-122.46126,37.86721],[-122.46125,37.8671],[-122.4612,37.86696],[-122.46113,37.86686],[-122.46103,37.86675],[-122.46085,37.86652],[-122.46081,37.86644],[-122.4608,37.86634],[-122.46077,37.86623],[-122.46071,37.86609],[-122.46057,37.86599],[-122.46043,37.86593],[-122.46031,37.86589],[-122.46017,37.86586],[-122.46007,37.86583],[-122.45997,37.86574],[-122.45985,37.86566],[-122.45966,37.86559],[-122.45943,37.86552],[-122.45934,37.86545],[-122.45913,37.86526],[-122.4591,37.86516],[-122.45884,37.86492],[-122.45874,37.86481],[-122.45869,37.8647],[-122.45876,37.86462],[-122.45876,37.86453],[-122.45864,37.86429],[-122.45861,37.86419],[-122.45867,37.86409],[-122.45878,37.864],[-122.45893,37.86385],[-122.45896,37.86365],[-122.45894,37.86347],[-122.45898,37.86335],[-122.45901,37.86313],[-122.45897,37.86291],[-122.45892,37.8628],[-122.45874,37.86259],[-122.4587,37.86252],[-122.45868,37.86234],[-122.45864,37.86225],[-122.45854,37.8622],[-122.45846,37.86222],[-122.45834,37.86223],[-122.45829,37.8622],[-122.45826,37.86215],[-122.45826,37.86209],[-122.45819,37.86191],[-122.4582,37.86186],[-122.4583,37.8617],[-122.45835,37.86165],[-122.45843,37.86162],[-122.45857,37.86165],[-122.45877,37.86175],[-122.45901,37.86182],[-122.45924,37.86194],[-122.45931,37.86202],[-122.45945,37.86212],[-122.45957,37.86222],[-122.45965,37.86226],[-122.45974,37.86228],[-122.45983,37.86231],[-122.45993,37.86238],[-122.46,37.86245],[-122.4601,37.86252],[-122.46039,37.86258],[-122.46051,37.86268],[-122.46069,37.86292],[-122.46081,37.86303],[-122.46089,37.86308],[-122.46106,37.86311],[-122.46111,37.86315],[-122.46119,37.86324],[-122.46135,37.86338],[-122.46147,37.86353],[-122.46171,37.86358],[-122.46182,37.86364],[-122.46218,37.86403],[-122.46255,37.86424],[-122.46305,37.86438],[-122.46347,37.86443],[-122.46359,37.86451],[-122.46366,37.86457],[-122.46375,37.86467],[-122.46385,37.86476],[-122.46405,37.86487],[-122.4641,37.86493],[-122.46413,37.86499],[-122.46442,37.86502],[-122.46439,37.86511],[-122.46438,37.86522],[-122.46445,37.8653],[-122.46462,37.86535],[-122.46477,37.8656],[-122.46486,37.86565],[-122.46497,37.86574],[-122.46504,37.86583],[-122.46508,37.86595],[-122.46514,37.86602],[-122.46532,37.86609],[-122.46544,37.86617],[-122.46552,37.86629],[-122.46563,37.86633],[-122.46579,37.86635],[-122.46586,37.8664],[-122.46591,37.8665],[-122.46602,37.8666],[-122.46623,37.86666],[-122.46631,37.86676],[-122.4664,37.86683],[-122.4665,37.86693],[-122.46661,37.86702],[-122.46672,37.86714],[-122.4668,37.86725],[-122.46689,37.86734],[-122.46697,37.86735],[-122.46722,37.86733],[-122.46727,37.86745],[-122.46734,37.86755],[-122.46742,37.86762],[-122.46755,37.86766],[-122.46772,37.86773],[-122.46781,37.86775],[-122.4679,37.86791],[-122.468,37.86799],[-122.46805,37.86802],[-122.46812,37.86802],[-122.46828,37.8681],[-122.46839,37.8682],[-122.46846,37.8683],[-122.46855,37.86837],[-122.46865,37.8684],[-122.46874,37.86841],[-122.46882,37.86841],[-122.46889,37.8684],[-122.46898,37.86837],[-122.46906,37.86833],[-122.46914,37.86833],[-122.46917,37.86843],[-122.46923,37.86871],[-122.46932,37.86897],[-122.46936,37.86905],[-122.46944,37.86916],[-122.46955,37.86923],[-122.46961,37.86935],[-122.46981,37.86956],[-122.46995,37.86964],[-122.47005,37.86975],[-122.47029,37.86987],[-122.47037,37.86998],[-122.47054,37.87018],[-122.47083,37.87061],[-122.47103,37.87082],[-122.47113,37.87098],[-122.47115,37.87108],[-122.4712,37.87123],[-122.47129,37.87132],[-122.47149,37.87158],[-122.47153,37.87166],[-122.47155,37.87176],[-122.47159,37.87187],[-122.47161,37.87196],[-122.47172,37.87212],[-122.47174,37.8722],[-122.4718,37.87227],[-122.472,37.87234],[-122.47211,37.87241],[-122.47215,37.87248],[-122.47218,37.87264],[-122.47225,37.87274],[-122.4723,37.87279],[-122.47256,37.87296],[-122.47259,37.87306],[-122.47265,37.8732],[-122.47272,37.87329],[-122.47278,37.87341],[-122.47297,37.8737],[-122.473,37.8738],[-122.47306,37.87386],[-122.47308,37.87393],[-122.47312,37.87398],[-122.47318,37.87403],[-122.47334,37.87419],[-122.47346,37.87427],[-122.47362,37.8744],[-122.47369,37.87465],[-122.4738,37.87497],[-122.47389,37.87518],[-122.47399,37.87523],[-122.47402,37.87538],[-122.47409,37.87553],[-122.47404,37.87569],[-122.47416,37.87607],[-122.47419,37.87614],[-122.47422,37.87627],[-122.4743,37.87639],[-122.47436,37.87696],[-122.47434,37.87727],[-122.47429,37.87756],[-122.47424,37.8777],[-122.47417,37.87775],[-122.47407,37.87774],[-122.47384,37.87774],[-122.47361,37.8777],[-122.47337,37.87776],[-122.47302,37.87783],[-122.47286,37.87788],[-122.47257,37.87792],[-122.47243,37.87793],[-122.47236,37.87795],[-122.47226,37.87795],[-122.47214,37.87792],[-122.47193,37.87784],[-122.47177,37.87777],[-122.47174,37.87772],[-122.47167,37.87766],[-122.47157,37.8775],[-122.4715,37.87742],[-122.4714,37.87735],[-122.47113,37.87731],[-122.4708,37.87725],[-122.47039,37.87714],[-122.47028,37.8771],[-122.4702,37.87701],[-122.47018,37.87697],[-122.47014,37.87687],[-122.47014,37.87677],[-122.4701,37.87667],[-122.47003,37.87661],[-122.46976,37.87654],[-122.46957,37.87643],[-122.46949,37.87635],[-122.46945,37.87611],[-122.46942,37.87602],[-122.46934,37.87583],[-122.46928,37.87577],[-122.46901,37.87565],[-122.46878,37.87559],[-122.46863,37.87553],[-122.46852,37.87545],[-122.46851,37.87536],[-122.46842,37.87505],[-122.46833,37.87488],[-122.46819,37.87477],[-122.46805,37.8747],[-122.46764,37.87455],[-122.46754,37.87452],[-122.46698,37.87445],[-122.46661,37.8745],[-122.46649,37.87446],[-122.46639,37.8744],[-122.46629,37.87424],[-122.4662,37.87418],[-122.46605,37.87411],[-122.46579,37.87383]],[[-122.51368,37.88803],[-122.51375,37.8879],[-122.51374,37.88756],[-122.51381,37.88742],[-122.51398,37.88737],[-122.51413,37.88727],[-122.51427,37.88721],[-122.51437,37.88705],[-122.5145,37.88698],[-122.51475,37.88692],[-122.51493,37.88679],[-122.51505,37.88662],[-122.5151,37.88643],[-122.51517,37.88602],[-122.51525,37.88589],[-122.51536,37.8858],[-122.51583,37.88557],[-122.51603,37.88551],[-122.51634,37.88564],[-122.51672,37.88585],[-122.51694,37.88592],[-122.51709,37.88598],[-122.51736,37.88595],[-122.51747,37.88602],[-122.51758,37.88624],[-122.5177,37.88637],[-122.51779,37.88649],[-122.51785,37.88661],[-122.51785,37.88674],[-122.51774,37.8871],[-122.51767,37.8872],[-122.51757,37.88747],[-122.51749,37.88763],[-122.5174,37.88771],[-122.51691,37.88779],[-122.51678,37.88785],[-122.51662,37.88788],[-122.51646,37.88795],[-122.51639,37.88805],[-122.51625,37.8881],[-122.5161,37.88807],[-122.51594,37.88815],[-122.51575,37.8883],[-122.51545,37.8884],[-122.51521,37.88847],[-122.5149,37.88848],[-122.51469,37.88853],[-122.51455,37.88861],[-122.51432,37.88862],[-122.51387,37.88857],[-122.51377,37.88837],[-122.51374,37.88819],[-122.51368,37.88803]],[[-122.42581,37.86997],[-122.42569,37.87004],[-122.42554,37.87009],[-122.42547,37.87007],[-122.42538,37.87003],[-122.4252,37.86992],[-122.42511,37.86984],[-122.42498,37.86968],[-122.42484,37.86957],[-122.4247,37.86939],[-122.42466,37.86931],[-122.4246,37.86927],[-122.42445,37.86921],[-122.42435,37.86912],[-122.4241,37.86896],[-122.42398,37.86884],[-122.4239,37.86867],[-122.42389,37.86855],[-122.42387,37.86846],[-122.42386,37.86838],[-122.42392,37.86815],[-122.42392,37.86798],[-122.42386,37.86789],[-122.42383,37.8678],[-122.42383,37.86771],[-122.4238,37.86762],[-122.42375,37.86754],[-122.42378,37.86738],[-122.42368,37.86734],[-122.4237,37.86723],[-122.4237,37.86717],[-122.42354,37.86703],[-122.42358,37.86687],[-122.42359,37.86675],[-122.42346,37.86665],[-122.4233,37.86643],[-122.42303,37.86609],[-122.42292,37.86604],[-122.42286,37.86599],[-122.42282,37.8659],[-122.42277,37.86563],[-122.42274,37.86557],[-122.42269,37.8655],[-122.42266,37.86543],[-122.42272,37.86537],[-122.42268,37.8653],[-122.42268,37.86507],[-122.42273,37.86498],[-122.42269,37.86483],[-122.42266,37.86462],[-122.42266,37.86453],[-122.42269,37.86434],[-122.42266,37.86424],[-122.42263,37.86418],[-122.42255,37.86421],[-122.42254,37.86412],[-122.42263,37.86407],[-122.42257,37.86386],[-122.42255,37.86374],[-122.42256,37.86365],[-122.42249,37.86339],[-122.42245,37.8633],[-122.42243,37.86322],[-122.42239,37.86314],[-122.42232,37.86306],[-122.4221,37.86277],[-122.42208,37.86272],[-122.42201,37.86265],[-122.42198,37.86258],[-122.42186,37.86257],[-122.42171,37.86263],[-122.42164,37.86269],[-122.42156,37.86271],[-122.42149,37.86267],[-122.42145,37.86254],[-122.42141,37.86247],[-122.42138,37.86238],[-122.42135,37.86234],[-122.4212,37.86234],[-122.42115,37.86231],[-122.42109,37.86229],[-122.42101,37.86223],[-122.42091,37.86222],[-122.4207,37.86227],[-122.42059,37.86226],[-122.4204,37.86229],[-122.42027,37.86227],[-122.42019,37.86227],[-122.42009,37.86223],[-122.42005,37.86229],[-122.4199,37.86206],[-122.41984,37.86202],[-122.41977,37.86189],[-122.41971,37.86189],[-122.41959,37.86172],[-122.41948,37.86146],[-122.4194,37.86139],[-122.41938,37.86123],[-122.41935,37.86117],[-122.41937,37.86108],[-122.41946,37.86104],[-122.41951,37.861],[-122.4196,37.86097],[-122.41968,37.86096],[-122.41978,37.86089],[-122.42002,37.86076],[-122.42014,37.86062],[-122.42025,37.86054],[-122.42032,37.86041],[-122.42043,37.86037],[-122.42054,37.86018],[-122.42072,37.86],[-122.42085,37.85985],[-122.42109,37.85962],[-122.42119,37.85949],[-122.42149,37.85922],[-122.42162,37.85903],[-122.42171,37.85896],[-122.42175,37.85889],[-122.42175,37.85874],[-122.42168,37.85846],[-122.42165,37.85839],[-122.42158,37.85832],[-122.42155,37.85825],[-122.42157,37.85817],[-122.42158,37.85808],[-122.4215,37.85804],[-122.42145,37.85799],[-122.42144,37.85788],[-122.42142,37.85779],[-122.42136,37.85775],[-122.42131,37.8577],[-122.42126,37.85762],[-122.42118,37.85758],[-122.42116,37.8575],[-122.42112,37.8574],[-122.42111,37.85728],[-122.42108,37.85722],[-122.42097,37.85704],[-122.42092,37.85698],[-122.42085,37.85694],[-122.42077,37.85687],[-122.42075,37.85679],[-122.42069,37.85675],[-122.42065,37.85667],[-122.42063,37.85656],[-122.42052,37.85642],[-122.4205,37.85635],[-122.42046,37.85626],[-122.42039,37.8562],[-122.42037,37.85577],[-122.42043,37.85567],[-122.42043,37.85556],[-122.42042,37.85547],[-122.42036,37.85541],[-122.42032,37.85533],[-122.42033,37.85522],[-122.42038,37.85496],[-122.42038,37.85469],[-122.42033,37.85449],[-122.42032,37.85439],[-122.42038,37.85428],[-122.42043,37.85422],[-122.42047,37.85414],[-122.42042,37.854],[-122.42034,37.85384],[-122.42029,37.85362],[-122.42029,37.85352],[-122.42024,37.85344],[-122.42016,37.85336],[-122.42009,37.85333],[-122.41971,37.85328],[-122.41952,37.85322],[-122.41927,37.85319],[-122.41922,37.85314],[-122.41909,37.85309],[-122.41891,37.853],[-122.4187,37.85301],[-122.41863,37.85295],[-122.41854,37.85284],[-122.41846,37.85277],[-122.41852,37.85266],[-122.41852,37.85254],[-122.41854,37.85247],[-122.41864,37.85249],[-122.41874,37.85245],[-122.41888,37.85231],[-122.41897,37.85224],[-122.41897,37.85216],[-122.41912,37.85207],[-122.41918,37.85201],[-122.41924,37.85214],[-122.41942,37.85211],[-122.41959,37.8521],[-122.41979,37.85204],[-122.41989,37.85205],[-122.4199,37.85216],[-122.41995,37.85224],[-122.41997,37.85232],[-122.42004,37.8525],[-122.4202,37.85265],[-122.42046,37.85297],[-122.42058,37.85308],[-122.42071,37.85323],[-122.42086,37.85329],[-122.42125,37.85349],[-122.42144,37.85355],[-122.42212,37.85382],[-122.42244,37.8539],[-122.42259,37.85396],[-122.42275,37.85405],[-122.42302,37.85411],[-122.42343,37.85418],[-122.42371,37.85429],[-122.42386,37.85432],[-122.42454,37.85428],[-122.42475,37.85429],[-122.42488,37.85431],[-122.42508,37.85431],[-122.42517,37.8543],[-122.42529,37.85432],[-122.42559,37.85446],[-122.42569,37.85448],[-122.42577,37.85438],[-122.42596,37.85438],[-122.42606,37.85444],[-122.42616,37.85441],[-122.42649,37.85441],[-122.42664,37.85432],[-122.42679,37.85434],[-122.42691,37.85437],[-122.42699,37.85442],[-122.4271,37.85444],[-122.42717,37.85444],[-122.42754,37.8545],[-122.42759,37.85458],[-122.42771,37.85463],[-122.4278,37.85463],[-122.42811,37.85483],[-122.42834,37.85493],[-122.42861,37.85499],[-122.42889,37.85507],[-122.42914,37.85511],[-122.43021,37.8551],[-122.43071,37.85503],[-122.43089,37.85503],[-122.43101,37.85501],[-122.43107,37.85499],[-122.4312,37.85482],[-122.43126,37.85472],[-122.43129,37.85457],[-122.43138,37.85456],[-122.43144,37.85453],[-122.43146,37.8545],[-122.43157,37.85448],[-122.43176,37.85446],[-122.43183,37.85439],[-122.43192,37.85435],[-122.43201,37.85435],[-122.4321,37.85425],[-122.43234,37.8542],[-122.43244,37.8541],[-122.43252,37.85413],[-122.43276,37.85401],[-122.43282,37.85396],[-122.43286,37.85399],[-122.43293,37.85402],[-122.433,37.85403],[-122.43303,37.85396],[-122.43303,37.85389],[-122.43308,37.85383],[-122.43321,37.85385],[-122.43338,37.85386],[-122.43348,37.85384],[-122.43359,37.8538],[-122.43367,37.85375],[-122.43372,37.85368],[-122.43372,37.85353],[-122.43374,37.85348],[-122.43382,37.85338],[-122.43379,37.85333],[-122.43388,37.85332],[-122.43395,37.85324],[-122.43398,37.85318],[-122.43406,37.85315],[-122.4342,37.85315],[-122.43438,37.85319],[-122.43447,37.85318],[-122.43456,37.8531],[-122.43467,37.8531],[-122.43482,37.85312],[-122.43487,37.85314],[-122.43503,37.85318],[-122.43512,37.85318],[-122.43519,37.8532],[-122.43528,37.85325],[-122.43539,37.85334],[-122.43544,37.85335],[-122.43561,37.85334],[-122.43583,37.85336],[-122.43586,37.8534],[-122.43592,37.85357],[-122.43606,37.85359],[-122.43613,37.85361],[-122.43622,37.85362],[-122.43626,37.85368],[-122.43632,37.85366],[-122.43639,37.85365],[-122.43644,37.85359],[-122.43649,37.85364],[-122.4365,37.85369],[-122.43657,37.85369],[-122.43664,37.85364],[-122.43672,37.85368],[-122.43676,37.85381],[-122.43679,37.85386],[-122.43687,37.85392],[-122.43697,37.85396],[-122.43702,37.85399],[-122.43709,37.85405],[-122.43717,37.85409],[-122.43721,37.8541],[-122.43737,37.85411],[-122.43753,37.8541],[-122.43767,37.8541],[-122.43776,37.85409],[-122.43778,37.85424],[-122.4378,37.85428],[-122.43787,37.85434],[-122.43796,37.85436],[-122.43806,37.85434],[-122.4382,37.85435],[-122.43843,37.8544],[-122.4385,37.85443],[-122.43856,37.85446],[-122.43859,37.8545],[-122.43863,37.85458],[-122.43869,37.85465],[-122.43899,37.85475],[-122.43913,37.85481],[-122.43921,37.85483],[-122.43937,37.85492],[-122.43941,37.85496],[-122.43957,37.85504],[-122.43961,37.85508],[-122.43964,37.85513],[-122.43976,37.85522],[-122.43994,37.85529],[-122.44006,37.85531],[-122.44031,37.85537],[-122.44039,37.8553],[-122.44044,37.85524],[-122.44045,37.85511],[-122.44055,37.855],[-122.44059,37.85494],[-122.44064,37.8549],[-122.44072,37.85487],[-122.44081,37.85485],[-122.44109,37.85485],[-122.44117,37.85484],[-122.44126,37.85476],[-122.44133,37.85472],[-122.44136,37.85468],[-122.44144,37.85466],[-122.44151,37.85469],[-122.4416,37.85467],[-122.44164,37.8547],[-122.44161,37.85477],[-122.44157,37.85483],[-122.44149,37.85489],[-122.44144,37.85487],[-122.44138,37.85488],[-122.44134,37.85495],[-122.44134,37.85503],[-122.44136,37.85515],[-122.44141,37.85522],[-122.44143,37.85529],[-122.44153,37.85534],[-122.44167,37.85536],[-122.44176,37.85539],[-122.44181,37.85545],[-122.44195,37.85556],[-122.44223,37.85576],[-122.44231,37.85581],[-122.44262,37.85595],[-122.44255,37.85602],[-122.44255,37.85609],[-122.44256,37.85615],[-122.44258,37.8562],[-122.44263,37.85628],[-122.44277,37.85636],[-122.44285,37.85637],[-122.44289,37.85643],[-122.44287,37.85647],[-122.44283,37.85651],[-122.44279,37.85657],[-122.44282,37.85664],[-122.44289,37.85671],[-122.44294,37.85678],[-122.44301,37.85681],[-122.44308,37.85692],[-122.44313,37.85705],[-122.44308,37.85712],[-122.44302,37.85716],[-122.44278,37.85726],[-122.44267,37.85733],[-122.44261,37.85738],[-122.44258,37.85744],[-122.44266,37.85761],[-122.44267,37.8577],[-122.4428,37.85794],[-122.44288,37.85812],[-122.44299,37.8583],[-122.4431,37.85842],[-122.44315,37.8585],[-122.44325,37.85855],[-122.4433,37.85859],[-122.44332,37.85864],[-122.44338,37.85869],[-122.44347,37.85873],[-122.44358,37.8588],[-122.44371,37.85887],[-122.44387,37.85902],[-122.44393,37.8591],[-122.44402,37.85914],[-122.44408,37.85923],[-122.4442,37.85945],[-122.44431,37.85948],[-122.44463,37.85969],[-122.44478,37.85975],[-122.44486,37.85973],[-122.44507,37.85984],[-122.44528,37.85988],[-122.44558,37.86002],[-122.44566,37.86004],[-122.44576,37.86004],[-122.44586,37.86005],[-122.446,37.86012],[-122.44614,37.86013],[-122.44625,37.86015],[-122.44633,37.8602],[-122.44642,37.86024],[-122.4465,37.86027],[-122.44654,37.86026],[-122.44657,37.86031],[-122.44674,37.86034],[-122.44683,37.86038],[-122.44689,37.86042],[-122.44682,37.86043],[-122.44687,37.86051],[-122.44696,37.8606],[-122.44692,37.86063],[-122.44692,37.8607],[-122.44689,37.86074],[-122.44683,37.86071],[-122.44676,37.86074],[-122.4467,37.8608],[-122.44658,37.86087],[-122.44651,37.86084],[-122.44643,37.86084],[-122.44638,37.86087],[-122.44627,37.86096],[-122.4462,37.86096],[-122.44612,37.86091],[-122.44604,37.86092],[-122.446,37.86096],[-122.44597,37.86102],[-122.44589,37.86106],[-122.44582,37.86106],[-122.44573,37.86104],[-122.44565,37.86106],[-122.44561,37.86113],[-122.4454,37.86113],[-122.4452,37.86124],[-122.4451,37.86119],[-122.44503,37.86117],[-122.44499,37.86121],[-122.44493,37.8612],[-122.44491,37.86125],[-122.44485,37.86123],[-122.44481,37.8613],[-122.44473,37.86135],[-122.44469,37.86134],[-122.44464,37.86134],[-122.4446,37.86137],[-122.44457,37.8613],[-122.44453,37.86134],[-122.44452,37.86141],[-122.44449,37.86145],[-122.44445,37.86146],[-122.44439,37.86146],[-122.44433,37.86148],[-122.44433,37.86152],[-122.44428,37.8615],[-122.44422,37.86153],[-122.4442,37.86158],[-122.4442,37.86164],[-122.44414,37.86162],[-122.44407,37.86166],[-122.44402,37.8617],[-122.44399,37.86175],[-122.44398,37.86179],[-122.44389,37.8618],[-122.44384,37.86184],[-122.44385,37.8619],[-122.44378,37.86189],[-122.44372,37.86191],[-122.44367,37.86194],[-122.44366,37.86203],[-122.44356,37.86207],[-122.44351,37.86206],[-122.44346,37.86206],[-122.44342,37.86214],[-122.44342,37.86218],[-122.44337,37.8622],[-122.44333,37.86217],[-122.44324,37.86213],[-122.44316,37.86212],[-122.44307,37.86212],[-122.44301,37.86213],[-122.44281,37.86222],[-122.44278,37.86225],[-122.44272,37.86228],[-122.44273,37.86232],[-122.44272,37.86237],[-122.44268,37.86239],[-122.44261,37.86235],[-122.44259,37.86229],[-122.44253,37.86221],[-122.44246,37.86218],[-122.44237,37.86216],[-122.44227,37.86217],[-122.4421,37.86221],[-122.44201,37.86225],[-122.44195,37.86226],[-122.44189,37.86228],[-122.44186,37.86232],[-122.44184,37.86238],[-122.44176,37.86241],[-122.4417,37.86242],[-122.44165,37.86242],[-122.4416,37.86241],[-122.44154,37.86243],[-122.44151,37.8625],[-122.44141,37.8626],[-122.44132,37.86272],[-122.44123,37.86295],[-122.44117,37.86305],[-122.44111,37.86326],[-122.44104,37.86342],[-122.44103,37.86352],[-122.44104,37.86361],[-122.44094,37.86381],[-122.44082,37.86394],[-122.44081,37.864],[-122.44084,37.86412],[-122.44077,37.86428],[-122.4408,37.86464],[-122.44078,37.8647],[-122.44067,37.86482],[-122.44063,37.8649],[-122.4406,37.86506],[-122.44053,37.86527],[-122.44054,37.86535],[-122.44053,37.86542],[-122.44048,37.86548],[-122.44045,37.86554],[-122.4404,37.8656],[-122.44033,37.86566],[-122.44023,37.86583],[-122.4401,37.8659],[-122.44013,37.86598],[-122.4402,37.86607],[-122.44023,37.86613],[-122.44023,37.8662],[-122.44018,37.86626],[-122.44009,37.86642],[-122.44009,37.86648],[-122.44006,37.86656],[-122.43995,37.86661],[-122.4399,37.86662],[-122.4398,37.86667],[-122.43969,37.86677],[-122.43964,37.86686],[-122.43961,37.86694],[-122.43956,37.86698],[-122.43952,37.86706],[-122.43948,37.86723],[-122.43942,37.86731],[-122.43947,37.86742],[-122.43936,37.86754],[-122.43941,37.8676],[-122.43941,37.86771],[-122.43934,37.86775],[-122.4393,37.86784],[-122.43922,37.86793],[-122.43916,37.86797],[-122.43907,37.86792],[-122.43891,37.86774],[-122.43869,37.86753],[-122.43863,37.86744],[-122.43864,37.86738],[-122.43851,37.86726],[-122.43849,37.86717],[-122.4385,37.86709],[-122.43845,37.86697],[-122.43842,37.86672],[-122.43837,37.86661],[-122.43832,37.86654],[-122.43822,37.86645],[-122.43823,37.86641],[-122.43811,37.86629],[-122.43807,37.86622],[-122.438,37.86614],[-122.43791,37.86611],[-122.43781,37.86611],[-122.43774,37.8661],[-122.43764,37.86608],[-122.4376,37.86606],[-122.43756,37.866],[-122.43745,37.86589],[-122.43738,37.86586],[-122.43728,37.86585],[-122.43706,37.8658],[-122.43661,37.86583],[-122.43638,37.86587],[-122.43596,37.86596],[-122.4358,37.86604],[-122.43572,37.86606],[-122.43564,37.86606],[-122.43558,37.86602],[-122.4355,37.86612],[-122.43544,37.86615],[-122.43529,37.86619],[-122.43504,37.86635],[-122.43491,37.8665],[-122.43461,37.86673],[-122.4345,37.86692],[-122.43448,37.8671],[-122.43454,37.86723],[-122.43459,37.86731],[-122.43475,37.86748],[-122.43481,37.86752],[-122.43485,37.86751],[-122.4349,37.86745],[-122.43496,37.86741],[-122.43506,37.86747],[-122.43509,37.86755],[-122.4351,37.86765],[-122.43509,37.86773],[-122.435,37.86789],[-122.43498,37.86795],[-122.43475,37.86819],[-122.43471,37.8683],[-122.43474,37.86858],[-122.43479,37.86869],[-122.43484,37.86876],[-122.43498,37.86888],[-122.43516,37.86896],[-122.43515,37.86905],[-122.4351,37.86909],[-122.43501,37.86911],[-122.4348,37.86914],[-122.43461,37.8692],[-122.43451,37.86924],[-122.43441,37.86929],[-122.43435,37.86938],[-122.43426,37.86944],[-122.43417,37.86948],[-122.43406,37.86948],[-122.43394,37.86951],[-122.43386,37.86952],[-122.43374,37.86952],[-122.43356,37.86955],[-122.43339,37.86959],[-122.43329,37.86972],[-122.43319,37.86972],[-122.43313,37.8697],[-122.43307,37.86969],[-122.43302,37.86972],[-122.43299,37.86979],[-122.43293,37.86984],[-122.43277,37.86994],[-122.43269,37.87001],[-122.43264,37.87011],[-122.43259,37.87024],[-122.43255,37.87041],[-122.43259,37.8705],[-122.4326,37.87058],[-122.43259,37.87078],[-122.43257,37.87087],[-122.43251,37.871],[-122.43246,37.87107],[-122.43226,37.87114],[-122.43208,37.87117],[-122.43191,37.87124],[-122.43183,37.87129],[-122.43177,37.87134],[-122.43173,37.87136],[-122.43166,37.87138],[-122.43161,37.87143],[-122.43135,37.87158],[-122.43119,37.87161],[-122.4311,37.87165],[-122.43099,37.87166],[-122.4309,37.87169],[-122.43076,37.87176],[-122.43067,37.87175],[-122.43062,37.87173],[-122.43059,37.87169],[-122.4305,37.87168],[-122.43044,37.87166],[-122.4304,37.87163],[-122.43017,37.87165],[-122.43017,37.87157],[-122.43016,37.87152],[-122.43012,37.87146],[-122.43005,37.87144],[-122.42994,37.87145],[-122.42985,37.8714],[-122.4297,37.87137],[-122.42967,37.87131],[-122.42968,37.87127],[-122.42958,37.87123],[-122.42949,37.87121],[-122.42943,37.87114],[-122.42941,37.8711],[-122.4294,37.87103],[-122.42933,37.87097],[-122.42914,37.87097],[-122.42906,37.87096],[-122.42908,37.87091],[-122.42905,37.87084],[-122.42893,37.87077],[-122.42883,37.87068],[-122.42876,37.87064],[-122.42872,37.87055],[-122.42864,37.87056],[-122.42859,37.87052],[-122.42862,37.87043],[-122.42852,37.87039],[-122.42846,37.87038],[-122.42842,37.87034],[-122.42833,37.87034],[-122.42826,37.87037],[-122.42826,37.8703],[-122.42824,37.87025],[-122.4281,37.87018],[-122.42798,37.87008],[-122.42789,37.86998],[-122.42772,37.86989],[-122.42765,37.86987],[-122.42758,37.86987],[-122.42751,37.86988],[-122.42745,37.86991],[-122.4274,37.86992],[-122.4273,37.86991],[-122.4272,37.86991],[-122.42714,37.86989],[-122.42709,37.8699],[-122.42703,37.8699],[-122.42688,37.86985],[-122.42683,37.86986],[-122.42678,37.86988],[-122.42669,37.86987],[-122.42641,37.87003],[-122.42637,37.87007],[-122.42632,37.87015],[-122.42627,37.87019],[-122.42621,37.87007],[-122.42613,37.87001],[-122.42606,37.86997],[-122.426,37.86995],[-122.42594,37.86994],[-122.42581,37.86997]],[[-122.42107,37.86288],[-122.42101,37.86285],[-122.4209,37.86274],[-122.42093,37.86269],[-122.42109,37.86281],[-122.42107,37.86288]],[[-122.4583,37.87318],[-122.45819,37.87317],[-122.45809,37.87306],[-122.45795,37.87303],[-122.45791,37.87296],[-122.45775,37.87279],[-122.45774,37.87273],[-122.45775,37.87267],[-122.45773,37.87251],[-122.45788,37.87238],[-122.45789,37.87225],[-122.45793,37.87213],[-122.45801,37.87196],[-122.45798,37.87182],[-122.45783,37.87166],[-122.45781,37.87156],[-122.45777,37.87146],[-122.4577,37.87136],[-122.45767,37.87124],[-122.45775,37.87115],[-122.45788,37.87112],[-122.45799,37.87115],[-122.4581,37.87115],[-122.45822,37.87119],[-122.45852,37.87133],[-122.45855,37.87139],[-122.45859,37.87152],[-122.45859,37.87162],[-122.45862,37.87173],[-122.45876,37.87186],[-122.45892,37.8719],[-122.45909,37.87191],[-122.45919,37.87193],[-122.45931,37.87202],[-122.4594,37.87212],[-122.45953,37.87233],[-122.45979,37.87263],[-122.45986,37.87276],[-122.45999,37.87311],[-122.45999,37.87322],[-122.46003,37.87331],[-122.46003,37.87344],[-122.46,37.87354],[-122.45994,37.87361],[-122.45983,37.87361],[-122.45973,37.8736],[-122.45957,37.87356],[-122.45948,37.87355],[-122.45933,37.87352],[-122.45922,37.87347],[-122.45913,37.87344],[-122.459,37.87341],[-122.45888,37.87342],[-122.45876,37.87335],[-122.45855,37.87332],[-122.45846,37.87332],[-122.4584,37.87333],[-122.4583,37.87318]],[[-122.3825,37.801],[-122.3825,37.8345],[-122.3555,37.8345],[-122.3555,37.801],[-122.3825,37.801]]]}},
+{"type":"Feature","properties":{"source":"NOAA Shoreline Data Rescue Project, CA37B08, sheet T-00687 (1857), mean high water line; area classed by seed b08-open-bay-east","confidence":"inferred","area_id":"CA37B08-6","area_m2":39948650,"seed":"b08-open-bay-east"},"geometry":{"type":"Polygon","coordinates":[[[-122.407412,37.7696096],[-122.407212,37.7694396],[-122.407042,37.7693496],[-122.406872,37.7692896],[-122.406762,37.7692396],[-122.406582,37.7692196],[-122.406412,37.7692596],[-122.406332,37.7691996],[-122.406242,37.7690896],[-122.405972,37.7687996],[-122.405882,37.7687596],[-122.405682,37.7687696],[-122.405642,37.7687796],[-122.405592,37.7687696],[-122.405572,37.7687896],[-122.405602,37.7688096],[-122.405782,37.7688196],[-122.405892,37.7688596],[-122.405972,37.7689196],[-122.406222,37.7693096],[-122.406002,37.7693796],[-122.405912,37.7694396],[-122.405802,37.7694896],[-122.405702,37.7695496],[-122.405462,37.7696996],[-122.405312,37.7698096],[-122.405202,37.7698296],[-122.405262,37.7696996],[-122.405272,37.7695796],[-122.405212,37.7695096],[-122.405132,37.7694496],[-122.405072,37.7693896],[-122.404752,37.7693196],[-122.404722,37.7693896],[-122.404592,37.7693296],[-122.404592,37.7692396],[-122.4046419,37.7691396],[-122.4046619,37.7690696],[-122.4046819,37.7689896],[-122.4046819,37.7689096],[-122.4046619,37.7688396],[-122.4046019,37.7687896],[-122.4044319,37.7686896],[-122.4042919,37.7686396],[-122.4041819,37.7685896],[-122.4041519,37.7686696],[-122.4042019,37.7687396],[-122.4041719,37.7688196],[-122.4041619,37.7688896],[-122.4041119,37.7690196],[-122.4040319,37.7690696],[-122.4039319,37.7691196],[-122.4038319,37.7691296],[-122.4037719,37.7690896],[-122.4036719,37.7690196],[-122.4036019,37.7689496],[-122.4035819,37.7688896],[-122.4035419,37.7688396],[-122.4034619,37.7687996],[-122.4033219,37.7688296],[-122.4032619,37.7688596],[-122.4031319,37.7688796],[-122.4031819,37.7687396],[-122.4034419,37.7686896],[-122.4035419,37.7686996],[-122.4036319,37.7687396],[-122.4036919,37.7687296],[-122.4038119,37.7686696],[-122.4038919,37.7685996],[-122.4039319,37.7685196],[-122.4038219,37.7683896],[-122.4037119,37.7683896],[-122.4036319,37.7684096],[-122.4035419,37.7684496],[-122.4034419,37.7684496],[-122.4033319,37.7684296],[-122.4032419,37.7683796],[-122.4032019,37.7683196],[-122.4032119,37.7682496],[-122.4032619,37.7681496],[-122.4033419,37.7681096],[-122.4033819,37.7680696],[-122.4034319,37.7679696],[-122.4034619,37.7678596],[-122.4035119,37.7677796],[-122.4035919,37.7677696],[-122.4036619,37.7677696],[-122.4037419,37.7678196],[-122.4037419,37.7678896],[-122.4037719,37.7679496],[-122.4039319,37.7680096],[-122.4040219,37.7680196],[-122.4041019,37.7680096],[-122.4042319,37.7678896],[-122.4042719,37.7678196],[-122.4043919,37.7677896],[-122.4045119,37.7677996],[-122.4045819,37.7677396],[-122.4046119,37.7676696],[-122.4045919,37.7675996],[-122.4045519,37.7675196],[-122.4044919,37.7674596],[-122.4044119,37.7674096],[-122.4043819,37.7673796],[-122.4043219,37.7673496],[-122.4042119,37.7673596],[-122.4041619,37.7673896],[-122.4041619,37.7674296],[-122.4042219,37.7675496],[-122.4042219,37.7675996],[-122.4040619,37.7676696],[-122.4039919,37.7676396],[-122.4038519,37.7675296],[-122.4038019,37.7674796],[-122.4038719,37.7674596],[-122.4038619,37.7673996],[-122.4038119,37.7673896],[-122.4037519,37.7673896],[-122.4036919,37.7674596],[-122.4037719,37.7675396],[-122.4038419,37.7676796],[-122.4039519,37.7677796],[-122.4040419,37.7677696],[-122.4042419,37.7676996],[-122.4042819,37.7676096],[-122.4042719,37.7675196],[-122.4042519,37.7674396],[-122.4043519,37.7674396],[-122.4045019,37.7676096],[-122.4045119,37.7676896],[-122.4044719,37.7677196],[-122.4044019,37.7677096],[-122.4043319,37.7677096],[-122.4042519,37.7677296],[-122.4042119,37.7677596],[-122.4041619,37.7678196],[-122.4041419,37.7678696],[-122.4041119,37.7679096],[-122.4040319,37.7679496],[-122.4038919,37.7679296],[-122.4038519,37.7679096],[-122.4038219,37.7678696],[-122.4038119,37.7678096],[-122.4037319,37.7676996],[-122.4036619,37.7676896],[-122.4035919,37.7676896],[-122.4034619,37.7677196],[-122.4033919,37.7677996],[-122.4033819,37.7678596],[-122.4033219,37.7679896],[-122.4031919,37.7680896],[-122.4031619,37.7681396],[-122.4031119,37.7681896],[-122.4030819,37.7682396],[-122.4030719,37.7683196],[-122.4031119,37.7683996],[-122.4031919,37.7684696],[-122.4032619,37.7685096],[-122.4034419,37.7685496],[-122.4035919,37.7685396],[-122.4036419,37.7685196],[-122.4037619,37.7685196],[-122.4037819,37.7685496],[-122.4037419,37.7685896],[-122.4036919,37.7686196],[-122.4036219,37.7686296],[-122.4035019,37.7686196],[-122.4033819,37.7686196],[-122.4032319,37.7685896],[-122.4031419,37.7685796],[-122.4030419,37.7686196],[-122.4029819,37.7686896],[-122.4029919,37.7687796],[-122.4029719,37.7688496],[-122.4030219,37.7688996],[-122.4030819,37.7689296],[-122.4031919,37.7689596],[-122.4032919,37.7689596],[-122.4033719,37.7689096],[-122.4034219,37.7688996],[-122.4034719,37.7689096],[-122.4035519,37.7689796],[-122.4035319,37.7690596],[-122.4035919,37.7691296],[-122.4036819,37.7691996],[-122.4037619,37.7692396],[-122.4038419,37.7692396],[-122.4040319,37.7691996],[-122.4040919,37.7691496],[-122.4041919,37.7690996],[-122.4042619,37.7689696],[-122.4042619,37.7688896],[-122.4043019,37.7688396],[-122.4044019,37.7688196],[-122.4044819,37.7688496],[-122.4045319,37.7689296],[-122.4045319,37.7690096],[-122.4045119,37.7691096],[-122.4044819,37.7691796],[-122.4044119,37.7692496],[-122.4043619,37.7693296],[-122.4043719,37.7694196],[-122.4044219,37.7694896],[-122.404532,37.7695296],[-122.404732,37.7694896],[-122.404852,37.7695096],[-122.404962,37.7696196],[-122.405022,37.7697096],[-122.405032,37.7698096],[-122.404912,37.7698996],[-122.404842,37.7699396],[-122.404662,37.7699796],[-122.404582,37.7699796],[-122.404482,37.7699396],[-122.404372,37.7698796],[-122.404292,37.7697496],[-122.4041819,37.7696496],[-122.4040719,37.7696496],[-122.4039719,37.7696696],[-122.4039319,37.7698796],[-122.4038819,37.7699296],[-122.4038019,37.7699796],[-122.4036519,37.7700296],[-122.4034619,37.7699696],[-122.4033519,37.7699596],[-122.4032719,37.7699096],[-122.4031719,37.7699096],[-122.4030419,37.7698496],[-122.4028719,37.7698296],[-122.4027519,37.7698296],[-122.4026519,37.7698696],[-122.4024819,37.7698896],[-122.4023819,37.7699096],[-122.4022519,37.7699096],[-122.4021519,37.7699696],[-122.4019619,37.7699296],[-122.4018119,37.7699296],[-122.4016219,37.7699796],[-122.4014919,37.7699596],[-122.4013619,37.7699495],[-122.4012719,37.7699695],[-122.4011819,37.7699495],[-122.4011519,37.7698496],[-122.4012019,37.7697796],[-122.4012319,37.7697096],[-122.4011919,37.7695596],[-122.4011919,37.7694396],[-122.4011719,37.7693596],[-122.4010519,37.7692196],[-122.4010519,37.7691296],[-122.4009319,37.7688896],[-122.4008719,37.7687996],[-122.4007719,37.7687096],[-122.4007019,37.7685596],[-122.4006119,37.7685096],[-122.4005319,37.7683996],[-122.4004319,37.7683296],[-122.4003219,37.7682296],[-122.4002819,37.7681496],[-122.4003019,37.7679696],[-122.4003519,37.7677496],[-122.4004019,37.7676996],[-122.4004719,37.7676596],[-122.4005619,37.7675696],[-122.4005719,37.7675296],[-122.4006619,37.7673996],[-122.4007719,37.7673796],[-122.4008719,37.7674096],[-122.4009719,37.7674796],[-122.4010319,37.7674896],[-122.4012519,37.7676396],[-122.4013319,37.7676696],[-122.4015119,37.7677196],[-122.4015319,37.7676596],[-122.4014919,37.7675796],[-122.4014819,37.7675196],[-122.4015219,37.7674396],[-122.4016819,37.7673996],[-122.4017319,37.7674196],[-122.4017519,37.7674996],[-122.4018319,37.7675396],[-122.4018819,37.7675296],[-122.4019419,37.7674996],[-122.4020119,37.7674296],[-122.4020919,37.7673996],[-122.4021719,37.7674096],[-122.4021719,37.7674496],[-122.4021519,37.7674996],[-122.4021119,37.7675296],[-122.4020019,37.7675596],[-122.4019319,37.7675896],[-122.4018719,37.7676296],[-122.4018619,37.7676896],[-122.4019819,37.7678096],[-122.4020119,37.7678596],[-122.4020619,37.7678896],[-122.4021319,37.7678696],[-122.4022619,37.7677596],[-122.4022719,37.7676996],[-122.4023219,37.7676796],[-122.4023819,37.7677396],[-122.4024019,37.7677996],[-122.4024619,37.7677796],[-122.4024419,37.7676996],[-122.4023819,37.7676396],[-122.4023019,37.7676096],[-122.4022319,37.7676096],[-122.4021819,37.7676296],[-122.4021719,37.7676996],[-122.4021819,37.7677396],[-122.4021119,37.7677696],[-122.4020319,37.7677596],[-122.4019819,37.7676596],[-122.4019919,37.7676296],[-122.4020919,37.7675796],[-122.4022419,37.7675296],[-122.4022819,37.7674296],[-122.4022719,37.7673896],[-122.4021919,37.7673296],[-122.4021219,37.7673296],[-122.4020319,37.7673496],[-122.4019319,37.7673996],[-122.4018619,37.7674596],[-122.4018019,37.7674596],[-122.4018219,37.7673096],[-122.4017919,37.7672696],[-122.4017419,37.7672396],[-122.4016819,37.7672396],[-122.4016119,37.7672496],[-122.4015719,37.7672896],[-122.4014619,37.7673596],[-122.4014519,37.7674196],[-122.4014219,37.7674896],[-122.4014119,37.7675396],[-122.4013619,37.7676096],[-122.4013019,37.7673696],[-122.4011419,37.7674796],[-122.4010019,37.7673796],[-122.4008719,37.7673196],[-122.4007519,37.7672896],[-122.4006819,37.7673096],[-122.4005819,37.7673196],[-122.4005419,37.7673796],[-122.4005119,37.7674996],[-122.4004519,37.7675596],[-122.4003719,37.7675896],[-122.4002819,37.7676096],[-122.4002219,37.7676896],[-122.4002019,37.7678496],[-122.4001519,37.7678996],[-122.4001019,37.7679196],[-122.4000219,37.7679196],[-122.3999419,37.7678896],[-122.3999019,37.7678496],[-122.3998719,37.7677896],[-122.3998019,37.7677596],[-122.3998019,37.7676896],[-122.3997819,37.7676296],[-122.3997419,37.7675896],[-122.3997519,37.7674796],[-122.3996719,37.7674296],[-122.3996519,37.7673696],[-122.3995819,37.7672896],[-122.3995819,37.7672196],[-122.3996019,37.7670896],[-122.3995919,37.7669796],[-122.3996019,37.7669096],[-122.3996319,37.7668496],[-122.3996819,37.7668196],[-122.3997419,37.7668096],[-122.3998419,37.7668096],[-122.3998819,37.7667896],[-122.3999819,37.7666896],[-122.4000719,37.7666496],[-122.4002719,37.7666396],[-122.4003319,37.7666096],[-122.4002919,37.7665496],[-122.4001119,37.7665596],[-122.4000119,37.7665896],[-122.3999519,37.7666396],[-122.3998719,37.7666896],[-122.3997519,37.7666996],[-122.3996419,37.7666996],[-122.3995419,37.7667396],[-122.3994719,37.7668296],[-122.3994619,37.7669696],[-122.3994619,37.7672496],[-122.3994419,37.7673396],[-122.3993819,37.7673696],[-122.3993019,37.7673096],[-122.3992019,37.7672796],[-122.3991819,37.7672196],[-122.3990919,37.7671496],[-122.3989519,37.7669896],[-122.3987719,37.7669196],[-122.3986719,37.7668996],[-122.3986119,37.7668496],[-122.3984919,37.7667696],[-122.3984219,37.7666996],[-122.3983619,37.7666596],[-122.3983119,37.7665996],[-122.3982919,37.7664096],[-122.3982519,37.7663196],[-122.3983219,37.7662896],[-122.3983919,37.7662396],[-122.3984119,37.7661896],[-122.3983219,37.7661496],[-122.3980319,37.7660996],[-122.3979619,37.7660596],[-122.3979519,37.7660296],[-122.3980119,37.7660097],[-122.3981219,37.7660197],[-122.3982019,37.7659597],[-122.3982019,37.7659297],[-122.3980119,37.7658097],[-122.3979819,37.7657697],[-122.3980319,37.7657697],[-122.3981619,37.7657397],[-122.3981919,37.7656797],[-122.3982119,37.7656097],[-122.3981019,37.7654797],[-122.3980519,37.7654397],[-122.3979318,37.7654297],[-122.3978218,37.7654897],[-122.3978018,37.7655397],[-122.3978018,37.7656597],[-122.3977919,37.7657197],[-122.3977418,37.7657497],[-122.3976718,37.7657497],[-122.3975818,37.7657297],[-122.3975118,37.7656697],[-122.3975218,37.7656197],[-122.3975518,37.7655797],[-122.3976618,37.7654697],[-122.3977218,37.7653597],[-122.3978218,37.7653497],[-122.3979018,37.7653297],[-122.3979718,37.7653397],[-122.3980319,37.7653897],[-122.3981419,37.7654397],[-122.3983119,37.7654297],[-122.3983719,37.7653997],[-122.3983919,37.7653397],[-122.3983219,37.7652997],[-122.3982819,37.7652897],[-122.3982719,37.7653197],[-122.3982719,37.7653797],[-122.3982019,37.7653797],[-122.3980719,37.7652997],[-122.3979518,37.7652497],[-122.3978018,37.7652797],[-122.3976818,37.7653497],[-122.3976118,37.7654297],[-122.3974418,37.7655297],[-122.3973618,37.7656297],[-122.3974718,37.7657697],[-122.3975518,37.7657997],[-122.3976718,37.7657997],[-122.3977819,37.7657797],[-122.3978519,37.7657297],[-122.3978819,37.7656697],[-122.3978518,37.7655397],[-122.3979119,37.7654997],[-122.3980319,37.7654997],[-122.3980919,37.7655597],[-122.3980919,37.7656397],[-122.3979119,37.7657697],[-122.3979019,37.7658097],[-122.3979319,37.7658397],[-122.3980419,37.7658897],[-122.3981219,37.7659497],[-122.3979819,37.7659397],[-122.3978919,37.7659597],[-122.3978319,37.7659897],[-122.3978419,37.7660396],[-122.3979019,37.7660996],[-122.3980919,37.7662296],[-122.3981619,37.7663196],[-122.3981919,37.7663796],[-122.3982119,37.7664496],[-122.3981619,37.7665496],[-122.3980919,37.7666296],[-122.3980019,37.7666296],[-122.3978819,37.7665896],[-122.3975719,37.7665296],[-122.3974319,37.7664896],[-122.3970318,37.7662896],[-122.3968418,37.7662296],[-122.3965818,37.7661696],[-122.3964018,37.7661096],[-122.3962418,37.7660696],[-122.3959418,37.7659696],[-122.3958118,37.7659896],[-122.3953918,37.7659096],[-122.3953318,37.7658796],[-122.3952318,37.7658596],[-122.3950518,37.7658296],[-122.3949418,37.7658296],[-122.3947918,37.7657796],[-122.3945118,37.7656596],[-122.3941818,37.7654796],[-122.3940018,37.7653996],[-122.3937718,37.7653196],[-122.3936718,37.7652696],[-122.3933818,37.7651896],[-122.3932518,37.7651296],[-122.3931418,37.7650996],[-122.3927918,37.7650496],[-122.3927118,37.7650096],[-122.3926518,37.7649896],[-122.3923818,37.7649096],[-122.3922718,37.7648896],[-122.3921818,37.7648896],[-122.3920818,37.7648796],[-122.3919918,37.7648496],[-122.3918018,37.7648296],[-122.3917318,37.7648396],[-122.3915318,37.7648196],[-122.3913318,37.7648496],[-122.3909818,37.7649296],[-122.3908418,37.7650396],[-122.3906718,37.7651296],[-122.3903818,37.7653296],[-122.3902818,37.7654596],[-122.3902818,37.7655196],[-122.3903018,37.7655996],[-122.3902818,37.7656796],[-122.3902118,37.7657696],[-122.3901818,37.7658496],[-122.3902118,37.7660296],[-122.3902518,37.7661396],[-122.3902118,37.7661996],[-122.3901218,37.7662396],[-122.3900318,37.7662596],[-122.3899318,37.7663096],[-122.3898218,37.7663796],[-122.3897618,37.7664596],[-122.3896518,37.7664596],[-122.3894918,37.7663896],[-122.3893918,37.7663096],[-122.3892518,37.7663196],[-122.3891118,37.7663196],[-122.3889518,37.7663096],[-122.3888618,37.7662796],[-122.3887318,37.7662596],[-122.3884517,37.7661496],[-122.3883517,37.7661296],[-122.3881317,37.7661796],[-122.3880717,37.7662396],[-122.3878617,37.7662896],[-122.3877317,37.7663296],[-122.3876117,37.7663096],[-122.3876517,37.7661896],[-122.3877417,37.7661496],[-122.3879417,37.7661696],[-122.3880617,37.7661296],[-122.3881717,37.7660696],[-122.3882917,37.7660196],[-122.3883517,37.7659596],[-122.3883517,37.7658596],[-122.3885117,37.7657796],[-122.3885817,37.7656196],[-122.3887217,37.7654496],[-122.3888017,37.7652796],[-122.3888917,37.7650296],[-122.3889117,37.7647696],[-122.3889117,37.7646196],[-122.3889517,37.7644896],[-122.3889417,37.7643896],[-122.3889617,37.7642396],[-122.3889617,37.7638897],[-122.3889917,37.7637097],[-122.3890017,37.7635697],[-122.3889717,37.7634197],[-122.3889517,37.7632597],[-122.3889517,37.7630797],[-122.3889717,37.7626697],[-122.3889317,37.7623497],[-122.3888317,37.7621497],[-122.3887717,37.7619597],[-122.3885117,37.7618297],[-122.3884417,37.7617697],[-122.3883517,37.7615797],[-122.3882917,37.7615097],[-122.3881717,37.7614797],[-122.3880917,37.7613197],[-122.3879517,37.7612197],[-122.3877717,37.7612397],[-122.3877117,37.7611697],[-122.3875717,37.7611697],[-122.3874917,37.7611297],[-122.3874317,37.7609897],[-122.3873417,37.7608897],[-122.3873417,37.7607497],[-122.3872117,37.7604998],[-122.3870917,37.7603098],[-122.3870117,37.7601998],[-122.3869717,37.7601198],[-122.3868417,37.7600798],[-122.3866217,37.7598998],[-122.3864917,37.7598198],[-122.3862217,37.7597098],[-122.3860117,37.7596998],[-122.3858317,37.7597398],[-122.3856717,37.7598998],[-122.3855817,37.7598798],[-122.3853017,37.7599398],[-122.3851517,37.7599298],[-122.3850217,37.7599398],[-122.3848817,37.7601397],[-122.3848817,37.7603297],[-122.3847617,37.7602397],[-122.3846017,37.7601997],[-122.3844717,37.7601797],[-122.3844017,37.7601297],[-122.3843217,37.7601197],[-122.3842617,37.7600497],[-122.3841117,37.7600397],[-122.3839617,37.7599697],[-122.3837617,37.7599397],[-122.3836617,37.7598997],[-122.3835317,37.7598697],[-122.3833917,37.7598897],[-122.3832717,37.7598197],[-122.3832117,37.7597597],[-122.3831617,37.7596897],[-122.3830217,37.7595998],[-122.3828317,37.7595698],[-122.3827216,37.7595398],[-122.3824416,37.7595098],[-122.3824916,37.7594098],[-122.3824916,37.7592098],[-122.3824616,37.7590898],[-122.3823816,37.7590598],[-122.3823616,37.7589698],[-122.3822616,37.7588898],[-122.3821916,37.7587898],[-122.3821816,37.7585998],[-122.3820916,37.7585598],[-122.3819816,37.7584598],[-122.3819516,37.7583498],[-122.3823316,37.7581498],[-122.3825816,37.7579898],[-122.3826816,37.7578698],[-122.3826416,37.7577198],[-122.3825216,37.7576498],[-122.3825416,37.7575498],[-122.3829416,37.7572298],[-122.3830416,37.7569998],[-122.3831216,37.7567698],[-122.3831816,37.7566298],[-122.3831416,37.7565698],[-122.3831016,37.7564198],[-122.3832016,37.7563199],[-122.3830816,37.7561599],[-122.3829816,37.7562099],[-122.3829916,37.7559699],[-122.3828416,37.7559599],[-122.3827916,37.7560299],[-122.3827216,37.7559399],[-122.3826316,37.7559499],[-122.3826116,37.7558399],[-122.3825216,37.7558299],[-122.3825516,37.7556599],[-122.3826516,37.7555599],[-122.3827516,37.7555199],[-122.3828816,37.7555399],[-122.3829316,37.7554699],[-122.3830116,37.7554799],[-122.3830416,37.7554299],[-122.3832116,37.7554699],[-122.3833416,37.7555099],[-122.3834816,37.7554899],[-122.3834816,37.7553799],[-122.3835016,37.7552699],[-122.3832316,37.7550599],[-122.3833116,37.7550299],[-122.3835516,37.7552299],[-122.3836116,37.7551699],[-122.3841016,37.7553999],[-122.3841616,37.7554499],[-122.3842416,37.7554799],[-122.3843016,37.7554899],[-122.3844216,37.7555399],[-122.3845716,37.7556199],[-122.3847116,37.7556699],[-122.3847916,37.7556899],[-122.3848416,37.7557199],[-122.3849216,37.7557099],[-122.3850717,37.7558299],[-122.3851917,37.7558799],[-122.3852517,37.7559199],[-122.3853617,37.7559399],[-122.3854617,37.7559699],[-122.3855417,37.7560199],[-122.3855717,37.7561099],[-122.3855617,37.7561699],[-122.3856017,37.7562599],[-122.3857217,37.7563399],[-122.3858617,37.7564099],[-122.3860317,37.7565199],[-122.3861917,37.7565999],[-122.3863517,37.7566499],[-122.3868017,37.7566599],[-122.3870317,37.7566299],[-122.3872917,37.7565399],[-122.3874417,37.7564099],[-122.3878117,37.7561499],[-122.3879217,37.7560499],[-122.3880017,37.7559899],[-122.3880917,37.7558699],[-122.3875217,37.7556799],[-122.3875517,37.7556299],[-122.3881417,37.7558099],[-122.3882617,37.7556899],[-122.3884417,37.7555399],[-122.3885817,37.7554799],[-122.3886717,37.7554799],[-122.3887317,37.7555799],[-122.3887617,37.7555599],[-122.3888217,37.7554399],[-122.3890817,37.7550399],[-122.3892917,37.7547499],[-122.3893117,37.7546699],[-122.3893617,37.7545499],[-122.3893517,37.7544899],[-122.3892617,37.75441],[-122.3893717,37.75442],[-122.3894517,37.75439],[-122.3897117,37.75407],[-122.3897817,37.75388],[-122.3898617,37.75372],[-122.3899117,37.75356],[-122.3900417,37.75332],[-122.3901117,37.75311],[-122.3901017,37.75304],[-122.3900817,37.75299],[-122.3900017,37.75294],[-122.3899617,37.7529],[-122.3899317,37.75285],[-122.3899117,37.75281],[-122.3898917,37.7527],[-122.3898217,37.75271],[-122.3898317,37.75262],[-122.3898117,37.75253],[-122.3898117,37.75235],[-122.3897917,37.7523],[-122.3898017,37.75225],[-122.3898417,37.75219],[-122.3898417,37.75207],[-122.3898217,37.75199],[-122.3898817,37.75196],[-122.3899517,37.7519],[-122.3900217,37.75191],[-122.3900617,37.75196],[-122.3901017,37.75193],[-122.3901717,37.75196],[-122.3902417,37.75201],[-122.3903217,37.752],[-122.3904317,37.75208],[-122.3905417,37.75208],[-122.3906017,37.75212],[-122.3906717,37.75214],[-122.3907817,37.75213],[-122.3909017,37.7521],[-122.3909917,37.75206],[-122.3910817,37.75196],[-122.3912617,37.75179],[-122.3914117,37.7514401],[-122.3914217,37.7513901],[-122.3913617,37.7512601],[-122.3914217,37.7512601],[-122.3914817,37.7512401],[-122.3915017,37.7511701],[-122.3914717,37.7511101],[-122.3914817,37.7510501],[-122.3914217,37.7510101],[-122.3913517,37.7509201],[-122.3915517,37.7508901],[-122.3916217,37.7509101],[-122.3916817,37.7508601],[-122.3917417,37.7508301],[-122.3919317,37.7505801],[-122.3919417,37.7504901],[-122.3919317,37.7502501],[-122.3919117,37.7501501],[-122.3918617,37.7501301],[-122.3918617,37.7499301],[-122.3918817,37.7499001],[-122.3919617,37.7499401],[-122.3920517,37.7499201],[-122.3921917,37.7498701],[-122.3923017,37.7497201],[-122.3924517,37.7496501],[-122.3925717,37.7493801],[-122.3926017,37.7492601],[-122.3925517,37.7491601],[-122.3925817,37.7490601],[-122.3926917,37.7490101],[-122.3926617,37.7489601],[-122.3926417,37.7488502],[-122.3927017,37.7487702],[-122.3927117,37.7487102],[-122.3926817,37.7486302],[-122.3926617,37.7485402],[-122.3926617,37.7484602],[-122.3926317,37.7483602],[-122.3926817,37.7482902],[-122.3929417,37.7482302],[-122.3931717,37.7482302],[-122.3933017,37.7482602],[-122.3934517,37.7482702],[-122.3936317,37.7483202],[-122.3937817,37.7483502],[-122.3939017,37.7483302],[-122.3940117,37.7483502],[-122.3941217,37.7483902],[-122.3942617,37.7484102],[-122.3943917,37.7484102],[-122.3946117,37.7483802],[-122.3947817,37.7483802],[-122.3949817,37.7482902],[-122.3950817,37.7483002],[-122.3951617,37.7482402],[-122.3951617,37.7481602],[-122.3952317,37.7480802],[-122.3952917,37.7480302],[-122.3953817,37.7480202],[-122.3954217,37.7479502],[-122.3954417,37.7478702],[-122.3955217,37.7478302],[-122.3956617,37.7476902],[-122.3958117,37.7477102],[-122.3959418,37.7476002],[-122.3961418,37.7474802],[-122.3961718,37.7473802],[-122.3962618,37.7472902],[-122.3963918,37.7472502],[-122.3965918,37.7472702],[-122.3967418,37.7473102],[-122.3970618,37.7473602],[-122.3972818,37.7474202],[-122.3975018,37.7475702],[-122.3976418,37.7477102],[-122.3977918,37.7478402],[-122.3979018,37.7481102],[-122.3980218,37.7482302],[-122.3981618,37.7483402],[-122.3983818,37.7484402],[-122.3985618,37.7484702],[-122.3986318,37.7484502],[-122.3988318,37.7483702],[-122.3988718,37.7482702],[-122.3987418,37.7482902],[-122.3986318,37.7482902],[-122.3985418,37.7483102],[-122.3984118,37.7482802],[-122.3983618,37.7482102],[-122.3983118,37.7480502],[-122.3982618,37.7479802],[-122.3982918,37.7479102],[-122.3984418,37.7478802],[-122.3984418,37.7477802],[-122.3983618,37.7477702],[-122.3983318,37.7478302],[-122.3982118,37.7478002],[-122.3981018,37.7478002],[-122.3980618,37.7477502],[-122.3979518,37.7476802],[-122.3978918,37.7476102],[-122.3979718,37.7475502],[-122.3981218,37.7475502],[-122.3981618,37.7475002],[-122.3982118,37.7474102],[-122.3983118,37.7473302],[-122.3984318,37.7471403],[-122.3984818,37.7470903],[-122.3985818,37.7470803],[-122.3986618,37.7469703],[-122.3987618,37.7469503],[-122.3989018,37.7469103],[-122.3990618,37.7469203],[-122.3991518,37.7469503],[-122.3991818,37.7470003],[-122.3993518,37.7470003],[-122.3993618,37.7470503],[-122.3994318,37.7470803],[-122.3996718,37.7471303],[-122.3997218,37.7471903],[-122.3998118,37.7472103],[-122.3999118,37.7472503],[-122.3999718,37.7473403],[-122.4000518,37.7473403],[-122.4001218,37.7473803],[-122.4001818,37.7474603],[-122.4002818,37.7474503],[-122.4004018,37.7474603],[-122.4004618,37.7474803],[-122.4005118,37.7475203],[-122.4006118,37.7475603],[-122.4007218,37.7476802],[-122.4008018,37.7477902],[-122.4009418,37.7479302],[-122.4011218,37.7479802],[-122.4012618,37.7480002],[-122.4014218,37.7480002],[-122.4015118,37.7479502],[-122.4016618,37.7478902],[-122.4018618,37.7478503],[-122.4019918,37.7477603],[-122.4020418,37.7476903],[-122.4020518,37.7476303],[-122.4021318,37.7476103],[-122.4021918,37.7475303],[-122.4022318,37.7474103],[-122.4022518,37.7472403],[-122.4022518,37.7470703],[-122.4022818,37.7469903],[-122.4023618,37.7469103],[-122.4025718,37.7467903],[-122.4027218,37.7467203],[-122.4030518,37.7466403],[-122.4031718,37.7466403],[-122.4032518,37.7466603],[-122.4033518,37.7467303],[-122.4033918,37.7467903],[-122.4035018,37.7470103],[-122.4035718,37.7471003],[-122.4036318,37.7472403],[-122.4036418,37.7473803],[-122.4035418,37.7475803],[-122.4029918,37.7482502],[-122.4028818,37.7483202],[-122.4027618,37.7484302],[-122.4026618,37.7485402],[-122.4026418,37.7486402],[-122.4026618,37.7487502],[-122.4026918,37.7488302],[-122.4029118,37.7490302],[-122.4029518,37.7491002],[-122.4030618,37.7492502],[-122.4031318,37.7493902],[-122.4032618,37.7495102],[-122.4033718,37.7496502],[-122.4035218,37.7498002],[-122.4039318,37.7499802],[-122.4040118,37.7500302],[-122.4042118,37.7501202],[-122.4042818,37.7501302],[-122.4044318,37.7501702],[-122.4045118,37.7501502],[-122.4045918,37.7501502],[-122.4046618,37.7501602],[-122.4047118,37.7501802],[-122.4048318,37.7501202],[-122.4048018,37.7500702],[-122.4047418,37.7500402],[-122.4046218,37.7500502],[-122.4045818,37.7500702],[-122.4044418,37.7500102],[-122.4043618,37.7500202],[-122.4042818,37.7500402],[-122.4042118,37.7500302],[-122.4041318,37.7500002],[-122.4040818,37.7499502],[-122.4040718,37.7499002],[-122.4040918,37.7498502],[-122.4042018,37.7497902],[-122.4042418,37.7497502],[-122.4042418,37.7497002],[-122.4042218,37.7496402],[-122.4036818,37.7492002],[-122.4035918,37.7490702],[-122.4036018,37.7488702],[-122.4036618,37.7487702],[-122.4037318,37.7487102],[-122.4038018,37.7486902],[-122.4039118,37.7487202],[-122.4039718,37.7487702],[-122.4040218,37.7488502],[-122.4040218,37.7489102],[-122.4040618,37.7490502],[-122.4041718,37.7492402],[-122.4044818,37.7493802],[-122.4045818,37.7494102],[-122.4047318,37.7494302],[-122.4048818,37.7494602],[-122.4050218,37.7494602],[-122.4051818,37.7494502],[-122.4053318,37.7493702],[-122.4053818,37.7492802],[-122.4051318,37.7493902],[-122.4050818,37.7494002],[-122.4049618,37.7493802],[-122.4048518,37.7494102],[-122.4044718,37.7493202],[-122.4042918,37.7492302],[-122.4042218,37.7491802],[-122.4041718,37.7491202],[-122.4041418,37.7490602],[-122.4040618,37.7488202],[-122.4039918,37.7486802],[-122.4039218,37.7486202],[-122.4038118,37.7485902],[-122.4037118,37.7486102],[-122.4036518,37.7486302],[-122.4035918,37.7486702],[-122.4035618,37.7487102],[-122.4035218,37.7487302],[-122.4034718,37.7487902],[-122.4034418,37.7488702],[-122.4034418,37.7489402],[-122.4035018,37.7491102],[-122.4035718,37.7492002],[-122.4036018,37.7492702],[-122.4036518,37.7493302],[-122.4037318,37.7494202],[-122.4038018,37.7494702],[-122.4039918,37.7495702],[-122.4040318,37.7496002],[-122.4040518,37.7496302],[-122.4040618,37.7496802],[-122.4040318,37.7497502],[-122.4039018,37.7497902],[-122.4038318,37.7497802],[-122.4037518,37.7497502],[-122.4036318,37.7496702],[-122.4035118,37.7495202],[-122.4034518,37.7494702],[-122.4033018,37.7492902],[-122.4030818,37.7489802],[-122.4029118,37.7488502],[-122.4028418,37.7487502],[-122.4028518,37.7486702],[-122.4028918,37.7485802],[-122.4029818,37.7485002],[-122.4030318,37.7484202],[-122.4030618,37.7483502],[-122.4032118,37.7482402],[-122.4032518,37.7481902],[-122.4033118,37.7481502],[-122.4034618,37.7480103],[-122.4035318,37.7480003],[-122.4036018,37.7479603],[-122.4036818,37.7478903],[-122.4037418,37.7478103],[-122.4038118,37.7476503],[-122.4038618,37.7475103],[-122.4038518,37.7473603],[-122.4038818,37.7471203],[-122.4038718,37.7470603],[-122.4038218,37.7469403],[-122.4037918,37.7468303],[-122.4036818,37.7467003],[-122.4036618,37.7466603],[-122.4036618,37.7464403],[-122.4036518,37.7463803],[-122.4036118,37.7462603],[-122.4035818,37.7462103],[-122.4035318,37.7461703],[-122.4035118,37.7462003],[-122.4035618,37.7462703],[-122.4035718,37.7463103],[-122.4035718,37.7464603],[-122.4035918,37.7465303],[-122.4035818,37.7466603],[-122.4035118,37.7466603],[-122.4034118,37.7466003],[-122.4033418,37.7465303],[-122.4032518,37.7464603],[-122.4031318,37.7464403],[-122.4030118,37.7464503],[-122.4029118,37.7464303],[-122.4028318,37.7464703],[-122.4027218,37.7464903],[-122.4026018,37.7465503],[-122.4025018,37.7465703],[-122.4024118,37.7466203],[-122.4023318,37.7467003],[-122.4021718,37.7467303],[-122.4020318,37.7466403],[-122.4019718,37.7466803],[-122.4019318,37.7467303],[-122.4018718,37.7467403],[-122.4018918,37.7467803],[-122.4019618,37.7467803],[-122.4020618,37.7467203],[-122.4021418,37.7467903],[-122.4021218,37.7469103],[-122.4020518,37.7471003],[-122.4020418,37.7472203],[-122.4020018,37.7474103],[-122.4018518,37.7476503],[-122.4016518,37.7477803],[-122.4014618,37.7478302],[-122.4011618,37.7478202],[-122.4010218,37.7477103],[-122.4009118,37.7475503],[-122.4008318,37.7475003],[-122.4007318,37.7473803],[-122.4006318,37.7473403],[-122.4003818,37.7472903],[-122.4003618,37.7472303],[-122.4001718,37.7472003],[-122.4000318,37.7471303],[-122.3999518,37.7471003],[-122.3998918,37.7470403],[-122.4000918,37.7469103],[-122.4000718,37.7468403],[-122.3999918,37.7468803],[-122.3999318,37.7469503],[-122.3998818,37.7469103],[-122.3998018,37.7469403],[-122.3997618,37.7470203],[-122.3996918,37.7470003],[-122.3996118,37.7469203],[-122.3995018,37.7468603],[-122.3993818,37.7468503],[-122.3993318,37.7467803],[-122.3991218,37.7467403],[-122.3988918,37.7467303],[-122.3985818,37.7468203],[-122.3983318,37.7469603],[-122.3982618,37.7470203],[-122.3982118,37.7471103],[-122.3980818,37.7473002],[-122.3979418,37.7474102],[-122.3978518,37.7474302],[-122.3976718,37.7474202],[-122.3976118,37.7473602],[-122.3975118,37.7473102],[-122.3974218,37.7472502],[-122.3971218,37.7471802],[-122.3969418,37.7471602],[-122.3969118,37.7471102],[-122.3969718,37.7470402],[-122.3970818,37.7469803],[-122.3972318,37.7469403],[-122.3973618,37.7468703],[-122.3974918,37.7468703],[-122.3975818,37.7468003],[-122.3977718,37.7467703],[-122.3980218,37.7466703],[-122.3983718,37.7465603],[-122.3985618,37.7465103],[-122.3988318,37.7464203],[-122.3988818,37.7463403],[-122.3990018,37.7463403],[-122.3991318,37.7463103],[-122.3992518,37.7463203],[-122.3995018,37.7462803],[-122.3998518,37.7461903],[-122.4000518,37.7461003],[-122.4001318,37.7460503],[-122.4002818,37.7460203],[-122.4003518,37.7460303],[-122.4004318,37.7460103],[-122.4007518,37.7457903],[-122.4008818,37.7457703],[-122.4010818,37.7457003],[-122.4012018,37.7456003],[-122.4013918,37.7455003],[-122.4015118,37.7454603],[-122.4015918,37.7455303],[-122.4017518,37.7454103],[-122.4018318,37.7453903],[-122.4019118,37.7454303],[-122.4019018,37.7455103],[-122.4019118,37.7455703],[-122.4019618,37.7456303],[-122.4018518,37.7457503],[-122.4018818,37.7457803],[-122.4019618,37.7457303],[-122.4020118,37.7456703],[-122.4020418,37.7456003],[-122.4020918,37.7453703],[-122.4020918,37.7453103],[-122.4022818,37.7453003],[-122.4023918,37.7452504],[-122.4025118,37.7451704],[-122.4025819,37.7451004],[-122.4027219,37.7448404],[-122.4028119,37.7447504],[-122.4029019,37.7446904],[-122.4029919,37.7447104],[-122.4032019,37.7448504],[-122.4032619,37.7448504],[-122.4032319,37.7447504],[-122.4031519,37.7447004],[-122.4031019,37.7446504],[-122.4029719,37.7446204],[-122.4028619,37.7446104],[-122.4028119,37.7445504],[-122.4028619,37.7444804],[-122.4028919,37.7444004],[-122.4028819,37.7442804],[-122.4028519,37.7441804],[-122.4027519,37.7440704],[-122.4026919,37.7439904],[-122.4027219,37.7439104],[-122.4027419,37.7437504],[-122.4028019,37.7437204],[-122.4028819,37.7437604],[-122.4029819,37.7437604],[-122.4030819,37.7437804],[-122.4032219,37.7438804],[-122.4033219,37.7439104],[-122.4034419,37.7438604],[-122.4034519,37.7437904],[-122.4033119,37.7438104],[-122.4032319,37.7438004],[-122.4031719,37.7437304],[-122.4031019,37.7436904],[-122.4029919,37.7436904],[-122.4029019,37.7436804],[-122.4027719,37.7436304],[-122.4027019,37.7436404],[-122.4026519,37.7437504],[-122.4026319,37.7438304],[-122.4025019,37.7439004],[-122.4024319,37.7438404],[-122.4023119,37.7437804],[-122.4022819,37.7437004],[-122.4022919,37.7436104],[-122.4022719,37.7435304],[-122.4022319,37.7434804],[-122.4022119,37.7434204],[-122.4022219,37.7432504],[-122.4022719,37.7431804],[-122.4023919,37.7432104],[-122.4025119,37.7432204],[-122.4025719,37.7431504],[-122.4025619,37.7430904],[-122.4026419,37.7430304],[-122.4026519,37.7429604],[-122.4026419,37.7428404],[-122.4026719,37.7427704],[-122.4027419,37.7427804],[-122.4029119,37.7428604],[-122.4029819,37.7428804],[-122.4031219,37.7427605],[-122.4031219,37.7427105],[-122.4029719,37.7427605],[-122.4028819,37.7427704],[-122.4027119,37.7427005],[-122.4026219,37.7427304],[-122.4025719,37.7428604],[-122.4025719,37.7429604],[-122.4025019,37.7429704],[-122.4024019,37.7431104],[-122.4022319,37.7431104],[-122.4021319,37.7432004],[-122.4020819,37.7432104],[-122.4019819,37.7432104],[-122.4019219,37.7431804],[-122.4018819,37.7431204],[-122.4018419,37.7430404],[-122.4018419,37.7429404],[-122.4017319,37.7428604],[-122.4016919,37.7427604],[-122.4017119,37.7426904],[-122.4018719,37.7425705],[-122.4020419,37.7425405],[-122.4021419,37.7424705],[-122.4023619,37.7423505],[-122.4025819,37.7421705],[-122.4027719,37.7420005],[-122.4029319,37.7418805],[-122.4030719,37.7417905],[-122.4034719,37.7415905],[-122.4035719,37.7415905],[-122.4036319,37.7415705],[-122.4038519,37.7415605],[-122.4039319,37.7415905],[-122.4039919,37.7416305],[-122.4040919,37.7417505],[-122.4041419,37.7418605],[-122.4041419,37.7419905],[-122.4040719,37.7423605],[-122.4040819,37.7424805],[-122.4041019,37.7425705],[-122.4041819,37.7426505],[-122.4042819,37.7427005],[-122.4043619,37.7427305],[-122.4046819,37.7427605],[-122.4047819,37.7427405],[-122.4048619,37.7427105],[-122.4049219,37.7427005],[-122.4050019,37.7426605],[-122.4050519,37.7426105],[-122.4051219,37.7425605],[-122.4052719,37.7424705],[-122.4057419,37.7423805],[-122.4058219,37.7423305],[-122.4058519,37.7422705],[-122.4058719,37.7421805],[-122.4058819,37.7420905],[-122.4058219,37.7420205],[-122.4056819,37.7419605],[-122.4055619,37.7419905],[-122.4054419,37.7420405],[-122.4053819,37.7420405],[-122.4052719,37.7419705],[-122.4051619,37.7419605],[-122.4050919,37.7419105],[-122.4050219,37.7418805],[-122.4049219,37.7418605],[-122.4049419,37.7417705],[-122.4050319,37.7417405],[-122.4051119,37.7416805],[-122.4051819,37.7416405],[-122.4053119,37.7416705],[-122.4055319,37.7416705],[-122.4055819,37.7416605],[-122.4056719,37.7416205],[-122.4057619,37.7416205],[-122.4058619,37.7416405],[-122.4059619,37.7415905],[-122.4060119,37.7415305],[-122.4059919,37.7414505],[-122.4059519,37.7413505],[-122.4059719,37.7412805],[-122.4060719,37.7411605],[-122.4061319,37.7410405],[-122.4061919,37.7409905],[-122.4062219,37.7409205],[-122.4062719,37.7408705],[-122.4063619,37.7408005],[-122.4063719,37.7407406],[-122.4063219,37.7406706],[-122.4062619,37.7406006],[-122.4061319,37.7405706],[-122.4060819,37.7404706],[-122.4060419,37.7404106],[-122.4059519,37.7403606],[-122.4059019,37.7402706],[-122.4058619,37.7403506],[-122.4058719,37.7404206],[-122.4059319,37.7404906],[-122.4060119,37.7405506],[-122.4061019,37.7406506],[-122.4061719,37.7406706],[-122.4062219,37.7407505],[-122.4061619,37.7408605],[-122.4060819,37.7409305],[-122.4059419,37.7410305],[-122.4058619,37.7411505],[-122.4058419,37.7412305],[-122.4058419,37.7413205],[-122.4058619,37.7414305],[-122.4058319,37.7415005],[-122.4057119,37.7415005],[-122.4055919,37.7415205],[-122.4055119,37.7415905],[-122.4051419,37.7415705],[-122.4050319,37.7416005],[-122.4049519,37.7416905],[-122.4048019,37.7417205],[-122.4047419,37.7417505],[-122.4047119,37.7418005],[-122.4047119,37.7418605],[-122.4047819,37.7419105],[-122.4049019,37.7419505],[-122.4049619,37.7419905],[-122.4050319,37.7420605],[-122.4052619,37.7420805],[-122.4052819,37.7421505],[-122.4053919,37.7421505],[-122.4054619,37.7421405],[-122.4055519,37.7420905],[-122.4056519,37.7420805],[-122.4056819,37.7421305],[-122.4057319,37.7421805],[-122.4057619,37.7422305],[-122.4057319,37.7422905],[-122.4056719,37.7423105],[-122.4054819,37.7423105],[-122.4054419,37.7423605],[-122.4053319,37.7423805],[-122.4052219,37.7423805],[-122.4051119,37.7423905],[-122.4050419,37.7424305],[-122.4049419,37.7424405],[-122.4048619,37.7424605],[-122.4047519,37.7425305],[-122.4045819,37.7425805],[-122.4044219,37.7425805],[-122.4043419,37.7425405],[-122.4042619,37.7424505],[-122.4042219,37.7423805],[-122.4042019,37.7423205],[-122.4042419,37.7422405],[-122.4042819,37.7421305],[-122.4043019,37.7420405],[-122.4043019,37.7419205],[-122.4042219,37.7416305],[-122.4040219,37.7414605],[-122.4038719,37.7414205],[-122.4037119,37.7414205],[-122.4035519,37.7414305],[-122.4034619,37.7414505],[-122.4033419,37.7414605],[-122.4031719,37.7415105],[-122.4030619,37.7415705],[-122.4027519,37.7417805],[-122.4025119,37.7419605],[-122.4023019,37.7421805],[-122.4021019,37.7423005],[-122.4017819,37.7423905],[-122.4016519,37.7423905],[-122.4015619,37.7423805],[-122.4014319,37.7423505],[-122.4013619,37.7422905],[-122.4013019,37.7422105],[-122.4012919,37.7421205],[-122.4013019,37.7420405],[-122.4015019,37.7420005],[-122.4016119,37.7419605],[-122.4017519,37.7419305],[-122.4018019,37.7418805],[-122.4019519,37.7416705],[-122.4020419,37.7415705],[-122.4021719,37.7415205],[-122.4022419,37.7414405],[-122.4024319,37.7412705],[-122.4025119,37.7412105],[-122.4026219,37.7412005],[-122.4026819,37.7411505],[-122.4027319,37.7410805],[-122.4027819,37.7408805],[-122.4029619,37.7406805],[-122.4030519,37.7406305],[-122.4031219,37.7405605],[-122.4032619,37.7405005],[-122.4034319,37.7404505],[-122.4035619,37.7404205],[-122.4036319,37.7404405],[-122.4037019,37.7404505],[-122.4037619,37.7405005],[-122.4037619,37.7405705],[-122.4036719,37.7407305],[-122.4036519,37.7407905],[-122.4036719,37.7409005],[-122.4039119,37.7409105],[-122.4040719,37.7408505],[-122.4041219,37.7408105],[-122.4042019,37.7407705],[-122.4043019,37.7407805],[-122.4043819,37.7408105],[-122.4044619,37.7408305],[-122.4045219,37.7408905],[-122.4045219,37.7409905],[-122.4045619,37.7411405],[-122.4045419,37.7412905],[-122.4045619,37.7413705],[-122.4046119,37.7414605],[-122.4047319,37.7414605],[-122.4048619,37.7414205],[-122.4049519,37.7413305],[-122.4050619,37.7413205],[-122.4051219,37.7412905],[-122.4051819,37.7412305],[-122.4052219,37.7411605],[-122.4052819,37.7410105],[-122.4052819,37.7409305],[-122.4052219,37.7408605],[-122.4051119,37.7408105],[-122.4050219,37.7408005],[-122.4049319,37.7408105],[-122.4048319,37.7408405],[-122.4047419,37.7408005],[-122.4047219,37.7406905],[-122.4048319,37.7405505],[-122.4049319,37.7405305],[-122.4051119,37.7405106],[-122.4052019,37.7404606],[-122.4052619,37.7403106],[-122.4053919,37.7402506],[-122.4053219,37.7402306],[-122.4052319,37.7402306],[-122.4051719,37.7402906],[-122.4051619,37.7403606],[-122.4050419,37.7404406],[-122.4049419,37.7404606],[-122.4048719,37.7404406],[-122.4048019,37.7404506],[-122.4047219,37.7404905],[-122.4046519,37.7406605],[-122.4045219,37.7407205],[-122.4044219,37.7407205],[-122.4042619,37.7406705],[-122.4040819,37.7407105],[-122.4039719,37.7407505],[-122.4038619,37.7407805],[-122.4037719,37.7407705],[-122.4038419,37.7406205],[-122.4038919,37.7405505],[-122.4039019,37.7404905],[-122.4039419,37.7403705],[-122.4039019,37.7403305],[-122.4038119,37.7403005],[-122.4036919,37.7403305],[-122.4035019,37.7402705],[-122.4033919,37.7403405],[-122.4031019,37.7404205],[-122.4030319,37.7404705],[-122.4029519,37.7405505],[-122.4028719,37.7406105],[-122.4027219,37.7406605],[-122.4026619,37.7407305],[-122.4026419,37.7408405],[-122.4026019,37.7409405],[-122.4025919,37.7410105],[-122.4025519,37.7410705],[-122.4022819,37.7412005],[-122.4021919,37.7412805],[-122.4021919,37.7413405],[-122.4020819,37.7414405],[-122.4018819,37.7415705],[-122.4018319,37.7416505],[-122.4017419,37.7416905],[-122.4016519,37.7418405],[-122.4013219,37.7418905],[-122.4011719,37.7419305],[-122.4011419,37.7419905],[-122.4010719,37.7420505],[-122.4010119,37.7421205],[-122.4010019,37.7421805],[-122.4010519,37.7422605],[-122.4012619,37.7423805],[-122.4013619,37.7424505],[-122.4013619,37.7425404],[-122.4013819,37.7427404],[-122.4014119,37.7428704],[-122.4014919,37.7429504],[-122.4015719,37.7429904],[-122.4016319,37.7430404],[-122.4016919,37.7431504],[-122.4017519,37.7432304],[-122.4018419,37.7432804],[-122.4019419,37.7433504],[-122.4020019,37.7434304],[-122.4020319,37.7434904],[-122.4019819,37.7435504],[-122.4016519,37.7434304],[-122.4015519,37.7434104],[-122.4013319,37.7433404],[-122.4010919,37.7433104],[-122.4009619,37.7432604],[-122.4008719,37.7432704],[-122.4007019,37.7432704],[-122.4005419,37.7432304],[-122.4003918,37.7432304],[-122.4001418,37.7432804],[-122.3998318,37.7433204],[-122.3996718,37.7433204],[-122.3992818,37.7432804],[-122.3991218,37.7432704],[-122.3988318,37.7431204],[-122.3987018,37.7430804],[-122.3986318,37.7429804],[-122.3985718,37.7428104],[-122.3985118,37.7427604],[-122.3983818,37.7425704],[-122.3983318,37.7424204],[-122.3983418,37.7423004],[-122.3984118,37.7422104],[-122.3985318,37.7421504],[-122.3987518,37.7420704],[-122.3988218,37.7420904],[-122.3988818,37.7421204],[-122.3989618,37.7421004],[-122.3990018,37.7420205],[-122.3990118,37.7419405],[-122.3990018,37.7419005],[-122.3989518,37.7419105],[-122.3989218,37.7419905],[-122.3988818,37.7420304],[-122.3988018,37.7419905],[-122.3987018,37.7419805],[-122.3986418,37.7420104],[-122.3985418,37.7419704],[-122.3984718,37.7420604],[-122.3984118,37.7421104],[-122.3983818,37.7420704],[-122.3984318,37.7420104],[-122.3984418,37.7419105],[-122.3984218,37.7418005],[-122.3984518,37.7417205],[-122.3985618,37.7416505],[-122.3986218,37.7415905],[-122.3986318,37.7414805],[-122.3986919,37.7414105],[-122.3988719,37.7414005],[-122.3989919,37.7413205],[-122.3991219,37.7413005],[-122.3992019,37.7412405],[-122.3993119,37.7412205],[-122.3994419,37.7412205],[-122.3995119,37.7412605],[-122.3995819,37.7412605],[-122.3996219,37.7412205],[-122.3996919,37.7412305],[-122.3998919,37.7411605],[-122.3999419,37.7410805],[-122.4000719,37.7411805],[-122.4001719,37.7411605],[-122.4003619,37.7410305],[-122.4004219,37.7410405],[-122.4005119,37.7411205],[-122.4006119,37.7412305],[-122.4005819,37.7410905],[-122.4005419,37.7410205],[-122.4004019,37.7409405],[-122.4003319,37.7409605],[-122.4002719,37.7410305],[-122.4000619,37.7410305],[-122.3999219,37.7409505],[-122.3998819,37.7409105],[-122.3999119,37.7408105],[-122.4000419,37.7407605],[-122.4001019,37.7407005],[-122.4002019,37.7406605],[-122.4003619,37.7406205],[-122.4004819,37.7405305],[-122.4005919,37.7404205],[-122.4007919,37.7403605],[-122.4009119,37.7403505],[-122.4010019,37.7403105],[-122.4010519,37.7402405],[-122.4011119,37.7401805],[-122.4012919,37.7401005],[-122.4013919,37.7400905],[-122.4014919,37.7400905],[-122.4015719,37.7400705],[-122.4016419,37.7399305],[-122.4017519,37.7399006],[-122.4018419,37.7398506],[-122.4019419,37.7398206],[-122.4020019,37.7397806],[-122.4022219,37.7397506],[-122.4023219,37.7397006],[-122.4023919,37.7396806],[-122.4025219,37.7397206],[-122.4025919,37.7397206],[-122.4027019,37.7396706],[-122.4027919,37.7396606],[-122.4028419,37.7396806],[-122.4028819,37.7398006],[-122.4029619,37.7398406],[-122.4030119,37.7398806],[-122.4029719,37.7399106],[-122.4028819,37.7399106],[-122.4027919,37.7399306],[-122.4027219,37.7399706],[-122.4026919,37.7400406],[-122.4026419,37.7401205],[-122.4026919,37.7402305],[-122.4026719,37.7403005],[-122.4025919,37.7403605],[-122.4024919,37.7403605],[-122.4023819,37.7403505],[-122.4022919,37.7403605],[-122.4022119,37.7403805],[-122.4022919,37.7404205],[-122.4025919,37.7404205],[-122.4027219,37.7403905],[-122.4028119,37.7403005],[-122.4028019,37.7402305],[-122.4027619,37.7401105],[-122.4028219,37.7400306],[-122.4029119,37.7399806],[-122.4029919,37.7399906],[-122.4031119,37.7400206],[-122.4031819,37.7400106],[-122.4032119,37.7399306],[-122.4031619,37.7398806],[-122.4031819,37.7398306],[-122.4030419,37.7396806],[-122.4030019,37.7396006],[-122.4030119,37.7395306],[-122.4029519,37.7395106],[-122.4028419,37.7395206],[-122.4026519,37.7395706],[-122.4026019,37.7395306],[-122.4026019,37.7394706],[-122.4026919,37.7394406],[-122.4027819,37.7393806],[-122.4028619,37.7393006],[-122.4029319,37.7392906],[-122.4031019,37.7391106],[-122.4031919,37.7390506],[-122.4033119,37.7390506],[-122.4036119,37.7390706],[-122.4037219,37.7390906],[-122.4038619,37.7391006],[-122.4040219,37.7391306],[-122.4042119,37.7391006],[-122.4043919,37.7390606],[-122.4045219,37.7390706],[-122.4046019,37.7390606],[-122.4047619,37.7390206],[-122.404922,37.7389706],[-122.405242,37.7387306],[-122.405392,37.7385506],[-122.405502,37.7384006],[-122.405502,37.7382906],[-122.405622,37.7381006],[-122.405702,37.7380406],[-122.405842,37.7379707],[-122.405912,37.7379507],[-122.406022,37.7378507],[-122.406082,37.7378107],[-122.406122,37.7377907],[-122.406222,37.7377707],[-122.406362,37.7376607],[-122.406412,37.7375807],[-122.406492,37.7375407],[-122.406732,37.7374907],[-122.406872,37.7374807],[-122.406882,37.7375907],[-122.406782,37.7376407],[-122.406812,37.7377007],[-122.406882,37.7377207],[-122.406942,37.7377507],[-122.406952,37.7378007],[-122.406892,37.7378507],[-122.406822,37.7379307],[-122.406792,37.7380007],[-122.406702,37.7381007],[-122.406702,37.7381507],[-122.406742,37.7381907],[-122.406792,37.7382007],[-122.406912,37.7381107],[-122.406942,37.7380507],[-122.407012,37.7380607],[-122.406992,37.7381207],[-122.406942,37.7381707],[-122.406912,37.7382506],[-122.406902,37.7383406],[-122.406912,37.7384006],[-122.406942,37.7384606],[-122.406992,37.7385206],[-122.407062,37.7385306],[-122.407162,37.7384806],[-122.407242,37.7384106],[-122.407362,37.7382607],[-122.407462,37.7381707],[-122.407582,37.7380907],[-122.407812,37.7379907],[-122.407792,37.7379407],[-122.407702,37.7378907],[-122.407732,37.7378507],[-122.407872,37.7377407],[-122.407932,37.7375807],[-122.407772,37.7374307],[-122.407682,37.7373707],[-122.407632,37.7373207],[-122.407632,37.7372507],[-122.407652,37.7371807],[-122.407702,37.7371407],[-122.407772,37.7371207],[-122.407872,37.7371207],[-122.408062,37.7371507],[-122.408222,37.7372307],[-122.408272,37.7372807],[-122.408342,37.7373007],[-122.408432,37.7373107],[-122.408492,37.7372907],[-122.408512,37.7372007],[-122.408592,37.7370407],[-122.408592,37.7369907],[-122.408562,37.7368807],[-122.408512,37.7367707],[-122.408512,37.7366407],[-122.408452,37.7365507],[-122.408332,37.7364807],[-122.408192,37.7364207],[-122.408172,37.7363607],[-122.408192,37.7363107],[-122.408262,37.7363107],[-122.408322,37.7363307],[-122.408362,37.7363707],[-122.408482,37.7364307],[-122.408562,37.7364507],[-122.408632,37.7364607],[-122.408722,37.7364307],[-122.408872,37.7363307],[-122.408932,37.7362007],[-122.408962,37.7360707],[-122.409052,37.7359908],[-122.409182,37.7359408],[-122.409072,37.7359308],[-122.408952,37.7359708],[-122.408912,37.7360007],[-122.408892,37.7360807],[-122.408852,37.7361507],[-122.408832,37.7362307],[-122.408782,37.7362907],[-122.408702,37.7363307],[-122.408632,37.7363507],[-122.408552,37.7363507],[-122.408492,37.7363307],[-122.408412,37.7362707],[-122.408292,37.7362007],[-122.408232,37.7361907],[-122.408162,37.7361907],[-122.408092,37.7362007],[-122.408042,37.7362407],[-122.408002,37.7363407],[-122.408022,37.7364007],[-122.408122,37.7365007],[-122.408222,37.7365707],[-122.408302,37.7366107],[-122.408382,37.7366807],[-122.408402,37.7367207],[-122.408372,37.7368107],[-122.408372,37.7369007],[-122.408402,37.7370207],[-122.408372,37.7370707],[-122.408292,37.7370907],[-122.408202,37.7370907],[-122.408102,37.7370507],[-122.407982,37.7370607],[-122.407862,37.7370207],[-122.407732,37.7370107],[-122.407622,37.7370107],[-122.407452,37.7370807],[-122.407442,37.7371407],[-122.407452,37.7372407],[-122.407482,37.7373107],[-122.407632,37.7374907],[-122.407682,37.7376207],[-122.407612,37.7377007],[-122.407602,37.7377707],[-122.407532,37.7379207],[-122.407462,37.7379407],[-122.407302,37.7379407],[-122.407262,37.7379807],[-122.407102,37.7379807],[-122.407072,37.7379207],[-122.407102,37.7378207],[-122.407112,37.7377407],[-122.407072,37.7376607],[-122.407092,37.7375907],[-122.407142,37.7375507],[-122.407202,37.7373507],[-122.407142,37.7372807],[-122.407032,37.7372207],[-122.406882,37.7372207],[-122.406812,37.7371807],[-122.406752,37.7371907],[-122.406722,37.7371507],[-122.406792,37.7370107],[-122.406772,37.7369407],[-122.406692,37.7369707],[-122.406662,37.7370507],[-122.406622,37.7371007],[-122.406602,37.7371707],[-122.406572,37.7372207],[-122.406532,37.7372707],[-122.406442,37.7373207],[-122.406382,37.7373807],[-122.406282,37.7374407],[-122.406162,37.7374807],[-122.406062,37.7375707],[-122.405982,37.7376307],[-122.405722,37.7377507],[-122.405582,37.7378007],[-122.405502,37.7378007],[-122.405402,37.7378407],[-122.405372,37.7379706],[-122.405322,37.7380606],[-122.405292,37.7381406],[-122.405222,37.7381206],[-122.405202,37.7380306],[-122.405142,37.7379406],[-122.405182,37.7378507],[-122.405152,37.7377907],[-122.405162,37.7377007],[-122.405212,37.7376407],[-122.405192,37.7375707],[-122.405182,37.7374707],[-122.405242,37.7374207],[-122.405342,37.7374007],[-122.405482,37.7373407],[-122.405582,37.7373307],[-122.405682,37.7373507],[-122.405762,37.7373407],[-122.405862,37.7372307],[-122.405992,37.7372007],[-122.406062,37.7371707],[-122.406112,37.7371007],[-122.406192,37.7370107],[-122.406302,37.7369607],[-122.406372,37.7367907],[-122.406452,37.7366907],[-122.406482,37.7366407],[-122.406422,37.7366107],[-122.406432,37.7365507],[-122.406482,37.7364907],[-122.406582,37.7364607],[-122.406682,37.7363907],[-122.406762,37.7363207],[-122.407082,37.7361107],[-122.407132,37.7360407],[-122.407132,37.7359607],[-122.407242,37.7358307],[-122.407282,37.7357607],[-122.407292,37.7356808],[-122.407312,37.7356108],[-122.407412,37.7356108],[-122.407612,37.7357008],[-122.407672,37.7356308],[-122.407722,37.7354708],[-122.407802,37.7354308],[-122.407802,37.7353508],[-122.407762,37.7352808],[-122.407892,37.7352608],[-122.407992,37.7352708],[-122.408032,37.7354408],[-122.408122,37.7354808],[-122.408242,37.7354508],[-122.408312,37.7354208],[-122.408402,37.7353608],[-122.408412,37.7353008],[-122.408342,37.7353108],[-122.408262,37.7353508],[-122.408192,37.7354108],[-122.408102,37.7354108],[-122.408062,37.7353508],[-122.408072,37.7352208],[-122.408062,37.7351608],[-122.408002,37.7351508],[-122.407732,37.7352208],[-122.407682,37.7352508],[-122.407622,37.7353708],[-122.407502,37.7354608],[-122.407422,37.7354908],[-122.407362,37.7354608],[-122.407372,37.7353808],[-122.407372,37.7352508],[-122.407302,37.7352108],[-122.407322,37.7351608],[-122.407422,37.7350708],[-122.407462,37.7350108],[-122.407422,37.7349408],[-122.407462,37.7348708],[-122.407542,37.7348808],[-122.407602,37.7349008],[-122.407672,37.7348908],[-122.407762,37.7348408],[-122.407822,37.7348308],[-122.407862,37.7348008],[-122.407952,37.7347808],[-122.408032,37.7348008],[-122.408102,37.7348308],[-122.408212,37.7348008],[-122.408232,37.7348308],[-122.408282,37.7348708],[-122.408352,37.7348808],[-122.408512,37.7348308],[-122.408422,37.7348308],[-122.408292,37.7348108],[-122.408282,37.7347608],[-122.408152,37.7346908],[-122.408202,37.7346408],[-122.408272,37.7345108],[-122.4083821,37.7344708],[-122.4084321,37.7343408],[-122.4085321,37.7342808],[-122.4086621,37.7342508],[-122.4087021,37.7341908],[-122.4087721,37.7341508],[-122.4088521,37.7341508],[-122.4089421,37.7341608],[-122.4090621,37.7340608],[-122.4091121,37.7340808],[-122.4092121,37.7341408],[-122.4092521,37.7342008],[-122.4092921,37.7342208],[-122.4093821,37.7342208],[-122.4094721,37.7342008],[-122.4094321,37.7341608],[-122.4093421,37.7341608],[-122.4093621,37.7341008],[-122.4094321,37.7340708],[-122.4095621,37.7340408],[-122.4096421,37.7339808],[-122.4097321,37.7339408],[-122.4098621,37.7339208],[-122.4099821,37.7337808],[-122.4100421,37.7337408],[-122.4102821,37.7337708],[-122.4103521,37.7337608],[-122.4105021,37.7337008],[-122.4104921,37.7336509],[-122.4105021,37.7336009],[-122.4105021,37.7334609],[-122.4105521,37.7334209],[-122.4106521,37.7334009],[-122.4107121,37.7333609],[-122.4107321,37.7333109],[-122.4107421,37.7332109],[-122.4107821,37.7331609],[-122.4108421,37.7331209],[-122.4109221,37.7331309],[-122.4109921,37.7331509],[-122.4110421,37.7332109],[-122.4110421,37.7332809],[-122.4110121,37.7333609],[-122.4109421,37.7334109],[-122.4109521,37.7334809],[-122.4109921,37.7335509],[-122.4110021,37.7336509],[-122.4110321,37.7336909],[-122.4111021,37.7337409],[-122.4111721,37.7337509],[-122.4112721,37.7337809],[-122.4113021,37.7338508],[-122.4113921,37.7339108],[-122.4114721,37.7339408],[-122.4116221,37.7339608],[-122.4117121,37.7339408],[-122.4117921,37.7339109],[-122.4118721,37.7338709],[-122.4119721,37.7337909],[-122.4120621,37.7337409],[-122.4122121,37.7336909],[-122.4123621,37.7335709],[-122.4125021,37.7335709],[-122.4125621,37.7336009],[-122.4126421,37.7336109],[-122.4127821,37.7335609],[-122.4129321,37.7335309],[-122.4130021,37.7335409],[-122.4130621,37.7336009],[-122.4131021,37.7336609],[-122.4132921,37.7336109],[-122.4133721,37.7335609],[-122.4134621,37.7335409],[-122.4136021,37.7334909],[-122.4136721,37.7334209],[-122.4137421,37.7333209],[-122.4139021,37.7331709],[-122.4140321,37.7330709],[-122.4140521,37.7330109],[-122.4140521,37.7329209],[-122.4140821,37.7328409],[-122.4141521,37.7327709],[-122.4141621,37.7327109],[-122.4142622,37.7326009],[-122.4142822,37.7325209],[-122.4143422,37.7324809],[-122.4144122,37.7324809],[-122.4144722,37.7324309],[-122.4145322,37.7324009],[-122.4146822,37.7324009],[-122.4147422,37.7323509],[-122.4148822,37.7323209],[-122.4149922,37.7323309],[-122.4151822,37.7323609],[-122.4153222,37.7323609],[-122.4154422,37.7323809],[-122.4152922,37.7322009],[-122.4151622,37.7322109],[-122.4150322,37.7321809],[-122.4147822,37.7322009],[-122.4146922,37.7322309],[-122.4145522,37.7322209],[-122.4144722,37.7322409],[-122.4143022,37.7323109],[-122.4142222,37.7323609],[-122.4141522,37.7323809],[-122.4141122,37.7324209],[-122.4139921,37.7324509],[-122.4139421,37.7324509],[-122.4139021,37.7324809],[-122.4138921,37.7325609],[-122.4138721,37.7326209],[-122.4138321,37.7326709],[-122.4137821,37.7327009],[-122.4137421,37.7327409],[-122.4138121,37.7328209],[-122.4136921,37.7329109],[-122.4137121,37.7329509],[-122.4137521,37.7330009],[-122.4137521,37.7330409],[-122.4137321,37.7330909],[-122.4136821,37.7331309],[-122.4136621,37.7331909],[-122.4136621,37.7332709],[-122.4135321,37.7333709],[-122.4133721,37.7334309],[-122.4132121,37.7333909],[-122.4131721,37.7333509],[-122.4130721,37.7331309],[-122.4131121,37.7330309],[-122.4131821,37.7329509],[-122.4130721,37.7328809],[-122.4130021,37.7328609],[-122.4129121,37.7328509],[-122.4127721,37.7328609],[-122.4127621,37.7329209],[-122.4127621,37.7330109],[-122.4127121,37.7330309],[-122.4126221,37.7330209],[-122.4125421,37.7330409],[-122.4124521,37.7331209],[-122.4123221,37.7330909],[-122.4122421,37.7330409],[-122.4121521,37.7329709],[-122.4121021,37.7329209],[-122.4121121,37.7328709],[-122.4122021,37.7328609],[-122.4122721,37.7328409],[-122.4123221,37.7328209],[-122.4123621,37.7327809],[-122.4122521,37.7327609],[-122.4121621,37.7328109],[-122.4119921,37.7328409],[-122.4119921,37.7329109],[-122.4120421,37.7329709],[-122.4121121,37.7330209],[-122.4121121,37.7330809],[-122.4120921,37.7331309],[-122.4120121,37.7331709],[-122.4119421,37.7331609],[-122.4118521,37.7331709],[-122.4117721,37.7333009],[-122.4117121,37.7333509],[-122.4116021,37.7333709],[-122.4114521,37.7333309],[-122.4114121,37.7332609],[-122.4113621,37.7332109],[-122.4113021,37.7330509],[-122.4112421,37.7330009],[-122.4111421,37.7328809],[-122.4109721,37.7328809],[-122.4107821,37.7329709],[-122.4106421,37.7330909],[-122.4105321,37.7331009],[-122.4104821,37.7331309],[-122.4104621,37.7332209],[-122.4104321,37.7332909],[-122.4103021,37.7334209],[-122.4102321,37.7334509],[-122.4101521,37.7334409],[-122.4100421,37.7334409],[-122.4099521,37.7334109],[-122.4098021,37.7333809],[-122.4096221,37.7334809],[-122.4094521,37.7335008],[-122.4093121,37.7334908],[-122.4092121,37.7335408],[-122.4091721,37.7336108],[-122.4092421,37.7336908],[-122.4093421,37.7337408],[-122.4093521,37.7338008],[-122.4092921,37.7338608],[-122.4089921,37.7338308],[-122.4088921,37.7338308],[-122.4088321,37.7337708],[-122.4087221,37.7337708],[-122.4086121,37.7338208],[-122.4085221,37.7338808],[-122.4082521,37.7341008],[-122.408002,37.7343908],[-122.407942,37.7344408],[-122.407882,37.7344708],[-122.407682,37.7345308],[-122.407492,37.7345708],[-122.407412,37.7346008],[-122.407282,37.7346708],[-122.407152,37.7347708],[-122.407142,37.7349108],[-122.407172,37.7350208],[-122.407142,37.7352508],[-122.407052,37.7354308],[-122.406972,37.7355408],[-122.406752,37.7356607],[-122.406702,37.7357207],[-122.406662,37.7357907],[-122.406622,37.7358907],[-122.406552,37.7359107],[-122.406462,37.7359607],[-122.406372,37.7360707],[-122.406242,37.7361707],[-122.406012,37.7362707],[-122.405942,37.7363307],[-122.405822,37.7365007],[-122.405612,37.7366007],[-122.405552,37.7367007],[-122.405642,37.7367007],[-122.405782,37.7366607],[-122.405842,37.7366607],[-122.405992,37.7365607],[-122.406092,37.7365507],[-122.406202,37.7365707],[-122.406192,37.7367307],[-122.406142,37.7368007],[-122.406052,37.7368607],[-122.405982,37.7369307],[-122.405722,37.7369807],[-122.405652,37.7370307],[-122.405472,37.7369707],[-122.405372,37.7369707],[-122.405272,37.7369907],[-122.405112,37.7370607],[-122.404842,37.7370907],[-122.404682,37.7371907],[-122.404622,37.7372707],[-122.404522,37.7373307],[-122.404512,37.7373807],[-122.404552,37.7374407],[-122.404572,37.7375007],[-122.404572,37.7375907],[-122.404582,37.7376507],[-122.404622,37.7377007],[-122.404652,37.7377607],[-122.404652,37.7378506],[-122.404712,37.7380206],[-122.404892,37.7382306],[-122.404892,37.7383006],[-122.404962,37.7383906],[-122.404972,37.7384506],[-122.404912,37.7385306],[-122.404772,37.7385906],[-122.404612,37.7386406],[-122.404472,37.7386706],[-122.4043519,37.7386706],[-122.4041819,37.7387106],[-122.4040419,37.7387006],[-122.4039319,37.7386806],[-122.4037019,37.7386806],[-122.4032919,37.7386406],[-122.4029719,37.7386606],[-122.4026819,37.7386406],[-122.4025719,37.7386806],[-122.4025119,37.7388506],[-122.4024519,37.7389206],[-122.4023619,37.7390006],[-122.4022519,37.7390706],[-122.4021019,37.7391406],[-122.4019519,37.7391806],[-122.4018319,37.7392306],[-122.4016919,37.7392306],[-122.4015019,37.7392706],[-122.4011819,37.7393106],[-122.4008819,37.7394306],[-122.4007919,37.7394806],[-122.4006819,37.7395206],[-122.4003619,37.7397005],[-122.4002519,37.7397905],[-122.4001919,37.7398605],[-122.4000819,37.7399005],[-122.4000219,37.7400105],[-122.3999719,37.7400705],[-122.3997919,37.7402005],[-122.3997119,37.7402805],[-122.3996119,37.7403305],[-122.3995019,37.7403305],[-122.3994519,37.7402705],[-122.3993819,37.7402305],[-122.3993219,37.7402205],[-122.3992019,37.7402905],[-122.3991319,37.7402905],[-122.3991119,37.7402005],[-122.3990519,37.7401605],[-122.3988319,37.7402705],[-122.3987419,37.7402305],[-122.3985919,37.7402905],[-122.3984219,37.7402705],[-122.3983619,37.7403105],[-122.3983319,37.7403805],[-122.3983519,37.7404705],[-122.3983319,37.7405505],[-122.3982819,37.7405205],[-122.3982519,37.7404605],[-122.3981819,37.7404205],[-122.3981119,37.7404505],[-122.3980419,37.7405205],[-122.3978419,37.7406005],[-122.3978118,37.7406405],[-122.3978618,37.7407005],[-122.3978218,37.7407405],[-122.3977418,37.7407705],[-122.3977618,37.7408505],[-122.3976218,37.7409305],[-122.3975818,37.7409805],[-122.3975818,37.7410605],[-122.3975118,37.7411005],[-122.3974918,37.7411705],[-122.3975218,37.7412405],[-122.3974318,37.7413205],[-122.3972818,37.7413705],[-122.3972218,37.7414105],[-122.3972218,37.7414805],[-122.3971918,37.7415605],[-122.3970318,37.7415805],[-122.3970018,37.7416605],[-122.3969618,37.7417204],[-122.3969018,37.7417704],[-122.3968418,37.7418404],[-122.3968318,37.7419104],[-122.3968718,37.7419704],[-122.3969418,37.7420104],[-122.3970518,37.7420404],[-122.3971218,37.7420304],[-122.3971918,37.7420004],[-122.3972518,37.7419604],[-122.3973618,37.7419504],[-122.3974318,37.7419004],[-122.3974918,37.7420304],[-122.3975418,37.7420804],[-122.3975618,37.7423004],[-122.3975918,37.7423404],[-122.3976618,37.7424004],[-122.3976918,37.7424404],[-122.3977218,37.7425804],[-122.3978618,37.7427104],[-122.3978718,37.7428404],[-122.3978218,37.7429104],[-122.3978118,37.7429804],[-122.3978418,37.7430504],[-122.3978418,37.7431404],[-122.3978818,37.7432304],[-122.3978818,37.7433104],[-122.3979218,37.7434104],[-122.3980018,37.7434504],[-122.3980818,37.7435504],[-122.3982018,37.7436804],[-122.3982318,37.7437304],[-122.3983018,37.7437804],[-122.3983718,37.7438604],[-122.3984818,37.7439404],[-122.3985918,37.7439704],[-122.3987718,37.7440404],[-122.3988718,37.7440504],[-122.3992218,37.7440504],[-122.3994618,37.7440204],[-122.3995618,37.7440004],[-122.3998018,37.7439804],[-122.3999418,37.7439604],[-122.4001818,37.7439104],[-122.4005318,37.7439004],[-122.4006918,37.7438704],[-122.4009118,37.7438904],[-122.4011418,37.7438804],[-122.4012519,37.7439104],[-122.4013719,37.7439304],[-122.4015219,37.7439904],[-122.4017319,37.7440404],[-122.4019719,37.7441604],[-122.4021019,37.7442604],[-122.4021519,37.7443104],[-122.4022019,37.7443904],[-122.4022419,37.7444704],[-122.4022119,37.7445504],[-122.4021219,37.7446404],[-122.4019318,37.7447704],[-122.4018618,37.7448404],[-122.4017318,37.7448904],[-122.4016218,37.7448704],[-122.4016418,37.7447804],[-122.4016718,37.7447304],[-122.4016018,37.7447004],[-122.4015318,37.7447204],[-122.4013218,37.7448804],[-122.4012318,37.7449304],[-122.4011118,37.7449404],[-122.4009918,37.7449404],[-122.4006818,37.7449904],[-122.4002318,37.7452103],[-122.4000918,37.7452603],[-122.3999318,37.7452703],[-122.3997718,37.7453303],[-122.3995918,37.7454403],[-122.3994418,37.7454703],[-122.3992118,37.7454903],[-122.3991418,37.7455403],[-122.3990018,37.7455903],[-122.3989018,37.7456103],[-122.3988018,37.7456603],[-122.3985718,37.7457003],[-122.3983318,37.7457903],[-122.3978518,37.7459203],[-122.3978018,37.7458803],[-122.3977918,37.7458503],[-122.3978618,37.7458103],[-122.3978918,37.7457403],[-122.3979018,37.7456803],[-122.3979618,37.7456503],[-122.3979418,37.7455903],[-122.3978718,37.7456203],[-122.3978218,37.7456603],[-122.3977818,37.7457403],[-122.3977318,37.7457903],[-122.3976618,37.7458903],[-122.3976018,37.7459303],[-122.3971618,37.7460903],[-122.3968818,37.7462103],[-122.3968018,37.7461003],[-122.3967218,37.7462403],[-122.3966418,37.7462803],[-122.3963118,37.7464003],[-122.3961318,37.7465303],[-122.3960518,37.7466203],[-122.3960218,37.7466903],[-122.3959618,37.7467503],[-122.3958518,37.7468102],[-122.3954918,37.7469502],[-122.3954318,37.7470002],[-122.3952717,37.7471702],[-122.3950617,37.7473402],[-122.3949517,37.7474902],[-122.3948417,37.7475402],[-122.3947317,37.7475702],[-122.3946017,37.7475702],[-122.3943417,37.7475902],[-122.3942917,37.7475402],[-122.3942317,37.7475302],[-122.3940617,37.7474602],[-122.3939017,37.7474102],[-122.3938317,37.7473502],[-122.3937317,37.7472902],[-122.3936917,37.7472102],[-122.3936817,37.7471602],[-122.3935217,37.7471402],[-122.3934917,37.7471102],[-122.3934517,37.7469302],[-122.3934617,37.7468902],[-122.3935317,37.7468602],[-122.3936117,37.7468102],[-122.3936817,37.7467402],[-122.3937517,37.7466402],[-122.3936417,37.7466402],[-122.3936217,37.7465802],[-122.3936417,37.7464902],[-122.3935117,37.7464002],[-122.3935117,37.7462003],[-122.3935617,37.7461303],[-122.3935017,37.7460703],[-122.3934317,37.7459303],[-122.3933817,37.7458503],[-122.3932317,37.7457403],[-122.3931817,37.7456803],[-122.3931617,37.7455603],[-122.3930217,37.7454603],[-122.3929617,37.7454403],[-122.3929717,37.7453903],[-122.3930417,37.7453703],[-122.3930817,37.7453103],[-122.3931817,37.7452803],[-122.3932517,37.7452403],[-122.3933718,37.7451903],[-122.3935118,37.7451203],[-122.3936018,37.7450403],[-122.3937218,37.7449603],[-122.3937918,37.7448803],[-122.3938918,37.7448103],[-122.3939518,37.7447103],[-122.3939618,37.7444103],[-122.3940818,37.7443003],[-122.3941418,37.7442603],[-122.3942218,37.7442403],[-122.3943118,37.7442403],[-122.3943818,37.7442203],[-122.3945518,37.7441503],[-122.3946318,37.7441403],[-122.3947018,37.7441703],[-122.3950118,37.7442203],[-122.3950818,37.7443003],[-122.3951418,37.7443903],[-122.3951618,37.7444803],[-122.3952118,37.7444603],[-122.3951918,37.7443503],[-122.3952218,37.7443103],[-122.3954718,37.7443203],[-122.3956118,37.7443003],[-122.3956818,37.7442703],[-122.3958018,37.7441903],[-122.3959018,37.7441903],[-122.3960218,37.7442003],[-122.3961218,37.7442203],[-122.3961918,37.7442903],[-122.3962118,37.7443503],[-122.3962418,37.7443903],[-122.3962618,37.7444903],[-122.3963018,37.7445503],[-122.3963518,37.7445903],[-122.3965118,37.7446403],[-122.3966018,37.7446503],[-122.3968518,37.7446403],[-122.3969618,37.7446003],[-122.3970518,37.7445903],[-122.3971818,37.7445903],[-122.3973118,37.7445603],[-122.3974118,37.7445603],[-122.3975818,37.7444703],[-122.3976918,37.7443904],[-122.3977318,37.7443104],[-122.3977218,37.7442304],[-122.3976718,37.7441504],[-122.3975718,37.7440704],[-122.3974418,37.7439904],[-122.3973618,37.7439604],[-122.3972418,37.7439404],[-122.3971518,37.7439004],[-122.3970718,37.7438404],[-122.3969218,37.7437904],[-122.3969618,37.7437504],[-122.3970118,37.7437204],[-122.3970018,37.7436504],[-122.3969418,37.7436004],[-122.3969218,37.7435404],[-122.3968718,37.7435504],[-122.3968618,37.7436204],[-122.3969218,37.7436604],[-122.3969118,37.7437204],[-122.3968418,37.7437204],[-122.3968418,37.7437804],[-122.3968918,37.7438304],[-122.3970418,37.7439104],[-122.3972318,37.7439904],[-122.3973618,37.7440304],[-122.3974318,37.7440604],[-122.3975418,37.7441504],[-122.3976118,37.7442404],[-122.3976318,37.7443204],[-122.3975718,37.7443804],[-122.3974418,37.7444503],[-122.3972018,37.7445003],[-122.3967718,37.7445203],[-122.3965518,37.7445203],[-122.3964318,37.7444803],[-122.3963818,37.7444303],[-122.3963518,37.7442603],[-122.3962818,37.7441904],[-122.3962218,37.7441504],[-122.3961718,37.7441304],[-122.3958718,37.7440504],[-122.3958918,37.7438704],[-122.3958218,37.7437504],[-122.3958118,37.7435404],[-122.3957518,37.7434704],[-122.3958018,37.7433904],[-122.3959618,37.7434804],[-122.3960218,37.7435504],[-122.3960918,37.7436104],[-122.3962218,37.7436204],[-122.3963218,37.7435704],[-122.3963918,37.7435204],[-122.3964018,37.7434604],[-122.3963718,37.7434104],[-122.3962918,37.7435204],[-122.3962118,37.7435704],[-122.3961118,37.7435704],[-122.3960518,37.7435104],[-122.3959818,37.7434204],[-122.3958518,37.7433104],[-122.3954518,37.7432004],[-122.3953118,37.7432304],[-122.3951618,37.7431304],[-122.3950718,37.7431004],[-122.3949618,37.7429704],[-122.3949218,37.7428204],[-122.3949318,37.7426204],[-122.3948818,37.7424904],[-122.3949718,37.7424404],[-122.3950018,37.7423204],[-122.3951318,37.7421704],[-122.3952318,37.7421404],[-122.3954818,37.7420204],[-122.3955718,37.7419904],[-122.3956818,37.7419704],[-122.3957518,37.7419904],[-122.3958018,37.7420104],[-122.3957918,37.7420504],[-122.3957118,37.7421104],[-122.3956218,37.7422104],[-122.3956218,37.7422704],[-122.3956518,37.7423304],[-122.3957018,37.7423804],[-122.3958018,37.7423804],[-122.3957218,37.7423104],[-122.3957018,37.7422504],[-122.3957318,37.7421704],[-122.3958118,37.7421204],[-122.3959818,37.7420804],[-122.3962218,37.7420104],[-122.3962818,37.7418404],[-122.3963318,37.7417504],[-122.3963118,37.7416504],[-122.3962818,37.7416004],[-122.3962318,37.7415504],[-122.3961718,37.7415105],[-122.3960918,37.7414705],[-122.3959618,37.7414505],[-122.3958918,37.7413905],[-122.3958618,37.7413405],[-122.3958718,37.7412905],[-122.3958918,37.7412405],[-122.3959318,37.7411805],[-122.3959618,37.7411005],[-122.3959318,37.7410305],[-122.3958118,37.7409705],[-122.3957218,37.7409605],[-122.3958818,37.7410405],[-122.3958718,37.7411105],[-122.3957818,37.7412505],[-122.3957718,37.7413705],[-122.3958218,37.7414005],[-122.3958518,37.7414505],[-122.3959218,37.7414904],[-122.3960818,37.7415304],[-122.3961718,37.7416104],[-122.3962318,37.7417004],[-122.3961918,37.7417504],[-122.3961418,37.7417904],[-122.3960918,37.7419004],[-122.3960118,37.7419204],[-122.3959418,37.7419204],[-122.3958418,37.7419104],[-122.3956818,37.7418804],[-122.3955918,37.7418804],[-122.3955118,37.7419004],[-122.3954518,37.7419504],[-122.3953718,37.7419904],[-122.3952418,37.7420104],[-122.3951118,37.7420904],[-122.3949918,37.7421004],[-122.3946818,37.7421904],[-122.3945318,37.7421604],[-122.3943718,37.7420904],[-122.3943018,37.7419404],[-122.3942718,37.7419104],[-122.3942018,37.7418904],[-122.3940418,37.7418704],[-122.3939618,37.7418104],[-122.3938718,37.7417904],[-122.3938018,37.7418004],[-122.3939418,37.7418704],[-122.3939618,37.7419104],[-122.3940518,37.7419504],[-122.3941218,37.7419604],[-122.3942018,37.7419604],[-122.3942518,37.7419804],[-122.3942818,37.7421104],[-122.3943318,37.7421604],[-122.3945518,37.7422604],[-122.3946018,37.7423004],[-122.3946418,37.7423704],[-122.3946318,37.7424304],[-122.3944218,37.7424304],[-122.3943418,37.7424404],[-122.3943118,37.7425004],[-122.3942918,37.7425804],[-122.3944018,37.7427004],[-122.3944118,37.7427504],[-122.3945118,37.7428204],[-122.3945518,37.7428604],[-122.3946618,37.7429904],[-122.3947318,37.7430904],[-122.3948018,37.7433004],[-122.3948118,37.7433804],[-122.3948318,37.7434204],[-122.3948918,37.7434804],[-122.3950118,37.7435204],[-122.3950618,37.7435204],[-122.3951118,37.7435004],[-122.3951618,37.7434304],[-122.3952118,37.7433804],[-122.3952818,37.7433404],[-122.3953418,37.7433504],[-122.3954518,37.7434504],[-122.3955218,37.7434904],[-122.3955718,37.7435504],[-122.3956118,37.7436704],[-122.3956218,37.7437404],[-122.3956118,37.7438304],[-122.3956318,37.7439304],[-122.3956218,37.7440104],[-122.3955618,37.7440703],[-122.3954618,37.7440903],[-122.3953218,37.7440903],[-122.3950218,37.7440603],[-122.3948918,37.7440303],[-122.3946918,37.7440003],[-122.3945818,37.7440003],[-122.3945018,37.7439903],[-122.3944118,37.7440103],[-122.3943018,37.7440103],[-122.3942118,37.7440403],[-122.3941018,37.7441103],[-122.3940418,37.7441703],[-122.3939018,37.7442703],[-122.3938118,37.7443003],[-122.3937618,37.7442503],[-122.3937318,37.7441703],[-122.3937218,37.7441103],[-122.3936818,37.7441603],[-122.3937318,37.7443003],[-122.3937518,37.7444403],[-122.3937218,37.7445503],[-122.3936718,37.7446303],[-122.3936418,37.7447103],[-122.3935618,37.7447403],[-122.3935018,37.7447803],[-122.3934718,37.7448303],[-122.3934318,37.7448703],[-122.3933418,37.7448903],[-122.3932918,37.7449203],[-122.3931417,37.7450403],[-122.3930217,37.7450703],[-122.3929617,37.7451103],[-122.3929317,37.7452103],[-122.3928217,37.7452203],[-122.3927817,37.7452203],[-122.3927117,37.7451703],[-122.3926117,37.7451703],[-122.3925217,37.7451503],[-122.3924517,37.7451603],[-122.3923817,37.7451303],[-122.3922717,37.7451103],[-122.3922017,37.7450603],[-122.3921017,37.7450803],[-122.3920517,37.7450303],[-122.3919817,37.7450403],[-122.3919117,37.7450003],[-122.3917917,37.7450003],[-122.3916717,37.7449403],[-122.3915017,37.7448803],[-122.3912717,37.7447403],[-122.3910617,37.7446003],[-122.3909317,37.7445303],[-122.3907517,37.7444103],[-122.3905517,37.7443103],[-122.3900117,37.7439603],[-122.3898317,37.7438603],[-122.3897117,37.7437703],[-122.3895617,37.7436803],[-122.3889817,37.7433703],[-122.3888217,37.7432603],[-122.3883217,37.7429503],[-122.3879717,37.7427203],[-122.3877017,37.7426403],[-122.366,37.7426423],[-122.366,37.8010007],[-122.3825,37.801],[-122.3825,37.834],[-122.424,37.834],[-122.466,37.834],[-122.466,37.8047889],[-122.460263,37.8047888],[-122.459893,37.8047988],[-122.459773,37.8048088],[-122.4596529,37.8048388],[-122.4594129,37.8048588],[-122.4591929,37.8048988],[-122.4589429,37.8049188],[-122.4588529,37.8049388],[-122.4587429,37.8049488],[-122.4586429,37.8049888],[-122.4585429,37.8049988],[-122.4584029,37.8050288],[-122.4580929,37.8051188],[-122.4580129,37.8051288],[-122.4579429,37.8051488],[-122.4578529,37.8051488],[-122.4577129,37.8051788],[-122.4576529,37.8051988],[-122.4574529,37.8052388],[-122.4573929,37.8052588],[-122.4573229,37.8052688],[-122.4572629,37.8052888],[-122.4571929,37.8053288],[-122.4570429,37.8053688],[-122.4567329,37.8054687],[-122.4561729,37.8056687],[-122.4560429,37.8057087],[-122.4557929,37.8057587],[-122.4557529,37.8057787],[-122.4557029,37.8057787],[-122.4556529,37.8057987],[-122.4555629,37.8058187],[-122.4554729,37.8058187],[-122.4554529,37.8058287],[-122.4554129,37.8058287],[-122.4553529,37.8058487],[-122.4552629,37.8058587],[-122.4552429,37.8058687],[-122.4551929,37.8058687],[-122.4551829,37.8058587],[-122.4550729,37.8058887],[-122.4550329,37.8058787],[-122.4549729,37.8058787],[-122.4548729,37.8059087],[-122.4546629,37.8059087],[-122.4546229,37.8059187],[-122.4545929,37.8059087],[-122.4545329,37.8059287],[-122.4545229,37.8059187],[-122.4544729,37.8059187],[-122.4543629,37.8059487],[-122.4542729,37.8059487],[-122.4541929,37.8059687],[-122.4540829,37.8059787],[-122.4539829,37.8059987],[-122.4539429,37.8060087],[-122.4538829,37.8060387],[-122.4538829,37.8060287],[-122.4538229,37.8060287],[-122.4537829,37.8060387],[-122.4537729,37.8060487],[-122.4536929,37.8060487],[-122.4535929,37.8060887],[-122.4535029,37.8060887],[-122.4534929,37.8060987],[-122.4534129,37.8061287],[-122.4533729,37.8061287],[-122.4532429,37.8061687],[-122.4532029,37.8061687],[-122.4531629,37.8061787],[-122.4531429,37.8061587],[-122.4530729,37.8061887],[-122.4530429,37.8061787],[-122.4530129,37.8061787],[-122.4529829,37.8061987],[-122.4529029,37.8061987],[-122.4528729,37.8062187],[-122.4528529,37.8061987],[-122.4528129,37.8061987],[-122.4527829,37.8062087],[-122.4527629,37.8062287],[-122.4527429,37.8062187],[-122.4527229,37.8062287],[-122.4527029,37.8062087],[-122.4526729,37.8062187],[-122.4526429,37.8062187],[-122.4526329,37.8062287],[-122.4526129,37.8062187],[-122.4525529,37.8062387],[-122.4524629,37.8062087],[-122.4524329,37.8062087],[-122.4523729,37.8062287],[-122.4523229,37.8062287],[-122.4522929,37.8062087],[-122.4522629,37.8062287],[-122.4522329,37.8061887],[-122.4521829,37.8061887],[-122.4521329,37.8061987],[-122.4521129,37.8062287],[-122.4520129,37.8062587],[-122.4519129,37.8062587],[-122.4517529,37.8062887],[-122.4515929,37.8063287],[-122.4514929,37.8063387],[-122.4514129,37.8063587],[-122.4512028,37.8063587],[-122.4510328,37.8063887],[-122.4510128,37.8063887],[-122.4509928,37.8063787],[-122.4509328,37.8063887],[-122.4508328,37.8063887],[-122.4507628,37.8064087],[-122.4506928,37.8064087],[-122.4506728,37.8064187],[-122.4504728,37.8064287],[-122.4504228,37.8064487],[-122.4503928,37.8064387],[-122.4502828,37.8064687],[-122.4501428,37.8064687],[-122.4500728,37.8064587],[-122.4497828,37.8064587],[-122.4497428,37.8064487],[-122.4495828,37.8064487],[-122.4493628,37.8064187],[-122.4493028,37.8064187],[-122.4492028,37.8063987],[-122.4490828,37.8063987],[-122.4489928,37.8063887],[-122.4489028,37.8063687],[-122.4488628,37.8063687],[-122.4488428,37.8063587],[-122.4487628,37.8063587],[-122.4485828,37.8063287],[-122.4485228,37.8063287],[-122.4484828,37.8063187],[-122.4483528,37.8063187],[-122.4483128,37.8062987],[-122.4479828,37.8062987],[-122.4479528,37.8062887],[-122.4478528,37.8062887],[-122.4478028,37.8062687],[-122.4477328,37.8062687],[-122.4476928,37.8062587],[-122.4476528,37.8062587],[-122.4474028,37.8062187],[-122.4473828,37.8062087],[-122.4473428,37.8062087],[-122.4472928,37.8061887],[-122.4472528,37.8061887],[-122.4471928,37.8061787],[-122.4471328,37.8061587],[-122.4471028,37.8061587],[-122.4470728,37.8061387],[-122.4470428,37.8061487],[-122.4469728,37.8061187],[-122.4468428,37.8061087],[-122.4467428,37.8060887],[-122.4465528,37.8060087],[-122.4465328,37.8059887],[-122.4465028,37.8059787],[-122.4464128,37.8058987],[-122.4463828,37.8058887],[-122.4463328,37.8058387],[-122.4462728,37.8057987],[-122.4462428,37.8057487],[-122.4461828,37.8056987],[-122.4461028,37.8055687],[-122.4460828,37.8055187],[-122.4460828,37.8054387],[-122.4460728,37.8054087],[-122.4460928,37.8052787],[-122.4461328,37.8051787],[-122.4462228,37.8050787],[-122.4462628,37.8049987],[-122.4462928,37.8049587],[-122.4462928,37.8048987],[-122.4462828,37.8048687],[-122.4462528,37.8048387],[-122.4462228,37.8047787],[-122.4461328,37.8046887],[-122.4461128,37.8046487],[-122.4459828,37.8045687],[-122.4459428,37.8045587],[-122.4458528,37.8045187],[-122.4457228,37.8044887],[-122.4456428,37.8043887],[-122.4455528,37.8043087],[-122.4454628,37.8042687],[-122.4454228,37.8042387],[-122.4453427,37.8042187],[-122.4452927,37.8041887],[-122.4452427,37.8041787],[-122.4451027,37.8041187],[-122.4448727,37.8039487],[-122.4447827,37.8039087],[-122.4447627,37.8038887],[-122.4447027,37.8038587],[-122.4446727,37.8038287],[-122.4446027,37.8037887],[-122.4445627,37.8037487],[-122.4444527,37.8036987],[-122.4444227,37.8036687],[-122.4442627,37.8035887],[-122.4442227,37.8035587],[-122.4441227,37.8035187],[-122.4439827,37.8034287],[-122.4439027,37.8033887],[-122.4438427,37.8033687],[-122.4438027,37.8033387],[-122.4437627,37.8033287],[-122.4436027,37.8031987],[-122.4434627,37.8031088],[-122.4432627,37.8029188],[-122.4432027,37.8028788],[-122.4430927,37.8028288],[-122.4430127,37.8028088],[-122.4428727,37.8027388],[-122.4428127,37.8027288],[-122.4428027,37.8026988],[-122.4427727,37.8026888],[-122.4427327,37.8026588],[-122.4427027,37.8026188],[-122.4426227,37.8025788],[-122.4425327,37.8025088],[-122.4424927,37.8024888],[-122.4424827,37.8024588],[-122.4424527,37.8024388],[-122.4424127,37.8024288],[-122.4423827,37.8023888],[-122.4422827,37.8022888],[-122.4422727,37.8022688],[-122.4421627,37.8021688],[-122.4421327,37.8021288],[-122.4421027,37.8021088],[-122.4420827,37.8020788],[-122.4420627,37.8020688],[-122.4420227,37.8019988],[-122.4419927,37.8019788],[-122.4419727,37.8019388],[-122.4418427,37.8017888],[-122.4418127,37.8017588],[-122.4417627,37.8017288],[-122.4416827,37.8016388],[-122.4416427,37.8016288],[-122.4415927,37.8015888],[-122.4414727,37.8015388],[-122.4414027,37.8014888],[-122.4412727,37.8014288],[-122.4411827,37.8013988],[-122.4411527,37.8013788],[-122.4411127,37.8013688],[-122.4410827,37.8013488],[-122.4410327,37.8013388],[-122.4410027,37.8013188],[-122.4409727,37.8013188],[-122.4408427,37.8012688],[-122.4407627,37.8012488],[-122.4406527,37.8012388],[-122.4405827,37.8012188],[-122.4405427,37.8011888],[-122.4404427,37.8011388],[-122.4403327,37.8010388],[-122.4402026,37.8009488],[-122.4401626,37.8009288],[-122.4400826,37.8009188],[-122.4400226,37.8008988],[-122.4398826,37.8008988],[-122.4397626,37.8008688],[-122.4397326,37.8008488],[-122.4396926,37.8008388],[-122.4396326,37.8007988],[-122.4395826,37.8007388],[-122.4396026,37.8006988],[-122.4397326,37.8006688],[-122.4398126,37.8006688],[-122.4398526,37.8006588],[-122.4399826,37.8006888],[-122.4400226,37.8006888],[-122.4401426,37.8007088],[-122.4403126,37.8007688],[-122.4403926,37.8007788],[-122.4405127,37.8008088],[-122.4405827,37.8008388],[-122.4407527,37.8009288],[-122.4407927,37.8009588],[-122.4409827,37.8010188],[-122.4410427,37.8010488],[-122.4410827,37.8010588],[-122.4412927,37.8011588],[-122.4413327,37.8011988],[-122.4413627,37.8012088],[-122.4415127,37.8013288],[-122.4416327,37.8013888],[-122.4417527,37.8014688],[-122.4418027,37.8014888],[-122.4421027,37.8017688],[-122.4421427,37.8017988],[-122.4422127,37.8018288],[-122.4422427,37.8018288],[-122.4422727,37.8018088],[-122.4422627,37.8016888],[-122.4423227,37.8016188],[-122.4423527,37.8015488],[-122.4423427,37.8014888],[-122.4423227,37.8014488],[-122.4422627,37.8013788],[-122.4422527,37.8013388],[-122.4422227,37.8012988],[-122.4422327,37.8012288],[-122.4422827,37.8011288],[-122.4423627,37.8010788],[-122.4425227,37.8010788],[-122.4425827,37.8010988],[-122.4427027,37.8011088],[-122.4427727,37.8011288],[-122.4428027,37.8011288],[-122.4428827,37.8011888],[-122.4429427,37.8012088],[-122.4429827,37.8012088],[-122.4430227,37.8011988],[-122.4431027,37.8011488],[-122.4431527,37.8011388],[-122.4432027,37.8011588],[-122.4432427,37.8012188],[-122.4432727,37.8012288],[-122.4433527,37.8012288],[-122.4433927,37.8012188],[-122.4434327,37.8012488],[-122.4434727,37.8012588],[-122.4435127,37.8012588],[-122.4435627,37.8012388],[-122.4436027,37.8011888],[-122.4436127,37.8011588],[-122.4435427,37.8011088],[-122.4434627,37.8010788],[-122.4434127,37.8010388],[-122.4433827,37.8010088],[-122.4433927,37.8009788],[-122.4434827,37.8009588],[-122.4435627,37.8009588],[-122.4435827,37.8009388],[-122.4436127,37.8009288],[-122.4436827,37.8009188],[-122.4438327,37.8009688],[-122.4439627,37.8009988],[-122.4440227,37.8010388],[-122.4440827,37.8010988],[-122.4441927,37.8012388],[-122.4442527,37.8013688],[-122.4443327,37.8014888],[-122.4443427,37.8015688],[-122.4442927,37.8016488],[-122.4442327,37.8017088],[-122.4442127,37.8017688],[-122.4442427,37.8018188],[-122.4443027,37.8021388],[-122.4443427,37.8022288],[-122.4444227,37.8023188],[-122.4444427,37.8023588],[-122.4444827,37.8023888],[-122.4445127,37.8024388],[-122.4445427,37.8024688],[-122.4446427,37.8025488],[-122.4447427,37.8026488],[-122.4449427,37.8027988],[-122.4450027,37.8028288],[-122.4452827,37.8029388],[-122.4455727,37.8030088],[-122.4456527,37.8030088],[-122.4457427,37.8029988],[-122.4459927,37.8029988],[-122.4460627,37.8030088],[-122.4461927,37.8030088],[-122.4462527,37.8030188],[-122.4464128,37.8029888],[-122.4467028,37.8028588],[-122.4468428,37.8028588],[-122.4471328,37.8029588],[-122.4471828,37.8028988],[-122.4471628,37.8028088],[-122.4472028,37.8027988],[-122.4472628,37.8028188],[-122.4472928,37.8028388],[-122.4473628,37.8028188],[-122.4474528,37.8028788],[-122.4475428,37.8028688],[-122.4475928,37.8028388],[-122.4475828,37.8027888],[-122.4474228,37.8026488],[-122.4473628,37.8026588],[-122.4473328,37.8026788],[-122.4472828,37.8026588],[-122.4472428,37.8026188],[-122.4471328,37.8026188],[-122.4470928,37.8025988],[-122.4471128,37.8025488],[-122.4472128,37.8024588],[-122.4472928,37.8024588],[-122.4473728,37.8024288],[-122.4474128,37.8023888],[-122.4475028,37.8023588],[-122.4478028,37.8023788],[-122.4478928,37.8024488],[-122.4479728,37.8025488],[-122.4480028,37.8026088],[-122.4480728,37.8026588],[-122.4481128,37.8027088],[-122.4481528,37.8028488],[-122.4482528,37.8028988],[-122.4484028,37.8029588],[-122.4484528,37.8029688],[-122.4485628,37.8030088],[-122.4486428,37.8030188],[-122.4487528,37.8030688],[-122.4489528,37.8031188],[-122.4490328,37.8031688],[-122.4491428,37.8032188],[-122.4492028,37.8032388],[-122.4493228,37.8032588],[-122.4494828,37.8032588],[-122.4495328,37.8032488],[-122.4496128,37.8032488],[-122.4496828,37.8032588],[-122.4498128,37.8032388],[-122.4498528,37.8032388],[-122.4499128,37.8032188],[-122.4499428,37.8032188],[-122.4499928,37.8031688],[-122.4500328,37.8031588],[-122.4501228,37.8031888],[-122.4501628,37.8031588],[-122.4501728,37.8030988],[-122.4502328,37.8030488],[-122.4502928,37.8029488],[-122.4502628,37.8028788],[-122.4503028,37.8028388],[-122.4503628,37.8028188],[-122.4504528,37.8027388],[-122.4505028,37.8027988],[-122.4505228,37.8028688],[-122.4504928,37.8029188],[-122.4504728,37.8029888],[-122.4505028,37.8030488],[-122.4504628,37.8031488],[-122.4504728,37.8031988],[-122.4505328,37.8032788],[-122.4505428,37.8033388],[-122.4505828,37.8034388],[-122.4506328,37.8034688],[-122.4507728,37.8036188],[-122.4508428,37.8036588],[-122.4509728,37.8037888],[-122.4510128,37.8038688],[-122.4510428,37.8039888],[-122.4511028,37.8040988],[-122.4511928,37.8041088],[-122.4512628,37.8040488],[-122.4513128,37.8040288],[-122.4513728,37.8040288],[-122.4514128,37.8040588],[-122.4514728,37.8041488],[-122.4515228,37.8041888],[-122.4515828,37.8042788],[-122.4516428,37.8042888],[-122.4516828,37.8041888],[-122.4517728,37.8042288],[-122.4518128,37.8042088],[-122.4519128,37.8042088],[-122.4519428,37.8042588],[-122.4519628,37.8043188],[-122.4520428,37.8043388],[-122.4521328,37.8044088],[-122.4521828,37.8044688],[-122.4522028,37.8045288],[-122.4521828,37.8045788],[-122.4521428,37.8046187],[-122.4521228,37.8046587],[-122.4520528,37.8047387],[-122.4520428,37.8047887],[-122.4520928,37.8047787],[-122.4521928,37.8047187],[-122.4522228,37.8047487],[-122.4522228,37.8048487],[-122.4522328,37.8049087],[-122.4522228,37.8049587],[-122.4521528,37.8049887],[-122.4520728,37.8050087],[-122.4520128,37.8050587],[-122.4519928,37.8051087],[-122.4520128,37.8051487],[-122.4520828,37.8051487],[-122.4521529,37.8051187],[-122.4522329,37.8050687],[-122.4523129,37.8050487],[-122.4523629,37.8050187],[-122.4524029,37.8049687],[-122.4524929,37.8048887],[-122.4525029,37.8048287],[-122.4524729,37.8047887],[-122.4524129,37.8048187],[-122.4523729,37.8048787],[-122.4523228,37.8048087],[-122.4522928,37.8045888],[-122.4523028,37.8045088],[-122.4523228,37.8044688],[-122.4523328,37.8044088],[-122.4523028,37.8043288],[-122.4523228,37.8042688],[-122.4523528,37.8042388],[-122.4525028,37.8042588],[-122.4525928,37.8042788],[-122.4525928,37.8043488],[-122.4526528,37.8043988],[-122.4527128,37.8043488],[-122.4527629,37.8043288],[-122.4528529,37.8043388],[-122.4528929,37.8043288],[-122.4530129,37.8044088],[-122.4531329,37.8043988],[-122.4531529,37.8043288],[-122.4532129,37.8043188],[-122.4532629,37.8043988],[-122.4532629,37.8044488],[-122.4532529,37.8044888],[-122.4531829,37.8045688],[-122.4530729,37.8045688],[-122.4529029,37.8046288],[-122.4527829,37.8046588],[-122.4527029,37.8047087],[-122.4527129,37.8047887],[-122.4527529,37.8048187],[-122.4527929,37.8048287],[-122.4529129,37.8048387],[-122.4529429,37.8048587],[-122.4529829,37.8048587],[-122.4530129,37.8048487],[-122.4530929,37.8048587],[-122.4531929,37.8049387],[-122.4532229,37.8049787],[-122.4533029,37.8050287],[-122.4533429,37.8050087],[-122.4533929,37.8049387],[-122.4534329,37.8049187],[-122.4535029,37.8049587],[-122.4536029,37.8050487],[-122.4537029,37.8050687],[-122.4537529,37.8050587],[-122.4538729,37.8049987],[-122.4539129,37.8050187],[-122.4540129,37.8050387],[-122.4541129,37.8049887],[-122.4541529,37.8049587],[-122.4542229,37.8049288],[-122.4543429,37.8049288],[-122.4543829,37.8049388],[-122.4544429,37.8049788],[-122.4545929,37.8050087],[-122.4547429,37.8049788],[-122.4548429,37.8049788],[-122.4549229,37.8049588],[-122.4550529,37.8049388],[-122.4551129,37.8049488],[-122.4551729,37.8049688],[-122.4552229,37.8049488],[-122.4552829,37.8049088],[-122.4553129,37.8048788],[-122.4553729,37.8048688],[-122.4554229,37.8048488],[-122.4555029,37.8048488],[-122.4555729,37.8048588],[-122.4556229,37.8048988],[-122.4556729,37.8049188],[-122.4557429,37.8049388],[-122.4558629,37.8049488],[-122.4559829,37.8049988],[-122.4560629,37.8050088],[-122.4562529,37.8049788],[-122.4563929,37.8049788],[-122.4565329,37.8049588],[-122.4568229,37.8049388],[-122.4569829,37.8049488],[-122.4571629,37.8049488],[-122.4572629,37.8049288],[-122.4574929,37.8048288],[-122.4575729,37.8048188],[-122.4576629,37.8048288],[-122.4578529,37.8048288],[-122.4580229,37.8048088],[-122.4580829,37.8047688],[-122.4583829,37.8046788],[-122.4585329,37.8046488],[-122.4585929,37.8046488],[-122.4587129,37.8046188],[-122.4587829,37.8045888],[-122.4589029,37.8045188],[-122.4589329,37.8044688],[-122.4588929,37.8044388],[-122.4588029,37.8044088],[-122.4587529,37.8044188],[-122.4586229,37.8044788],[-122.4585729,37.8044788],[-122.4584129,37.8044488],[-122.4583729,37.8044388],[-122.4583329,37.8044088],[-122.4581929,37.8043888],[-122.4581629,37.8043888],[-122.4581329,37.8044288],[-122.4581029,37.8044488],[-122.4580229,37.8044388],[-122.4580029,37.8044088],[-122.4579629,37.8043888],[-122.4578929,37.8043888],[-122.4578029,37.8042488],[-122.4578329,37.8042188],[-122.4578829,37.8042288],[-122.4579529,37.8041988],[-122.4580229,37.8041788],[-122.4580829,37.8042088],[-122.4581229,37.8042888],[-122.4581929,37.8042988],[-122.4582429,37.8042788],[-122.4583629,37.8041788],[-122.4583829,37.8041488],[-122.4584329,37.8041388],[-122.4584629,37.8041788],[-122.4584729,37.8042588],[-122.4585029,37.8042788],[-122.4585429,37.8042488],[-122.4585529,37.8041888],[-122.4585429,37.8041488],[-122.4585229,37.8041088],[-122.4584829,37.8040888],[-122.4584129,37.8040788],[-122.4583829,37.8040888],[-122.4583329,37.8041088],[-122.4582429,37.8041688],[-122.4582129,37.8041988],[-122.4581729,37.8042088],[-122.4580929,37.8041488],[-122.4580929,37.8040588],[-122.4581029,37.8040388],[-122.4581629,37.8040188],[-122.4582129,37.8039888],[-122.4582529,37.8039188],[-122.4582929,37.8038788],[-122.4583929,37.8038588],[-122.4585929,37.8037788],[-122.4585029,37.8035088],[-122.4582629,37.8035688],[-122.4581229,37.8036888],[-122.4580829,37.8036988],[-122.4580229,37.8036988],[-122.4579229,37.8037688],[-122.4578629,37.8038488],[-122.4577429,37.8039088],[-122.4575829,37.8039288],[-122.4574829,37.8038988],[-122.4574129,37.8038488],[-122.4573629,37.8037988],[-122.4573429,37.8037388],[-122.4574029,37.8036388],[-122.4573229,37.8036288],[-122.4572229,37.8036488],[-122.4570829,37.8034788],[-122.4570729,37.8034288],[-122.4569629,37.8033388],[-122.4568729,37.8033088],[-122.4568329,37.8032688],[-122.4568129,37.8032188],[-122.4568529,37.8031988],[-122.4569829,37.8032388],[-122.4570329,37.8032688],[-122.4570929,37.8032888],[-122.4571629,37.8032888],[-122.4572129,37.8032788],[-122.4572129,37.8032488],[-122.4571129,37.8032288],[-122.4570629,37.8032088],[-122.4569829,37.8031388],[-122.4569229,37.8031288],[-122.4568329,37.8031388],[-122.4567129,37.8031188],[-122.4565829,37.8031188],[-122.4564729,37.8031788],[-122.4563629,37.8031988],[-122.4562329,37.8032488],[-122.4560729,37.8033388],[-122.4558329,37.8034088],[-122.4556129,37.8034288],[-122.4555429,37.8034188],[-122.4553929,37.8033588],[-122.4554029,37.8032988],[-122.4554529,37.8032588],[-122.4555129,37.8032288],[-122.4555229,37.8031588],[-122.4554929,37.8030988],[-122.4555429,37.8029488],[-122.4555429,37.8028988],[-122.4556129,37.8028988],[-122.4556429,37.8029288],[-122.4556929,37.8030988],[-122.4557629,37.8031488],[-122.4558429,37.8031788],[-122.4559529,37.8031788],[-122.4559829,37.8031188],[-122.4558529,37.8031188],[-122.4557029,37.8029488],[-122.4556729,37.8028188],[-122.4555629,37.8028088],[-122.4554729,37.8028688],[-122.4554429,37.8029188],[-122.4554329,37.8029788],[-122.4554129,37.8030288],[-122.4553529,37.8030588],[-122.4553029,37.8030488],[-122.4552729,37.8029888],[-122.4552129,37.8029388],[-122.4551429,37.8029288],[-122.4550429,37.8029888],[-122.4550229,37.8030388],[-122.4550429,37.8030888],[-122.4551029,37.8030788],[-122.4551529,37.8030188],[-122.4552129,37.8030388],[-122.4552529,37.8031388],[-122.4553229,37.8031488],[-122.4554029,37.8031888],[-122.4553429,37.8032188],[-122.4553129,37.8032688],[-122.4553129,37.8033388],[-122.4553629,37.8035088],[-122.4553229,37.8035988],[-122.4552729,37.8036688],[-122.4551629,37.8037488],[-122.4551229,37.8038788],[-122.4550329,37.8040088],[-122.4549329,37.8040888],[-122.4548229,37.8041388],[-122.4547329,37.8041388],[-122.4546129,37.8041088],[-122.4543829,37.8040288],[-122.4542629,37.8039588],[-122.4541629,37.8039588],[-122.4540729,37.8039788],[-122.4540029,37.8039688],[-122.4539729,37.8039288],[-122.4539229,37.8038888],[-122.4538929,37.8038388],[-122.4539629,37.8038288],[-122.4540329,37.8038488],[-122.4541029,37.8038588],[-122.4542029,37.8038588],[-122.4542429,37.8038088],[-122.4542629,37.8037388],[-122.4543429,37.8037288],[-122.4542929,37.8036888],[-122.4542029,37.8036888],[-122.4541329,37.8037788],[-122.4540629,37.8037888],[-122.4540429,37.8037388],[-122.4539929,37.8037188],[-122.4539129,37.8037388],[-122.4537429,37.8037488],[-122.4536929,37.8037188],[-122.4536329,37.8037088],[-122.4534929,37.8036988],[-122.4533929,37.8037288],[-122.4533329,37.8037088],[-122.4533729,37.8036388],[-122.4533429,37.8035888],[-122.4532828,37.8035588],[-122.4533128,37.8034888],[-122.4533628,37.8034588],[-122.4534829,37.8035288],[-122.4535829,37.8035388],[-122.4536529,37.8035088],[-122.4537829,37.8034788],[-122.4538629,37.8034788],[-122.4539029,37.8034488],[-122.4539529,37.8034688],[-122.4539229,37.8035288],[-122.4538129,37.8035488],[-122.4537429,37.8035788],[-122.4537329,37.8036288],[-122.4537729,37.8036588],[-122.4538629,37.8036188],[-122.4539429,37.8036188],[-122.4540429,37.8035588],[-122.4540429,37.8034888],[-122.4541629,37.8033788],[-122.4541929,37.8033188],[-122.4541929,37.8032388],[-122.4541329,37.8031188],[-122.4541329,37.8030888],[-122.4541729,37.8030188],[-122.4542329,37.8030188],[-122.4542729,37.8030288],[-122.4543629,37.8030288],[-122.4544029,37.8030488],[-122.4544829,37.8030488],[-122.4544729,37.8029888],[-122.4543729,37.8029788],[-122.4543229,37.8029388],[-122.4542629,37.8029088],[-122.4542029,37.8029088],[-122.4540629,37.8029488],[-122.4539529,37.8030188],[-122.4539529,37.8030888],[-122.4539329,37.8031488],[-122.4539429,37.8031988],[-122.4540129,37.8032788],[-122.4539629,37.8032988],[-122.4539029,37.8032888],[-122.4538429,37.8033388],[-122.4537729,37.8033588],[-122.4537129,37.8033488],[-122.4536729,37.8033588],[-122.4536329,37.8033288],[-122.4535829,37.8033888],[-122.4534829,37.8033688],[-122.4534028,37.8033388],[-122.4533828,37.8032688],[-122.4532528,37.8032988],[-122.4531928,37.8033488],[-122.4531328,37.8033588],[-122.4530928,37.8033088],[-122.4530828,37.8032588],[-122.4530028,37.8032688],[-122.4528828,37.8032688],[-122.4528528,37.8033088],[-122.4528828,37.8033888],[-122.4529128,37.8034088],[-122.4530128,37.8034288],[-122.4530628,37.8034488],[-122.4530928,37.8034788],[-122.4531328,37.8036588],[-122.4530928,37.8037788],[-122.4530528,37.8037988],[-122.4529928,37.8038688],[-122.4529328,37.8039088],[-122.4529028,37.8039888],[-122.4528428,37.8039988],[-122.4527728,37.8039588],[-122.4526728,37.8039588],[-122.4525728,37.8039488],[-122.4524828,37.8039488],[-122.4524028,37.8039588],[-122.4523328,37.8039388],[-122.4523228,37.8039088],[-122.4523628,37.8038388],[-122.4523828,37.8037688],[-122.4523928,37.8036688],[-122.4523728,37.8036088],[-122.4522628,37.8034888],[-122.4522628,37.8032588],[-122.4522728,37.8031788],[-122.4523028,37.8031288],[-122.4523528,37.8031088],[-122.4524328,37.8031288],[-122.4524928,37.8031688],[-122.4525328,37.8031688],[-122.4525928,37.8031288],[-122.4528028,37.8031488],[-122.4528728,37.8031288],[-122.4529128,37.8030688],[-122.4529128,37.8030288],[-122.4531128,37.8029688],[-122.4531228,37.8029288],[-122.4531128,37.8028888],[-122.4530728,37.8028588],[-122.4530328,37.8028988],[-122.4530128,37.8029488],[-122.4529428,37.8029788],[-122.4528728,37.8029888],[-122.4527628,37.8030588],[-122.4527028,37.8030788],[-122.4526928,37.8030188],[-122.4527328,37.8029488],[-122.4528628,37.8029188],[-122.4528128,37.8028688],[-122.4528128,37.8028288],[-122.4528628,37.8027888],[-122.4529728,37.8027588],[-122.4530428,37.8027288],[-122.4530728,37.8026688],[-122.4529728,37.8026588],[-122.4528728,37.8025388],[-122.4527928,37.8025688],[-122.4527228,37.8025788],[-122.4526528,37.8024088],[-122.4524628,37.8022488],[-122.4523628,37.8022088],[-122.4522528,37.8021388],[-122.4520828,37.8020888],[-122.4519628,37.8020888],[-122.4518528,37.8020688],[-122.4517328,37.8020688],[-122.4515328,37.8020488],[-122.4514728,37.8020588],[-122.4514128,37.8020788],[-122.4513528,37.8021088],[-122.4512728,37.8021288],[-122.4512228,37.8021588],[-122.4512128,37.8021188],[-122.4513128,37.8020088],[-122.4513328,37.8019688],[-122.4512328,37.8019688],[-122.4511528,37.8019588],[-122.4511028,37.8018888],[-122.4510128,37.8019288],[-122.4509428,37.8018988],[-122.4509228,37.8018688],[-122.4507728,37.8018588],[-122.4507428,37.8018188],[-122.4506328,37.8018288],[-122.4506228,37.8017688],[-122.4505928,37.8017188],[-122.4505328,37.8017088],[-122.4504928,37.8017388],[-122.4504928,37.8017888],[-122.4504728,37.8018288],[-122.4504728,37.8018988],[-122.4504328,37.8019288],[-122.4503628,37.8019588],[-122.4503628,37.8018688],[-122.4503528,37.8018088],[-122.4503628,37.8016888],[-122.4502728,37.8017088],[-122.4502728,37.8017888],[-122.4502528,37.8018488],[-122.4502228,37.8019088],[-122.4501828,37.8019388],[-122.4500928,37.8019388],[-122.4500528,37.8018788],[-122.4500128,37.8017888],[-122.4499628,37.8017688],[-122.4499328,37.8018488],[-122.4499228,37.8019688],[-122.4498628,37.8020088],[-122.4498028,37.8019988],[-122.4497528,37.8019788],[-122.4496928,37.8020288],[-122.4496828,37.8020688],[-122.4497328,37.8020988],[-122.4498128,37.8021188],[-122.4499028,37.8021088],[-122.4499528,37.8020588],[-122.4500428,37.8020388],[-122.4500528,37.8020888],[-122.4501328,37.8020988],[-122.4503228,37.8020988],[-122.4503828,37.8020888],[-122.4504528,37.8020288],[-122.4505628,37.8019688],[-122.4506228,37.8019488],[-122.4508028,37.8019388],[-122.4509028,37.8019788],[-122.4509628,37.8020188],[-122.4509628,37.8020688],[-122.4510128,37.8021188],[-122.4510728,37.8021088],[-122.4510428,37.8022088],[-122.4511428,37.8022988],[-122.4512228,37.8023088],[-122.4512928,37.8022688],[-122.4515728,37.8022488],[-122.4516928,37.8022688],[-122.4516828,37.8022188],[-122.4516528,37.8021588],[-122.4517328,37.8021488],[-122.4517928,37.8021788],[-122.4518628,37.8022288],[-122.4519328,37.8021788],[-122.4520228,37.8022088],[-122.4520928,37.8022488],[-122.4521628,37.8022388],[-122.4522228,37.8022888],[-122.4522928,37.8022788],[-122.4523628,37.8023488],[-122.4524328,37.8023488],[-122.4524628,37.8023888],[-122.4524828,37.8024788],[-122.4525828,37.8024788],[-122.4526028,37.8025788],[-122.4526328,37.8026388],[-122.4526828,37.8026888],[-122.4527428,37.8026888],[-122.4528228,37.8026688],[-122.4527728,37.8027488],[-122.4527128,37.8028088],[-122.4526928,37.8028788],[-122.4526428,37.8029388],[-122.4525728,37.8029988],[-122.4525128,37.8030288],[-122.4524128,37.8030288],[-122.4523628,37.8029888],[-122.4522628,37.8029888],[-122.4521928,37.8030588],[-122.4521428,37.8031988],[-122.4520628,37.8032988],[-122.4520828,37.8033888],[-122.4520828,37.8034588],[-122.4520628,37.8035288],[-122.4519828,37.8035488],[-122.4520328,37.8035888],[-122.4521428,37.8036388],[-122.4522028,37.8036488],[-122.4522428,37.8037788],[-122.4522128,37.8038288],[-122.4521728,37.8038588],[-122.4521228,37.8038588],[-122.4518828,37.8038088],[-122.4517728,37.8037288],[-122.4517128,37.8036588],[-122.4516128,37.8035888],[-122.4515328,37.8035588],[-122.4514328,37.8035388],[-122.4513128,37.8035488],[-122.4512528,37.8035388],[-122.4511228,37.8033688],[-122.4511128,37.8032988],[-122.4512328,37.8031288],[-122.4512328,37.8030688],[-122.4511828,37.8030088],[-122.4511328,37.8029788],[-122.4510328,37.8027388],[-122.4509728,37.8026688],[-122.4508028,37.8025088],[-122.4506428,37.8024388],[-122.4506328,37.8023888],[-122.4506428,37.8023488],[-122.4507028,37.8023488],[-122.4507628,37.8024188],[-122.4508328,37.8024488],[-122.4509028,37.8024588],[-122.4509428,37.8024488],[-122.4509728,37.8024088],[-122.4510128,37.8023888],[-122.4510828,37.8023888],[-122.4511428,37.8023688],[-122.4511728,37.8023388],[-122.4510528,37.8022988],[-122.4509228,37.8022688],[-122.4508028,37.8022688],[-122.4506528,37.8022488],[-122.4505828,37.8022588],[-122.4505228,37.8022488],[-122.4504628,37.8022488],[-122.4504728,37.8022888],[-122.4505128,37.8023188],[-122.4505228,37.8023888],[-122.4504828,37.8023888],[-122.4504128,37.8023488],[-122.4503328,37.8023288],[-122.4500828,37.8023388],[-122.4499428,37.8023988],[-122.4497828,37.8025088],[-122.4495028,37.8026588],[-122.4493928,37.8026788],[-122.4492528,37.8026688],[-122.4492028,37.8026788],[-122.4491528,37.8027788],[-122.4490928,37.8027388],[-122.4490528,37.8026888],[-122.4489728,37.8024488],[-122.4488528,37.8024188],[-122.4488328,37.8023788],[-122.4488428,37.8022988],[-122.4488728,37.8022688],[-122.4488928,37.8021988],[-122.4488928,37.8021488],[-122.4489228,37.8021288],[-122.4489928,37.8021488],[-122.4490828,37.8021388],[-122.4491428,37.8021888],[-122.4491828,37.8022488],[-122.4492628,37.8022988],[-122.4493728,37.8022488],[-122.4494828,37.8022288],[-122.4495328,37.8021688],[-122.4495828,37.8021488],[-122.4495828,37.8020688],[-122.4495428,37.8020188],[-122.4494328,37.8020988],[-122.4494128,37.8021788],[-122.4493628,37.8021888],[-122.4493128,37.8021588],[-122.4492728,37.8021088],[-122.4492228,37.8020988],[-122.4491728,37.8020488],[-122.4490928,37.8020688],[-122.4490028,37.8020588],[-122.4489328,37.8020388],[-122.4488828,37.8020488],[-122.4487828,37.8021888],[-122.4486628,37.8022788],[-122.4485928,37.8022388],[-122.4485528,37.8021788],[-122.4484328,37.8021288],[-122.4482928,37.8020788],[-122.4481828,37.8020588],[-122.4480728,37.8020588],[-122.4479728,37.8020388],[-122.4478728,37.8019888],[-122.4478628,37.8019288],[-122.4478828,37.8018788],[-122.4479428,37.8018688],[-122.4479628,37.8018188],[-122.4480128,37.8018388],[-122.4482028,37.8017988],[-122.4482128,37.8017188],[-122.4481828,37.8016588],[-122.4480728,37.8015788],[-122.4480528,37.8015288],[-122.4480828,37.8014688],[-122.4481128,37.8014388],[-122.4481828,37.8014188],[-122.4482328,37.8014288],[-122.4483028,37.8014588],[-122.4483928,37.8014788],[-122.4484928,37.8014788],[-122.4484328,37.8014288],[-122.4483628,37.8013988],[-122.4483328,37.8013588],[-122.4483628,37.8012888],[-122.4484428,37.8012688],[-122.4484528,37.8011788],[-122.4484828,37.8011288],[-122.4485028,37.8010688],[-122.4486228,37.8010088],[-122.4485028,37.8008489],[-122.4484328,37.8008389],[-122.4483628,37.8007989],[-122.4483428,37.8007489],[-122.4483028,37.8007089],[-122.4481628,37.8005989],[-122.4481228,37.8005589],[-122.4480827,37.8004989],[-122.4480327,37.8004989],[-122.4480227,37.8005589],[-122.4480327,37.8006289],[-122.4481028,37.8007189],[-122.4481428,37.8007489],[-122.4482028,37.8007589],[-122.4482928,37.8007989],[-122.4482928,37.8008388],[-122.4483128,37.8009188],[-122.4482828,37.8009888],[-122.4483328,37.8010288],[-122.4483628,37.8009588],[-122.4484528,37.8009588],[-122.4484528,37.8010188],[-122.4483328,37.8011088],[-122.4483028,37.8011488],[-122.4482628,37.8012788],[-122.4482128,37.8013088],[-122.4481128,37.8013288],[-122.4480328,37.8013688],[-122.4479628,37.8014288],[-122.4479528,37.8015788],[-122.4479028,37.8015688],[-122.4478428,37.8015188],[-122.4477528,37.8015288],[-122.4477228,37.8014888],[-122.4476628,37.8014388],[-122.4476128,37.8014688],[-122.4476728,37.8015288],[-122.4477528,37.8015888],[-122.4477828,37.8016388],[-122.4478828,37.8016388],[-122.4479228,37.8016888],[-122.4479528,37.8016488],[-122.4480428,37.8016588],[-122.4480928,37.8016888],[-122.4481028,37.8017188],[-122.4480328,37.8017488],[-122.4479728,37.8017588],[-122.4478828,37.8017588],[-122.4478028,37.8017788],[-122.4477428,37.8018388],[-122.4477128,37.8018888],[-122.4477228,37.8019588],[-122.4477428,37.8019988],[-122.4477428,37.8020488],[-122.4476828,37.8020288],[-122.4476028,37.8020488],[-122.4475528,37.8020788],[-122.4474828,37.8020888],[-122.4473228,37.8019988],[-122.4472528,37.8019288],[-122.4471628,37.8018588],[-122.4470927,37.8018688],[-122.4470827,37.8019288],[-122.4470528,37.8019988],[-122.4470228,37.8020388],[-122.4469427,37.8020588],[-122.4468827,37.8020288],[-122.4468327,37.8019688],[-122.4468427,37.8018288],[-122.4468227,37.8017688],[-122.4466227,37.8016888],[-122.4465927,37.8015888],[-122.4465527,37.8015388],[-122.4464227,37.8015088],[-122.4464027,37.8014688],[-122.4464727,37.8014488],[-122.4464227,37.8014088],[-122.4463327,37.8014088],[-122.4461727,37.8013488],[-122.4461127,37.8013688],[-122.4460627,37.8013388],[-122.4460227,37.8012988],[-122.4460327,37.8012588],[-122.4461127,37.8012388],[-122.4461827,37.8012288],[-122.4462927,37.8012488],[-122.4463327,37.8012388],[-122.4463427,37.8012088],[-122.4463127,37.8011688],[-122.4462327,37.8011488],[-122.4461527,37.8011488],[-122.4460827,37.8011688],[-122.4459327,37.8012688],[-122.4459127,37.8013188],[-122.4460027,37.8013588],[-122.4460227,37.8014088],[-122.4458627,37.8014488],[-122.4457127,37.8014688],[-122.4456627,37.8015088],[-122.4456127,37.8015188],[-122.4455427,37.8015188],[-122.4454127,37.8014688],[-122.4453427,37.8014288],[-122.4452927,37.8013888],[-122.4452527,37.8013888],[-122.4451927,37.8014188],[-122.4451527,37.8014788],[-122.4451027,37.8014988],[-122.4450827,37.8014688],[-122.4450827,37.8013988],[-122.4451227,37.8013188],[-122.4451227,37.8012188],[-122.4451727,37.8010688],[-122.4451827,37.8009288],[-122.4452427,37.8008288],[-122.4453727,37.8006588],[-122.4455027,37.8006088],[-122.4454527,37.8005688],[-122.4454227,37.8005088],[-122.4454227,37.8004688],[-122.4454927,37.8004688],[-122.4455227,37.8004288],[-122.4455027,37.8003688],[-122.4455527,37.8003289],[-122.4456527,37.8003589],[-122.4456727,37.8003089],[-122.4455827,37.8002589],[-122.4456027,37.8002089],[-122.4456127,37.8001489],[-122.4455727,37.8000489],[-122.4455627,37.7999889],[-122.4455927,37.7999489],[-122.4456527,37.7999789],[-122.4457027,37.8000289],[-122.4457727,37.7999689],[-122.4458227,37.7999689],[-122.4458627,37.8000289],[-122.4459627,37.8000289],[-122.4459927,37.8000789],[-122.4459927,37.8001289],[-122.4460727,37.8001589],[-122.4461227,37.8001889],[-122.4461027,37.8002489],[-122.4462227,37.8002789],[-122.4462627,37.8002289],[-122.4463027,37.8002089],[-122.4463927,37.8002389],[-122.4464527,37.8002789],[-122.4464827,37.8003289],[-122.4465027,37.8004389],[-122.4465827,37.8005588],[-122.4466827,37.8006188],[-122.4467527,37.8006088],[-122.4468127,37.8006088],[-122.4467927,37.8007188],[-122.4468027,37.8007688],[-122.4468827,37.8008088],[-122.4469327,37.8008988],[-122.4469327,37.8009688],[-122.4469827,37.8010088],[-122.4470927,37.8009688],[-122.4471627,37.8009088],[-122.4471827,37.8007688],[-122.4472327,37.8006788],[-122.4472827,37.8006189],[-122.4473327,37.8006189],[-122.4473127,37.8007088],[-122.4473327,37.8007788],[-122.4473327,37.8008288],[-122.4473927,37.8008888],[-122.4474927,37.8008988],[-122.4475527,37.8008688],[-122.4475827,37.8008088],[-122.4475027,37.8007988],[-122.4474127,37.8008088],[-122.4474127,37.8007288],[-122.4474427,37.8006689],[-122.4474427,37.8006189],[-122.4474227,37.8005589],[-122.4473627,37.8005289],[-122.4473127,37.8005189],[-122.4472427,37.8005289],[-122.4471927,37.8005689],[-122.4471527,37.8006688],[-122.4470627,37.8007588],[-122.4470727,37.8008588],[-122.4470327,37.8008588],[-122.4469827,37.8007388],[-122.4469727,37.8006888],[-122.4470127,37.8005489],[-122.4470027,37.8004989],[-122.4470127,37.8004489],[-122.4471027,37.8004489],[-122.4471727,37.8004289],[-122.4471727,37.8003189],[-122.4471627,37.8002489],[-122.4471727,37.8002089],[-122.4472827,37.8002689],[-122.4473227,37.8003289],[-122.4473627,37.8003489],[-122.4473827,37.8002789],[-122.4473027,37.8001889],[-122.4472627,37.8001589],[-122.4471927,37.8001489],[-122.4470827,37.8001489],[-122.4470327,37.8001689],[-122.4469827,37.8001289],[-122.4468927,37.8001089],[-122.4467427,37.8001089],[-122.4466627,37.8000989],[-122.4466227,37.8000889],[-122.4465627,37.8000489],[-122.4464227,37.8000889],[-122.4463527,37.8000589],[-122.4463427,37.8000089],[-122.4462427,37.8000589],[-122.4462027,37.8000189],[-122.4460827,37.7999289],[-122.4459827,37.7998889],[-122.4458627,37.7998689],[-122.4457727,37.7998689],[-122.4457127,37.7998789],[-122.4456627,37.7998589],[-122.4455927,37.7998489],[-122.4454827,37.7998789],[-122.4454227,37.7999189],[-122.4454527,37.7999789],[-122.4454027,37.8000289],[-122.4454527,37.8000889],[-122.4454927,37.8001789],[-122.4454027,37.8001789],[-122.4454527,37.8002789],[-122.4454427,37.8003189],[-122.4454027,37.8003189],[-122.4453427,37.8002989],[-122.4452927,37.8002989],[-122.4452227,37.8003288],[-122.4451927,37.8003888],[-122.4451027,37.8003888],[-122.4451027,37.8003388],[-122.4451127,37.8003088],[-122.4452027,37.8002289],[-122.4451927,37.8001689],[-122.4451527,37.8000989],[-122.4450927,37.8000389],[-122.4451327,37.7999989],[-122.4452527,37.7999989],[-122.4453027,37.7999489],[-122.4452827,37.7998389],[-122.4452427,37.7997889],[-122.4450927,37.7997689],[-122.4450627,37.7996989],[-122.4450627,37.7996489],[-122.4450927,37.7996189],[-122.4451127,37.7995489],[-122.4450727,37.7995389],[-122.4449727,37.7994789],[-122.4449027,37.7994489],[-122.4448527,37.7994389],[-122.4447927,37.7994789],[-122.4446827,37.7995189],[-122.4446327,37.7995289],[-122.4445327,37.7994889],[-122.4445527,37.7994289],[-122.4445527,37.7993789],[-122.4445427,37.7993389],[-122.4445127,37.7992989],[-122.4444727,37.7992789],[-122.4443027,37.7992389],[-122.4442627,37.7991989],[-122.4441727,37.7991789],[-122.4441027,37.7992089],[-122.4439127,37.7991189],[-122.4438127,37.7990989],[-122.4438227,37.7991489],[-122.4440427,37.7992889],[-122.4441027,37.7993189],[-122.4441427,37.7992789],[-122.4442227,37.7993089],[-122.4443427,37.7993289],[-122.4444227,37.7993289],[-122.4444427,37.7993689],[-122.4443927,37.7994689],[-122.4443927,37.7995189],[-122.4444527,37.7995389],[-122.4445327,37.7995989],[-122.4445827,37.7996389],[-122.4446327,37.7996989],[-122.4446727,37.7996589],[-122.4447027,37.7996089],[-122.4447527,37.7996289],[-122.4447927,37.7995589],[-122.4448627,37.7995789],[-122.4449227,37.7996189],[-122.4449727,37.7996789],[-122.4449927,37.7997389],[-122.4450027,37.7998089],[-122.4450227,37.7998489],[-122.4450827,37.7998789],[-122.4451627,37.7998989],[-122.4451427,37.7999389],[-122.4450627,37.7999589],[-122.4449827,37.8000189],[-122.4450027,37.8001289],[-122.4450527,37.8001689],[-122.4450527,37.8002389],[-122.4449627,37.8003388],[-122.4449627,37.8003988],[-122.4450127,37.8005188],[-122.4450727,37.8005488],[-122.4451427,37.8004888],[-122.4452127,37.8004588],[-122.4453227,37.8004588],[-122.4452827,37.8005388],[-122.4452227,37.8005788],[-122.4452427,37.8006588],[-122.4451327,37.8007488],[-122.4451127,37.8008488],[-122.4450027,37.8008888],[-122.4448627,37.8008888],[-122.4447027,37.8008788],[-122.4446027,37.8008488],[-122.4445327,37.8007888],[-122.4444727,37.8007288],[-122.4444127,37.8006388],[-122.4443427,37.8005688],[-122.4443327,37.8005188],[-122.4444027,37.8004588],[-122.4444527,37.8004288],[-122.4445127,37.8003588],[-122.4445127,37.8002888],[-122.4444827,37.8002288],[-122.4444027,37.8001389],[-122.4442527,37.8000389],[-122.4441827,37.8000289],[-122.4441527,37.8000889],[-122.4441627,37.8002088],[-122.4441927,37.8002788],[-122.4441627,37.8003388],[-122.4440927,37.8002588],[-122.4440427,37.8001188],[-122.4440327,37.8000589],[-122.4439927,37.8000189],[-122.4439127,37.7999889],[-122.4438527,37.8000089],[-122.4437927,37.8000788],[-122.4438027,37.7999989],[-122.4437827,37.7999289],[-122.4437227,37.7998989],[-122.4435827,37.7998789],[-122.4435127,37.7998389],[-122.4434527,37.7998289],[-122.4434127,37.7998089],[-122.4433427,37.7998089],[-122.4432527,37.7998389],[-122.4430727,37.7999588],[-122.4430627,37.7999089],[-122.4430827,37.7998589],[-122.4432127,37.7997989],[-122.4432627,37.7997689],[-122.4433027,37.7997289],[-122.4432827,37.7996689],[-122.4432227,37.7996289],[-122.4431427,37.7996089],[-122.4430827,37.7996089],[-122.4431027,37.7996589],[-122.4431527,37.7997089],[-122.4431527,37.7997589],[-122.4430227,37.7997989],[-122.4429827,37.7998489],[-122.4429327,37.7999388],[-122.4430127,37.8000188],[-122.4430627,37.8000188],[-122.4431527,37.7999988],[-122.4432027,37.7999489],[-122.4432627,37.7999089],[-122.4433527,37.7998889],[-122.4433927,37.7999189],[-122.4432227,37.8000488],[-122.4432227,37.8000988],[-122.4432627,37.8001588],[-122.4433027,37.8001688],[-122.4433927,37.8001388],[-122.4434627,37.8001288],[-122.4435427,37.8000788],[-122.4436327,37.7999489],[-122.4437127,37.7999689],[-122.4436527,37.8000888],[-122.4435227,37.8001988],[-122.4433527,37.8002888],[-122.4432127,37.8003188],[-122.4431127,37.8003788],[-122.4429527,37.8004288],[-122.4428627,37.8005088],[-122.4427027,37.8005388],[-122.4423927,37.8006488],[-122.4422527,37.8006688],[-122.4421827,37.8006488],[-122.4421027,37.8005988],[-122.4420627,37.8005888],[-122.4420127,37.8005888],[-122.4419627,37.8005688],[-122.4417027,37.8004188],[-122.4416327,37.8004488],[-122.4415927,37.8004988],[-122.4415727,37.8005388],[-122.4415027,37.8005388],[-122.4414127,37.8005188],[-122.4413727,37.8004888],[-122.4413727,37.8004488],[-122.4413227,37.8004488],[-122.4411927,37.8004688],[-122.4410927,37.8004188],[-122.4410027,37.8003588],[-122.4408427,37.8003388],[-122.4407927,37.8003088],[-122.4407426,37.8002988],[-122.4405326,37.8003288],[-122.4404926,37.8003088],[-122.4405126,37.8002588],[-122.4404826,37.8002188],[-122.4404026,37.8002188],[-122.4403326,37.8002388],[-122.4401726,37.8002388],[-122.4400226,37.8002588],[-122.4398526,37.8002688],[-122.4396926,37.8002888],[-122.4395426,37.8003288],[-122.4394726,37.8003288],[-122.4394026,37.8003588],[-122.4393226,37.8003688],[-122.4391626,37.8004188],[-122.4388626,37.8005288],[-122.4386726,37.8006088],[-122.4386026,37.8006188],[-122.4385426,37.8006488],[-122.4384326,37.8006888],[-122.4381726,37.8008188],[-122.4378226,37.8009788],[-122.4376526,37.8010788],[-122.4375926,37.8010888],[-122.4375526,37.8011188],[-122.4375026,37.8011288],[-122.4372426,37.8012688],[-122.4371726,37.8012888],[-122.4371226,37.8013288],[-122.4370026,37.8013588],[-122.4369026,37.8014288],[-122.4368126,37.8015088],[-122.4367826,37.8015488],[-122.4367026,37.8015988],[-122.4366026,37.8016788],[-122.4363226,37.8018788],[-122.4362226,37.8019188],[-122.4361626,37.8019287],[-122.4361126,37.8019487],[-122.4360426,37.8020087],[-122.4360326,37.8020287],[-122.4360426,37.8020887],[-122.4361026,37.8021387],[-122.4362026,37.8021787],[-122.4363126,37.8021787],[-122.4363626,37.8021687],[-122.4364326,37.8021387],[-122.4366126,37.8020087],[-122.4367426,37.8018488],[-122.4367726,37.8017888],[-122.4368526,37.8016888],[-122.4369826,37.8015788],[-122.4370326,37.8015488],[-122.4370926,37.8014888],[-122.4372026,37.8014288],[-122.4372726,37.8013988],[-122.4376026,37.8012888],[-122.4377726,37.8012688],[-122.4378326,37.8012488],[-122.4379026,37.8012388],[-122.4381226,37.8012288],[-122.4382126,37.8011988],[-122.4382726,37.8011888],[-122.4383726,37.8011488],[-122.4385626,37.8010888],[-122.4385926,37.8010588],[-122.4386826,37.8010388],[-122.4387726,37.8009888],[-122.4389226,37.8009588],[-122.4389926,37.8009588],[-122.4390526,37.8009688],[-122.4391626,37.8010088],[-122.4393026,37.8011288],[-122.4394126,37.8011888],[-122.4395926,37.8012188],[-122.4396726,37.8012488],[-122.4397126,37.8012788],[-122.4397226,37.8013188],[-122.4397026,37.8013388],[-122.4396126,37.8013388],[-122.4395726,37.8013588],[-122.4394926,37.8013788],[-122.4394626,37.8013988],[-122.4394126,37.8014088],[-122.4393726,37.8014388],[-122.4392626,37.8014488],[-122.4392026,37.8014288],[-122.4391626,37.8014288],[-122.4391226,37.8014388],[-122.4390126,37.8015088],[-122.4389426,37.8015188],[-122.4389126,37.8015088],[-122.4388526,37.8015188],[-122.4387026,37.8015688],[-122.4386526,37.8015688],[-122.4385826,37.8015888],[-122.4384126,37.8016488],[-122.4383126,37.8016888],[-122.4382826,37.8017088],[-122.4381526,37.8017488],[-122.4380126,37.8018188],[-122.4379626,37.8018288],[-122.4379026,37.8018688],[-122.4378026,37.8019088],[-122.4377226,37.8019288],[-122.4376826,37.8019688],[-122.4376126,37.8019888],[-122.4374826,37.8020688],[-122.4373126,37.8021487],[-122.4371926,37.8022287],[-122.4371426,37.8022487],[-122.4370726,37.8022987],[-122.4366726,37.8025087],[-122.4366026,37.8025587],[-122.4364226,37.8026487],[-122.4363026,37.8026987],[-122.4361726,37.8027887],[-122.4360226,37.8028587],[-122.4359526,37.8029087],[-122.4358026,37.8029687],[-122.4356826,37.8030487],[-122.4356226,37.8030787],[-122.4355026,37.8031687],[-122.4354526,37.8031987],[-122.4353926,37.8032187],[-122.4353526,37.8032587],[-122.4352926,37.8032887],[-122.4351526,37.8033787],[-122.4347826,37.8035587],[-122.4346726,37.8036387],[-122.4345726,37.8036887],[-122.4345126,37.8037087],[-122.4343526,37.8037987],[-122.4342826,37.8038687],[-122.4341426,37.8039387],[-122.4340926,37.8039787],[-122.4339826,37.8040387],[-122.4336726,37.8042387],[-122.4334126,37.8044187],[-122.4332426,37.8045187],[-122.4331626,37.8045786],[-122.4327726,37.8047986],[-122.4327026,37.8048586],[-122.4326226,37.8049986],[-122.4325926,37.8049686],[-122.4324826,37.8050186],[-122.4323726,37.8051186],[-122.4320926,37.8053186],[-122.4320626,37.8053586],[-122.4319526,37.8054386],[-122.4319126,37.8054786],[-122.4318526,37.8054986],[-122.4316326,37.8056486],[-122.4315926,37.8056886],[-122.4315226,37.8057286],[-122.4314926,37.8057886],[-122.4314326,37.8058186],[-122.4312826,37.8059186],[-122.4311626,37.8060286],[-122.4310526,37.8061086],[-122.4309326,37.8062186],[-122.4306326,37.8064686],[-122.4305926,37.8064886],[-122.4305526,37.8065386],[-122.4304726,37.8065886],[-122.4304026,37.8066586],[-122.4303526,37.8066686],[-122.4302826,37.8066986],[-122.4302626,37.8067386],[-122.4301626,37.8068386],[-122.4301026,37.8068786],[-122.4300326,37.8069786],[-122.4299926,37.8070186],[-122.4299726,37.8070586],[-122.4299926,37.8070886],[-122.4300526,37.8071086],[-122.4300526,37.8071486],[-122.4300126,37.8071886],[-122.4299926,37.8072285],[-122.4299426,37.8072885],[-122.4298826,37.8072685],[-122.4298226,37.8072785],[-122.4298226,37.8073185],[-122.4298426,37.8073485],[-122.4298326,37.8073985],[-122.4297826,37.8074085],[-122.4297426,37.8074285],[-122.4297326,37.8074685],[-122.4297526,37.8074985],[-122.4298626,37.8075985],[-122.4298526,37.8076285],[-122.4297626,37.8076985],[-122.4297326,37.8077585],[-122.4297026,37.8077185],[-122.4296326,37.8076785],[-122.4295526,37.8077185],[-122.4295426,37.8077585],[-122.4294426,37.8077385],[-122.4293626,37.8078285],[-122.4292926,37.8078285],[-122.4292526,37.8078685],[-122.4292926,37.8078985],[-122.4292726,37.8079285],[-122.4292126,37.8079285],[-122.4291826,37.8078985],[-122.4291026,37.8078785],[-122.4290426,37.8078885],[-122.4289826,37.8078785],[-122.4289626,37.8079085],[-122.4289126,37.8079385],[-122.4288926,37.8079785],[-122.4288026,37.8080585],[-122.4287726,37.8080685],[-122.4287226,37.8080385],[-122.4286326,37.8080185],[-122.4286026,37.8080385],[-122.4286326,37.8081285],[-122.4285926,37.8081585],[-122.4285626,37.8081685],[-122.4285226,37.8081485],[-122.4284526,37.8081285],[-122.4284126,37.8081485],[-122.4284226,37.8081785],[-122.4283526,37.8081685],[-122.4283226,37.8081885],[-122.4282926,37.8081785],[-122.4282726,37.8081585],[-122.4282426,37.8081785],[-122.4282526,37.8082285],[-122.4282026,37.8082285],[-122.4281526,37.8082485],[-122.4281826,37.8082785],[-122.4281626,37.8082985],[-122.4280926,37.8082785],[-122.4280626,37.8082985],[-122.4280426,37.8083385],[-122.4280426,37.8083685],[-122.4279726,37.8083685],[-122.4279225,37.8083585],[-122.4278825,37.8083385],[-122.4277825,37.8083285],[-122.4276725,37.8082985],[-122.4276225,37.8082985],[-122.4276125,37.8083285],[-122.4275025,37.8083485],[-122.4274625,37.8083285],[-122.4274125,37.8083185],[-122.4273525,37.8083485],[-122.4273325,37.8083685],[-122.4272925,37.8083785],[-122.4272525,37.8083585],[-122.4270925,37.8083585],[-122.4270825,37.8083285],[-122.4270125,37.8083185],[-122.4269425,37.8083185],[-122.4268925,37.8082985],[-122.4268025,37.8082185],[-122.4267825,37.8081885],[-122.4267025,37.8081585],[-122.4266825,37.8081185],[-122.4266425,37.8080885],[-122.4266325,37.8080385],[-122.4265625,37.8080385],[-122.4265425,37.8079985],[-122.4265425,37.8079485],[-122.4265025,37.8079185],[-122.4264425,37.8079185],[-122.4264225,37.8078385],[-122.4264325,37.8077885],[-122.4263825,37.8077785],[-122.4263625,37.8077085],[-122.4262825,37.8076985],[-122.4262525,37.8076785],[-122.4262025,37.8076185],[-122.4262525,37.8075485],[-122.4262325,37.8075085],[-122.4263325,37.8074685],[-122.4263925,37.8073785],[-122.4264025,37.8073485],[-122.4264525,37.8073585],[-122.4265125,37.8073385],[-122.4265125,37.8072885],[-122.4264625,37.8072685],[-122.4264125,37.8072585],[-122.4263725,37.8072385],[-122.4263425,37.8072085],[-122.4263425,37.8071685],[-122.4263725,37.8071185],[-122.4263625,37.8070285],[-122.4263225,37.8069985],[-122.4262125,37.8069885],[-122.4261925,37.8070185],[-122.4260825,37.8069885],[-122.4260325,37.8069585],[-122.4260725,37.8069085],[-122.4258725,37.8069085],[-122.4258425,37.8068685],[-122.4258825,37.8068185],[-122.4258925,37.8067785],[-122.4258225,37.8067185],[-122.4257325,37.8066785],[-122.4255725,37.8066785],[-122.4255125,37.8066685],[-122.4255125,37.8065785],[-122.4254825,37.8065385],[-122.4254325,37.8065285],[-122.4252425,37.8065285],[-122.4251625,37.8064785],[-122.4251325,37.8064285],[-122.4251425,37.8063785],[-122.4251425,37.8062986],[-122.4251125,37.8062686],[-122.4251125,37.8061886],[-122.4251025,37.8061586],[-122.4250625,37.8061186],[-122.4250525,37.8060786],[-122.4250625,37.8060286],[-122.4250425,37.8059586],[-122.4250025,37.8059086],[-122.4249525,37.8058786],[-122.4248525,37.8058486],[-122.4247125,37.8058686],[-122.4246425,37.8058586],[-122.4245625,37.8058586],[-122.4244725,37.8058686],[-122.4244225,37.8058986],[-122.4244025,37.8059386],[-122.4243725,37.8059586],[-122.4243225,37.8059486],[-122.4243225,37.8059086],[-122.4241725,37.8059086],[-122.4241225,37.8059386],[-122.4241725,37.8059786],[-122.4241525,37.8060186],[-122.4240925,37.8060286],[-122.4240325,37.8060286],[-122.4240525,37.8059886],[-122.4240525,37.8059286],[-122.4239725,37.8059386],[-122.4238925,37.8059886],[-122.4237125,37.8060086],[-122.4234225,37.8060686],[-122.4233525,37.8060686],[-122.4232725,37.8060985],[-122.4231425,37.8061285],[-122.4225325,37.8062485],[-122.4223725,37.8062685],[-122.4221825,37.8063185],[-122.4219025,37.8063785],[-122.4217224,37.8064485],[-122.4216524,37.8064585],[-122.4215924,37.8064585],[-122.4214724,37.8064985],[-122.4214024,37.8065085],[-122.4213524,37.8065285],[-122.4212824,37.8065385],[-122.4212124,37.8065585],[-122.4211724,37.8065785],[-122.4208524,37.8066285],[-122.4207924,37.8066485],[-122.4207324,37.8066585],[-122.4206124,37.8066985],[-122.4204424,37.8067785],[-122.4203824,37.8068285],[-122.4203724,37.8068885],[-122.4203924,37.8069485],[-122.4203624,37.8069785],[-122.4202924,37.8069885],[-122.4202124,37.8070285],[-122.4201624,37.8070185],[-122.4201124,37.8070185],[-122.4200624,37.8070285],[-122.4200424,37.8070585],[-122.4199624,37.8071185],[-122.4199224,37.8071085],[-122.4199224,37.8070485],[-122.4198924,37.8070285],[-122.4198324,37.8070185],[-122.4198024,37.8070585],[-122.4197624,37.8070685],[-122.4197324,37.8070385],[-122.4196424,37.8070085],[-122.4196324,37.8069785],[-122.4196424,37.8069385],[-122.4195524,37.8069285],[-122.4195124,37.8069385],[-122.4194824,37.8068985],[-122.4195224,37.8067985],[-122.4194824,37.8067885],[-122.4194224,37.8067985],[-122.4193724,37.8068185],[-122.4193524,37.8067785],[-122.4192624,37.8066985],[-122.4191524,37.8066585],[-122.4190824,37.8066585],[-122.4189824,37.8066385],[-122.4189424,37.8066185],[-122.4189224,37.8065885],[-122.4189424,37.8065585],[-122.4190224,37.8065185],[-122.4190424,37.8064685],[-122.4190224,37.8063385],[-122.4189524,37.8061585],[-122.4189424,37.8061085],[-122.4189424,37.8059885],[-122.4189324,37.8059485],[-122.4188724,37.8058885],[-122.4188624,37.8058485],[-122.4188024,37.8057485],[-122.4187924,37.8057085],[-122.4187624,37.8056785],[-122.4187024,37.8055785],[-122.4186624,37.8055485],[-122.4185624,37.8055285],[-122.4185024,37.8055185],[-122.4184424,37.8055285],[-122.4183924,37.8055285],[-122.4183524,37.8055185],[-122.4183124,37.8054885],[-122.4182424,37.8054685],[-122.4182024,37.8054385],[-122.4181424,37.8054385],[-122.4180924,37.8054485],[-122.4180124,37.8054085],[-122.4179624,37.8053985],[-122.4179124,37.8053985],[-122.4178724,37.8054285],[-122.4177424,37.8053585],[-122.4175824,37.8053585],[-122.4174524,37.8052685],[-122.4174224,37.8052385],[-122.4173624,37.8050486],[-122.4173124,37.8050585],[-122.4172524,37.8050286],[-122.4171824,37.8049786],[-122.4171324,37.8049186],[-122.4170824,37.8048386],[-122.4170624,37.8047886],[-122.4169624,37.8046386],[-122.4170024,37.8046186],[-122.4170324,37.8045686],[-122.4170224,37.8045086],[-122.4169224,37.8043086],[-122.4168924,37.8042886],[-122.4168524,37.8042786],[-122.4168324,37.8042486],[-122.4167724,37.8042386],[-122.4167424,37.8042486],[-122.4167024,37.8042386],[-122.4166424,37.8041486],[-122.4166124,37.8041186],[-122.4164424,37.8040486],[-122.4163224,37.8039886],[-122.4162524,37.8039686],[-122.4160824,37.8039386],[-122.4158223,37.8039286],[-122.4156823,37.8039386],[-122.4154123,37.8039886],[-122.4148323,37.8040686],[-122.4148123,37.8040886],[-122.4148123,37.8041486],[-122.4148423,37.8041886],[-122.4148523,37.8042286],[-122.4148423,37.8043086],[-122.4147023,37.8043186],[-122.4146923,37.8042586],[-122.4146323,37.8041086],[-122.4146023,37.8040986],[-122.4144623,37.8041386],[-122.4143823,37.8041986],[-122.4139223,37.8044086],[-122.4139623,37.8044686],[-122.4139623,37.8044885],[-122.4139423,37.8045185],[-122.4138923,37.8045385],[-122.4138423,37.8045385],[-122.4138423,37.8044586],[-122.4138123,37.8044386],[-122.4133023,37.8046785],[-122.4132623,37.8047185],[-122.4132623,37.8047485],[-122.4132423,37.8047785],[-122.4131223,37.8048085],[-122.4129023,37.8048185],[-122.4128023,37.8048385],[-122.4127123,37.8048685],[-122.4126723,37.8049085],[-122.4126523,37.8049585],[-122.4127123,37.8051485],[-122.4126423,37.8051985],[-122.4126023,37.8052385],[-122.4126023,37.8052985],[-122.4126923,37.8056785],[-122.4128223,37.8063885],[-122.4128823,37.8066185],[-122.4128923,37.8067385],[-122.4129123,37.8068285],[-122.4129423,37.8068885],[-122.4129923,37.8070985],[-122.4130423,37.8071885],[-122.4130523,37.8074185],[-122.4131023,37.8075784],[-122.4131423,37.8078984],[-122.4132223,37.8083084],[-122.4132723,37.8085284],[-122.4133124,37.8086484],[-122.4133424,37.8089384],[-122.4131524,37.8089584],[-122.4123423,37.8090184],[-122.4123123,37.8088284],[-122.4131623,37.8087584],[-122.4131323,37.8085184],[-122.4122623,37.8085484],[-122.4122023,37.8082584],[-122.4130323,37.8082084],[-122.4130623,37.8081084],[-122.4130123,37.8079184],[-122.4128723,37.8072285],[-122.4126223,37.8057385],[-122.4124723,37.8052085],[-122.4123023,37.8052285],[-122.4122823,37.8050085],[-122.4121123,37.8050285],[-122.4117323,37.8051385],[-122.4115523,37.8052085],[-122.4115323,37.8053085],[-122.4114423,37.8053285],[-122.4113623,37.8052685],[-122.4111123,37.8053585],[-122.4108323,37.8054185],[-122.4104723,37.8055385],[-122.4101323,37.8056185],[-122.4101323,37.8057285],[-122.4101923,37.8058985],[-122.4100823,37.8059185],[-122.4100623,37.8057685],[-122.4100123,37.8056685],[-122.4097823,37.8057285],[-122.4095723,37.8058885],[-122.4092823,37.8059485],[-122.4090823,37.8060285],[-122.4090423,37.8060885],[-122.4093523,37.8060585],[-122.4116623,37.8057385],[-122.4116623,37.8058285],[-122.4108423,37.8059185],[-122.4100523,37.8060285],[-122.4089423,37.8062085],[-122.4088123,37.8062085],[-122.4084123,37.8062285],[-122.4081923,37.8062785],[-122.4081323,37.8063085],[-122.4080123,37.8064285],[-122.4079623,37.8063585],[-122.4078023,37.8063585],[-122.4077323,37.8063685],[-122.4077523,37.8064385],[-122.4076823,37.8065085],[-122.4076723,37.8066384],[-122.4075523,37.8065885],[-122.4075223,37.8064485],[-122.4073923,37.8064285],[-122.4073023,37.8064285],[-122.4072423,37.8063785],[-122.4071622,37.8063985],[-122.4070722,37.8063485],[-122.4069722,37.8063785],[-122.4069022,37.8063485],[-122.4068622,37.8064185],[-122.4067522,37.8064285],[-122.4066922,37.8063785],[-122.4066522,37.8062585],[-122.4066422,37.8061585],[-122.4065522,37.8060985],[-122.4065422,37.8059185],[-122.4064622,37.8058185],[-122.4064022,37.8056985],[-122.4063622,37.8056385],[-122.4062522,37.8056285],[-122.4061022,37.8056885],[-122.4060122,37.8056885],[-122.4058422,37.8057485],[-122.4057522,37.8057485],[-122.4056722,37.8057185],[-122.4055722,37.8056385],[-122.4055422,37.8055785],[-122.4055522,37.8055085],[-122.4056522,37.8055585],[-122.4057422,37.8055885],[-122.4059922,37.8055285],[-122.4062322,37.8054985],[-122.4063222,37.8054685],[-122.4064022,37.8054185],[-122.4063522,37.8053485],[-122.4062522,37.8052585],[-122.4061322,37.8051885],[-122.4060522,37.8051585],[-122.4058622,37.8051885],[-122.4057822,37.8051785],[-122.4056422,37.8051285],[-122.4055022,37.8051085],[-122.4053922,37.8051485],[-122.4052822,37.8051785],[-122.4052022,37.8051585],[-122.4051422,37.8051085],[-122.4051322,37.8050085],[-122.4050422,37.8049085],[-122.4050522,37.8047885],[-122.4050022,37.8047185],[-122.4048522,37.8046585],[-122.4047222,37.8046285],[-122.4046422,37.8046185],[-122.4045322,37.8046285],[-122.4042222,37.8045085],[-122.4040222,37.8045185],[-122.4038822,37.8045685],[-122.4037822,37.8045885],[-122.4036122,37.8045985],[-122.4034522,37.8046385],[-122.4033722,37.8046385],[-122.4034222,37.8048785],[-122.4032622,37.8048985],[-122.4031922,37.8045785],[-122.4031122,37.8041185],[-122.4031422,37.8040585],[-122.4030722,37.8039585],[-122.4030022,37.8039985],[-122.4027922,37.8040385],[-122.4021622,37.8040985],[-122.4021622,37.8042585],[-122.4020622,37.8042585],[-122.4020422,37.8040885],[-122.4019422,37.8036285],[-122.4019022,37.8033885],[-122.4018222,37.8031985],[-122.4016022,37.8032085],[-122.4012221,37.8032385],[-122.4011621,37.8024985],[-122.4015121,37.8024685],[-122.4014921,37.8023585],[-122.4013721,37.8020286],[-122.4012521,37.8020486],[-122.4011521,37.8020786],[-122.4005521,37.8021586],[-122.4004821,37.8021785],[-122.4004621,37.8020086],[-122.4009821,37.8019286],[-122.4009521,37.8017386],[-122.4008821,37.8015186],[-122.4008221,37.8014886],[-122.4007121,37.8014686],[-122.4006021,37.8014386],[-122.4004221,37.8010886],[-122.4000521,37.8011186],[-122.3999921,37.8007786],[-122.3999821,37.8006686],[-122.4000321,37.8006086],[-122.3999621,37.8001986],[-122.3996621,37.8002386],[-122.3997221,37.8006086],[-122.3995921,37.8006386],[-122.3994721,37.8002186],[-122.3993921,37.7998686],[-122.3989721,37.7999086],[-122.3985321,37.7999786],[-122.3980321,37.8000186],[-122.3974021,37.8001186],[-122.3964721,37.8002286],[-122.3964521,37.8000686],[-122.3965021,37.8000286],[-122.3971321,37.7999586],[-122.3985021,37.7997886],[-122.3984621,37.7996286],[-122.3983121,37.7996286],[-122.3983021,37.7995286],[-122.3982721,37.7994086],[-122.3981821,37.7993186],[-122.3982421,37.7992486],[-122.3984121,37.7993186],[-122.3983621,37.7990186],[-122.3982421,37.7990086],[-122.3977421,37.7990586],[-122.3967621,37.7991986],[-122.3967621,37.7990186],[-122.3983021,37.7987886],[-122.3982221,37.7983287],[-122.3981821,37.7980187],[-122.3975621,37.7980987],[-122.3969821,37.7981587],[-122.3965621,37.7982186],[-122.396262,37.7982486],[-122.394472,37.7984886],[-122.394442,37.7983386],[-122.394492,37.7982986],[-122.395102,37.7982286],[-122.395742,37.7981386],[-122.396542,37.7980587],[-122.3966521,37.7980687],[-122.3968021,37.7980287],[-122.3967921,37.7979387],[-122.3969421,37.7979387],[-122.3970321,37.7978987],[-122.3970121,37.7977487],[-122.396442,37.7977987],[-122.396282,37.7973487],[-122.394412,37.7975887],[-122.394372,37.7974687],[-122.394902,37.7974087],[-122.395922,37.7972687],[-122.396122,37.7972287],[-122.396062,37.7971487],[-122.395732,37.7969287],[-122.395722,37.7968287],[-122.395562,37.7967087],[-122.395382,37.7965587],[-122.395182,37.7965787],[-122.394922,37.7966187],[-122.394632,37.7966487],[-122.394542,37.7966687],[-122.394362,37.7967687],[-122.394152,37.7969187],[-122.393762,37.7970687],[-122.393662,37.7971387],[-122.393592,37.7970387],[-122.393682,37.7969887],[-122.393972,37.7968687],[-122.394132,37.7968187],[-122.394602,37.7964987],[-122.395102,37.7964487],[-122.395252,37.7964587],[-122.395152,37.7963287],[-122.394672,37.7959587],[-122.394482,37.7960787],[-122.394272,37.7962487],[-122.394072,37.7964287],[-122.393852,37.7965587],[-122.393582,37.7966087],[-122.392932,37.7966887],[-122.392932,37.7965587],[-122.393222,37.7965087],[-122.393832,37.7964487],[-122.394252,37.7960787],[-122.394892,37.7955887],[-122.394732,37.7954487],[-122.394462,37.7956387],[-122.394392,37.7955687],[-122.394552,37.7954587],[-122.394512,37.7953987],[-122.394542,37.7953487],[-122.394502,37.7952987],[-122.394392,37.7953687],[-122.393392,37.7961687],[-122.393302,37.7960687],[-122.393972,37.7955287],[-122.394352,37.7952487],[-122.394222,37.7950987],[-122.394012,37.7952487],[-122.393942,37.7951887],[-122.394142,37.7950187],[-122.394012,37.7948987],[-122.393232,37.7954987],[-122.392092,37.7963987],[-122.391982,37.7963187],[-122.393392,37.7952087],[-122.393672,37.7949787],[-122.393772,37.7949687],[-122.393952,37.7948087],[-122.393522,37.7944487],[-122.393142,37.7947487],[-122.393092,37.7946887],[-122.393472,37.7943688],[-122.393392,37.7942888],[-122.393132,37.7944887],[-122.393072,37.7944287],[-122.393282,37.7942588],[-122.393322,37.7941888],[-122.393512,37.7940588],[-122.393522,37.7939988],[-122.393642,37.7938988],[-122.393562,37.7938488],[-122.392892,37.7943887],[-122.392752,37.7942987],[-122.393062,37.7940488],[-122.393002,37.7939788],[-122.392662,37.7942588],[-122.392542,37.7941688],[-122.392602,37.7940788],[-122.392852,37.7938688],[-122.392742,37.7937988],[-122.392512,37.7939688],[-122.392432,37.7939088],[-122.392652,37.7937188],[-122.392572,37.7936388],[-122.392522,37.7937088],[-122.391082,37.7948287],[-122.390922,37.7946887],[-122.391932,37.7938488],[-122.392082,37.7938688],[-122.392702,37.7933888],[-122.392612,37.7933188],[-122.392382,37.7934888],[-122.392192,37.7933288],[-122.392072,37.7934088],[-122.391932,37.7932888],[-122.391752,37.7934288],[-122.391652,37.7933388],[-122.391742,37.7932388],[-122.391662,37.7931588],[-122.391562,37.7932088],[-122.391522,37.7931588],[-122.391612,37.7930388],[-122.391722,37.7929288],[-122.391662,37.7928888],[-122.391442,37.7930588],[-122.391362,37.7930188],[-122.3912319,37.7931288],[-122.3911619,37.7930488],[-122.391502,37.7927688],[-122.3914719,37.7926988],[-122.3912219,37.7925088],[-122.3910519,37.7926288],[-122.3909719,37.7925988],[-122.3911219,37.7924688],[-122.3910619,37.7923788],[-122.3914119,37.7921188],[-122.3912419,37.7919588],[-122.3908919,37.7922088],[-122.3908119,37.7921288],[-122.3911119,37.7918788],[-122.3909719,37.7917388],[-122.3906319,37.7919888],[-122.3905419,37.7919288],[-122.3902019,37.7916588],[-122.3899919,37.7914588],[-122.3898919,37.7914088],[-122.3898519,37.7914688],[-122.3897219,37.7913588],[-122.3897719,37.7912988],[-122.3896219,37.7911588],[-122.3897219,37.7910388],[-122.3896419,37.7910088],[-122.3893819,37.7911988],[-122.3894419,37.7912788],[-122.3895319,37.7913588],[-122.3901119,37.7918388],[-122.3899619,37.7919788],[-122.3890919,37.7912688],[-122.3897319,37.7907588],[-122.3890719,37.7902289],[-122.3891519,37.7901689],[-122.3896119,37.7905288],[-122.3897419,37.7904688],[-122.3895119,37.7902289],[-122.3895619,37.7901789],[-122.3895219,37.7901189],[-122.3896119,37.7900689],[-122.3898819,37.7902789],[-122.3899519,37.7903089],[-122.3900119,37.7902889],[-122.3901519,37.7903989],[-122.3902619,37.7903289],[-122.3899219,37.7900289],[-122.3895219,37.7897389],[-122.3891719,37.7899789],[-122.3888319,37.7897089],[-122.3891419,37.7894589],[-122.3893719,37.7896389],[-122.3895619,37.7895689],[-122.3892719,37.7892689],[-122.3890419,37.7889889],[-122.3888919,37.7887189],[-122.3889119,37.7885589],[-122.3884219,37.7881589],[-122.3884819,37.7880289],[-122.3886119,37.7878689],[-122.3888819,37.7877289],[-122.3893719,37.7881189],[-122.3895819,37.7880889],[-122.3898219,37.7879889],[-122.3899419,37.7878889],[-122.3899819,37.7877589],[-122.3900319,37.7876589],[-122.3900419,37.7876089],[-122.3902219,37.7875189],[-122.3902419,37.7874089],[-122.3902419,37.787289],[-122.3901619,37.787029],[-122.3901819,37.786929],[-122.3902219,37.786829],[-122.3902019,37.786639],[-122.3905119,37.786399],[-122.3906519,37.786189],[-122.3907619,37.785989],[-122.3908019,37.785819],[-122.3908419,37.785709],[-122.3908219,37.785639],[-122.3908719,37.785539],[-122.3908519,37.785459],[-122.3908019,37.785369],[-122.3908719,37.785279],[-122.3909119,37.785179],[-122.3909319,37.785089],[-122.3909319,37.784909],[-122.3909919,37.784839],[-122.3911219,37.784779],[-122.3911519,37.784719],[-122.3910919,37.784619],[-122.3911019,37.784519],[-122.3912019,37.784329],[-122.3911519,37.784219],[-122.3911719,37.7841191],[-122.3912019,37.7840391],[-122.3912219,37.7839191],[-122.3912819,37.7838191],[-122.3913019,37.7837091],[-122.3913519,37.7835891],[-122.3914219,37.7834791],[-122.3914419,37.7833591],[-122.3914419,37.7832791],[-122.3914919,37.7831591],[-122.3915119,37.7830391],[-122.3915519,37.7828991],[-122.3915619,37.7827891],[-122.3916219,37.7824991],[-122.3915019,37.7823291],[-122.3914719,37.7821391],[-122.3914019,37.7820591],[-122.3914119,37.7819691],[-122.3913419,37.7819091],[-122.3912419,37.7818391],[-122.3911119,37.7818591],[-122.3910319,37.7818091],[-122.3909819,37.7817291],[-122.3909319,37.7816891],[-122.3907919,37.7816491],[-122.3907919,37.7815591],[-122.3906519,37.7814791],[-122.3902819,37.7814091],[-122.3902019,37.7814091],[-122.3901119,37.7814491],[-122.3900819,37.7815291],[-122.3899919,37.7815091],[-122.3899019,37.7814591],[-122.3898019,37.7813891],[-122.3897519,37.7812891],[-122.3897419,37.7812191],[-122.3898219,37.7811691],[-122.3898819,37.7810891],[-122.3898419,37.7810491],[-122.3897819,37.7810391],[-122.3896719,37.7810691],[-122.3896019,37.7810691],[-122.3895619,37.7809091],[-122.3893819,37.7808891],[-122.3894819,37.7808291],[-122.3895819,37.7807991],[-122.3896519,37.7807391],[-122.3895019,37.7807291],[-122.3894018,37.7806991],[-122.3893918,37.7806291],[-122.3894818,37.7805692],[-122.3895919,37.7805492],[-122.3896719,37.7805492],[-122.3897819,37.7805292],[-122.3898819,37.7804892],[-122.3899319,37.7804292],[-122.3899919,37.7803792],[-122.3900419,37.7804192],[-122.3901219,37.7804292],[-122.3901419,37.7803292],[-122.3901919,37.7801792],[-122.3903519,37.7800292],[-122.3904919,37.7799292],[-122.3906919,37.7797192],[-122.3908219,37.7794092],[-122.3909419,37.7791592],[-122.3911219,37.7789592],[-122.3913419,37.7788092],[-122.3914819,37.7786892],[-122.3915719,37.7785392],[-122.3917119,37.7783992],[-122.3917919,37.7782992],[-122.3918419,37.7782092],[-122.3918819,37.7780692],[-122.3919619,37.7779692],[-122.3920419,37.7778892],[-122.3920919,37.7777293],[-122.3922219,37.7775693],[-122.3922419,37.7775293],[-122.3921419,37.7775493],[-122.3920019,37.7775593],[-122.3918819,37.7775593],[-122.3917019,37.7775893],[-122.3917619,37.7775293],[-122.3920419,37.7775293],[-122.3922619,37.7774793],[-122.3923419,37.7773093],[-122.3924019,37.7771093],[-122.3924319,37.7767793],[-122.3927919,37.7767293],[-122.3929519,37.7766993],[-122.3930919,37.7767293],[-122.3932719,37.7769393],[-122.3934419,37.7771793],[-122.3936919,37.7770393],[-122.3937319,37.7770893],[-122.3935319,37.7772093],[-122.3934919,37.7772593],[-122.3935519,37.7773393],[-122.3935619,37.7774093],[-122.3936819,37.7775793],[-122.3937419,37.7777493],[-122.3938619,37.7777393],[-122.3940719,37.7777593],[-122.3942919,37.7775693],[-122.3945519,37.7773793],[-122.3946019,37.7774393],[-122.3942319,37.7776993],[-122.3941819,37.7777593],[-122.3942819,37.7777593],[-122.3943619,37.7778093],[-122.3944119,37.7778793],[-122.3945519,37.7779993],[-122.3946219,37.7780793],[-122.3947419,37.7781493],[-122.3948519,37.7781793],[-122.3949119,37.7782593],[-122.3949819,37.7782993],[-122.3950419,37.7782193],[-122.3951119,37.7781693],[-122.3953319,37.7781893],[-122.3954419,37.7781793],[-122.3956119,37.7781793],[-122.3957019,37.7781593],[-122.3957619,37.7781193],[-122.3958719,37.7781193],[-122.3960319,37.7780393],[-122.3961219,37.7780293],[-122.3962019,37.7780593],[-122.3962919,37.7781093],[-122.3964119,37.7780593],[-122.3966819,37.7778793],[-122.3970319,37.7775693],[-122.3973719,37.7773193],[-122.3975219,37.7772293],[-122.3982919,37.7766393],[-122.3983819,37.7765293],[-122.3984719,37.7763893],[-122.3985719,37.7761393],[-122.3986819,37.7759993],[-122.3987919,37.7758994],[-122.3989319,37.7758494],[-122.3990219,37.7757794],[-122.3990919,37.7756094],[-122.3992119,37.7755094],[-122.3993119,37.7752294],[-122.3993519,37.7751394],[-122.3994519,37.7750394],[-122.3994719,37.7749794],[-122.3995719,37.7749394],[-122.3996919,37.7748294],[-122.3997619,37.7746594],[-122.3997919,37.7745594],[-122.3998419,37.7744994],[-122.3998119,37.7743994],[-122.3999119,37.7743494],[-122.4000119,37.7740894],[-122.4000519,37.7740294],[-122.4000919,37.7739094],[-122.4003919,37.7734894],[-122.4005919,37.7731294],[-122.4006319,37.7729595],[-122.4006819,37.7728195],[-122.4007319,37.7727195],[-122.4007419,37.7726195],[-122.4008419,37.7724595],[-122.4008719,37.7723695],[-122.4009119,37.7723295],[-122.4008919,37.7722095],[-122.4009219,37.7720895],[-122.4009719,37.7719595],[-122.4010119,37.7718095],[-122.4010519,37.7715195],[-122.4010819,37.7714095],[-122.4011719,37.7713495],[-122.4012719,37.7713295],[-122.4012719,37.7714295],[-122.4013119,37.7715595],[-122.4014019,37.7715995],[-122.4016019,37.7717195],[-122.4016519,37.7718295],[-122.4017319,37.7718695],[-122.4017919,37.7718295],[-122.4016719,37.7717595],[-122.4017019,37.7716995],[-122.4017519,37.7716595],[-122.4017919,37.7715995],[-122.4018419,37.7715995],[-122.4019419,37.7716695],[-122.4020019,37.7716595],[-122.4020719,37.7716095],[-122.4021019,37.7715395],[-122.4020519,37.7714895],[-122.4020219,37.7714295],[-122.4019819,37.7713395],[-122.4019919,37.7712995],[-122.4019519,37.7712695],[-122.4019019,37.7713495],[-122.4019219,37.7714095],[-122.4020119,37.7715295],[-122.4019319,37.7715595],[-122.4018719,37.7715095],[-122.4018219,37.7715095],[-122.4017319,37.7715395],[-122.4016819,37.7715695],[-122.4016619,37.7716195],[-122.4016119,37.7716295],[-122.4015619,37.7715595],[-122.4014819,37.7715495],[-122.4014219,37.7715295],[-122.4013919,37.7714895],[-122.4013819,37.7714395],[-122.4013919,37.7713895],[-122.4013819,37.7713395],[-122.4013619,37.7712895],[-122.4013219,37.7712495],[-122.4012419,37.7712495],[-122.4011319,37.7712795],[-122.4010919,37.7712395],[-122.4011419,37.7711295],[-122.4012019,37.7710595],[-122.4012419,37.7709595],[-122.4013319,37.7708595],[-122.4014319,37.7707295],[-122.4015319,37.7706295],[-122.4015919,37.7705295],[-122.4016419,37.7704095],[-122.4017219,37.7703695],[-122.4018219,37.7703495],[-122.4020419,37.7703695],[-122.4021519,37.7703395],[-122.4024119,37.7703195],[-122.4025019,37.7702895],[-122.4026819,37.7702895],[-122.4028419,37.7702995],[-122.4029619,37.7703595],[-122.4030319,37.7704195],[-122.4031919,37.7706095],[-122.4033219,37.7707995],[-122.4034419,37.7709295],[-122.403632,37.7710895],[-122.403782,37.7711595],[-122.403972,37.7711895],[-122.404162,37.7711895],[-122.404562,37.7710895],[-122.404892,37.7709395],[-122.404912,37.7708795],[-122.404922,37.7707895],[-122.404912,37.7706595],[-122.405012,37.7706396],[-122.405092,37.7705996],[-122.405252,37.7702996],[-122.405332,37.7701996],[-122.405402,37.7700896],[-122.405502,37.7700196],[-122.405622,37.7699896],[-122.405812,37.7699096],[-122.406032,37.7698396],[-122.406112,37.7697896],[-122.406162,37.7697396],[-122.406122,37.7696496],[-122.406212,37.7696796],[-122.406342,37.7697496],[-122.406442,37.7697596],[-122.406462,37.7696796],[-122.406502,37.7696096],[-122.406622,37.7696196],[-122.406872,37.7696796],[-122.407132,37.7698296],[-122.407412,37.7696096]],[[-122.3869317,37.7665296],[-122.3868917,37.7665696],[-122.3868217,37.7665696],[-122.3868317,37.7665096],[-122.3868917,37.7664796],[-122.3869317,37.7665296]],[[-122.3869717,37.7663596],[-122.3868617,37.7664296],[-122.3868517,37.7663796],[-122.3868817,37.7663396],[-122.3869317,37.7663196],[-122.3869717,37.7663596]],[[-122.3862717,37.7668796],[-122.3861717,37.7668596],[-122.3861417,37.7668296],[-122.3861617,37.7667896],[-122.3862217,37.7667896],[-122.3862617,37.7668296],[-122.3862717,37.7668796]],[[-122.3867117,37.7666896],[-122.3866717,37.7667196],[-122.3866317,37.7667096],[-122.3866017,37.7666896],[-122.3865517,37.7666296],[-122.3865817,37.7665896],[-122.3866817,37.7665896],[-122.3867117,37.7666896]],[[-122.3865117,37.7667496],[-122.3865017,37.7667896],[-122.3864617,37.7667996],[-122.3863917,37.7667796],[-122.3863317,37.7667996],[-122.3863217,37.7667396],[-122.3863417,37.7666996],[-122.3864217,37.7666696],[-122.3864717,37.7666896],[-122.3865117,37.7667496]],[[-122.4487828,37.8026188],[-122.4487328,37.8026388],[-122.4487028,37.8025788],[-122.4487228,37.8025588],[-122.4487828,37.8025688],[-122.4487828,37.8026188]],[[-122.4434727,37.8000488],[-122.4434527,37.8000888],[-122.4433927,37.8001088],[-122.4433827,37.8000688],[-122.4434227,37.8000288],[-122.4434827,37.7999889],[-122.4434727,37.8000488]],[[-122.4488628,37.8027288],[-122.4488628,37.8027688],[-122.4488328,37.8027988],[-122.4487728,37.8027888],[-122.4487228,37.8027388],[-122.4487128,37.8026988],[-122.4487328,37.8026788],[-122.4487928,37.8026688],[-122.4488628,37.8027288]],[[-122.407052,37.7373907],[-122.406982,37.7374107],[-122.406922,37.7373907],[-122.406872,37.7373607],[-122.406742,37.7373707],[-122.406722,37.7373207],[-122.406802,37.7372907],[-122.406892,37.7372907],[-122.406992,37.7373207],[-122.407062,37.7373307],[-122.407052,37.7373907]],[[-122.4169024,37.8047886],[-122.4168624,37.8047686],[-122.4168424,37.8047186],[-122.4168524,37.8045986],[-122.4168924,37.8045886],[-122.4169224,37.8046786],[-122.4169024,37.8047886]],[[-122.4494528,37.8031388],[-122.4493128,37.8031288],[-122.4493128,37.8030888],[-122.4493328,37.8030388],[-122.4493728,37.8030288],[-122.4494428,37.8030388],[-122.4495828,37.8030888],[-122.4495428,37.8031188],[-122.4494928,37.8031188],[-122.4494528,37.8031388]],[[-122.4433727,37.8011688],[-122.4432927,37.8011688],[-122.4432727,37.8011488],[-122.4432627,37.8011088],[-122.4432727,37.8010688],[-122.4433027,37.8010688],[-122.4433727,37.8011188],[-122.4434327,37.8011288],[-122.4434527,37.8011388],[-122.4434427,37.8011688],[-122.4434227,37.8011788],[-122.4433727,37.8011688]],[[-122.4115821,37.7338609],[-122.4115021,37.7338209],[-122.4114121,37.7338109],[-122.4113721,37.7336809],[-122.4112821,37.7336409],[-122.4113421,37.7335809],[-122.4114521,37.7336109],[-122.4115521,37.7335709],[-122.4116521,37.7335409],[-122.4117321,37.7335709],[-122.4117521,37.7336209],[-122.4117721,37.7337209],[-122.4117721,37.7337609],[-122.4117221,37.7338409],[-122.4115821,37.7338609]],[[-122.4515328,37.8038788],[-122.4514828,37.8038688],[-122.4514528,37.8038388],[-122.4513128,37.8038088],[-122.4512828,37.8037688],[-122.4513028,37.8037388],[-122.4513428,37.8037388],[-122.4514328,37.8037588],[-122.4515428,37.8037588],[-122.4516528,37.8037988],[-122.4516728,37.8038388],[-122.4516428,37.8038688],[-122.4516128,37.8038788],[-122.4515328,37.8038788]],[[-122.4447427,37.8017488],[-122.4447027,37.8015788],[-122.4446527,37.8014788],[-122.4446527,37.8014188],[-122.4446727,37.8013888],[-122.4447127,37.8013788],[-122.4447427,37.8014288],[-122.4448227,37.8016188],[-122.4448627,37.8017488],[-122.4448527,37.8017888],[-122.4447627,37.8017788],[-122.4447427,37.8017488]],[[-122.4429827,37.8010688],[-122.4429327,37.8010488],[-122.4429227,37.8010288],[-122.4429227,37.8009988],[-122.4429327,37.8009788],[-122.4429627,37.8009688],[-122.4431127,37.8009688],[-122.4431427,37.8009888],[-122.4431127,37.8010288],[-122.4430427,37.8010588],[-122.4429827,37.8010688]],[[-122.4429327,37.8008288],[-122.4429527,37.8007488],[-122.4429927,37.8007088],[-122.4431727,37.8007088],[-122.4432827,37.8007188],[-122.4433527,37.8006988],[-122.4435327,37.8007188],[-122.4436227,37.8007388],[-122.4437027,37.8007888],[-122.4435927,37.8007688],[-122.4435027,37.8007888],[-122.4434527,37.8008388],[-122.4433927,37.8008488],[-122.4433627,37.8008088],[-122.4433027,37.8007988],[-122.4432427,37.8008088],[-122.4431827,37.8008388],[-122.4429627,37.8008388],[-122.4429327,37.8008288]],[[-122.4046819,37.7410105],[-122.4046519,37.7409305],[-122.4046819,37.7408805],[-122.4047419,37.7408705],[-122.4049019,37.7409105],[-122.4049619,37.7408805],[-122.4050519,37.7408805],[-122.4051319,37.7409605],[-122.4051319,37.7410205],[-122.4051019,37.7411605],[-122.4050619,37.7412005],[-122.4049619,37.7412205],[-122.4048219,37.7413005],[-122.4047519,37.7413305],[-122.4046219,37.7412905],[-122.4046819,37.7410905],[-122.4046819,37.7410105]],[[-122.4534729,37.8043188],[-122.4534929,37.8043688],[-122.4534629,37.8044088],[-122.4534829,37.8044488],[-122.4535129,37.8044788],[-122.4535129,37.8045088],[-122.4534729,37.8045088],[-122.4534329,37.8045288],[-122.4533729,37.8045388],[-122.4533629,37.8044188],[-122.4533329,37.8042588],[-122.4533629,37.8041788],[-122.4534029,37.8041688],[-122.4534529,37.8041788],[-122.4534629,37.8042188],[-122.4534429,37.8042588],[-122.4534529,37.8042988],[-122.4534729,37.8043188]],[[-122.4469727,37.8001989],[-122.4470427,37.8003089],[-122.4470527,37.8003889],[-122.4469327,37.8003589],[-122.4468827,37.8003689],[-122.4468527,37.8004089],[-122.4469027,37.8005089],[-122.4469027,37.8005489],[-122.4468427,37.8005489],[-122.4467427,37.8004989],[-122.4466827,37.8004889],[-122.4466427,37.8004689],[-122.4466427,37.8003589],[-122.4465627,37.8002089],[-122.4466227,37.8001889],[-122.4466427,37.8001589],[-122.4469027,37.8001589],[-122.4469727,37.8001989]],[[-122.4208626,37.8261979],[-122.4208126,37.8261479],[-122.4206326,37.8260779],[-122.4205826,37.8260179],[-122.4205626,37.8259579],[-122.4205826,37.8258979],[-122.4205726,37.8258479],[-122.4205826,37.8257879],[-122.4205826,37.8256879],[-122.4205426,37.8256279],[-122.4204926,37.8256279],[-122.4205226,37.8255679],[-122.4204326,37.8254779],[-122.4203826,37.8253879],[-122.4204326,37.8253479],[-122.4204526,37.8252779],[-122.4205226,37.8252479],[-122.4205326,37.8251779],[-122.4205626,37.8251179],[-122.4206226,37.8250479],[-122.4206826,37.8250179],[-122.4207726,37.8249879],[-122.4208426,37.8249879],[-122.4209026,37.8249979],[-122.4210026,37.8250379],[-122.4210826,37.8250279],[-122.4212526,37.8250279],[-122.4213126,37.8250379],[-122.4213726,37.8250579],[-122.4214726,37.8251079],[-122.4215326,37.8251179],[-122.4215826,37.8251179],[-122.4217126,37.8251479],[-122.4219026,37.8251579],[-122.4219926,37.8251779],[-122.4220426,37.8252279],[-122.4220626,37.8252979],[-122.4221226,37.8253279],[-122.4221726,37.8252679],[-122.4222626,37.8253079],[-122.4223926,37.8253379],[-122.4224726,37.8253979],[-122.4225426,37.8254779],[-122.4226526,37.8255279],[-122.4226626,37.8256079],[-122.4227126,37.8256779],[-122.4229726,37.8257579],[-122.4230826,37.8257379],[-122.4231326,37.8257879],[-122.4231126,37.8258679],[-122.4231926,37.8259479],[-122.4232926,37.8260179],[-122.4233626,37.8261079],[-122.4234626,37.8263379],[-122.4235226,37.8264179],[-122.4236526,37.8264779],[-122.4237026,37.8265179],[-122.4238126,37.8265379],[-122.4238826,37.8264979],[-122.4240826,37.8265779],[-122.4242327,37.8265179],[-122.4243227,37.8265679],[-122.4243527,37.8266779],[-122.4244027,37.8267579],[-122.4244327,37.8268779],[-122.4244327,37.8269679],[-122.4243727,37.8270479],[-122.4241927,37.8272079],[-122.4242427,37.8272679],[-122.4243927,37.8273879],[-122.4245027,37.8275079],[-122.4245827,37.8275779],[-122.4247527,37.8275679],[-122.4248027,37.8276279],[-122.4248727,37.8276579],[-122.4249927,37.8276779],[-122.4251327,37.8276879],[-122.4252327,37.8277479],[-122.4252827,37.8278379],[-122.4253927,37.8281079],[-122.4254027,37.8281779],[-122.4252827,37.8282579],[-122.4251427,37.8282779],[-122.4249627,37.8282779],[-122.4248227,37.8282679],[-122.4242927,37.8282079],[-122.4241227,37.8282179],[-122.4239627,37.8282179],[-122.4238527,37.8281879],[-122.4232226,37.8278579],[-122.4228526,37.8276779],[-122.4227226,37.8275879],[-122.4225226,37.8274979],[-122.4224526,37.8274179],[-122.4223826,37.8274279],[-122.4223226,37.8273279],[-122.4222526,37.8272979],[-122.4221826,37.8272479],[-122.4220226,37.8272479],[-122.4219926,37.8271579],[-122.4219426,37.8271179],[-122.4218126,37.8271179],[-122.4217426,37.8270579],[-122.4216726,37.8270679],[-122.4216026,37.8269979],[-122.4213626,37.8268679],[-122.4212826,37.8269079],[-122.4209226,37.8266879],[-122.4209926,37.8264879],[-122.4208626,37.8261979]],[[-122.4536029,37.8042888],[-122.4535929,37.8042288],[-122.4535529,37.8042088],[-122.4535029,37.8041188],[-122.4535129,37.8040688],[-122.4536129,37.8041188],[-122.4537329,37.8040988],[-122.4538929,37.8041788],[-122.4539929,37.8041988],[-122.4540129,37.8042588],[-122.4539729,37.8042988],[-122.4539229,37.8042788],[-122.4538429,37.8042688],[-122.4538529,37.8043288],[-122.4538329,37.8043688],[-122.4537729,37.8043888],[-122.4537629,37.8044288],[-122.4537129,37.8044688],[-122.4536529,37.8044788],[-122.4536129,37.8044388],[-122.4536429,37.8043288],[-122.4536029,37.8042888]],[[-122.4506828,37.8033288],[-122.4506328,37.8032188],[-122.4506428,37.8031588],[-122.4506228,37.8030888],[-122.4506228,37.8030288],[-122.4506528,37.8029788],[-122.4506628,37.8029188],[-122.4506628,37.8028088],[-122.4507028,37.8027588],[-122.4507428,37.8028188],[-122.4507528,37.8028888],[-122.4507428,37.8030188],[-122.4507428,37.8031588],[-122.4507528,37.8032188],[-122.4508828,37.8034488],[-122.4508728,37.8034888],[-122.4508528,37.8035088],[-122.4507328,37.8033988],[-122.4506828,37.8033288]],[[-122.404542,37.7703796],[-122.404242,37.7706695],[-122.404082,37.7707395],[-122.403952,37.7707495],[-122.403802,37.7706595],[-122.4036819,37.7705295],[-122.4033919,37.7701596],[-122.4034619,37.7701296],[-122.4035619,37.7701296],[-122.4037219,37.7701096],[-122.4038419,37.7700696],[-122.4039219,37.7700296],[-122.4039819,37.7699396],[-122.4040119,37.7698496],[-122.4041219,37.7697996],[-122.4041919,37.7698496],[-122.404212,37.7699496],[-122.404242,37.7699996],[-122.404332,37.7700496],[-122.404462,37.7700896],[-122.404622,37.7701196],[-122.404702,37.7701696],[-122.404582,37.7702796],[-122.404542,37.7703796]],[[-122.4497028,37.8030088],[-122.4496328,37.8029988],[-122.4495528,37.8029988],[-122.4495728,37.8029388],[-122.4496328,37.8028888],[-122.4497028,37.8028488],[-122.4497728,37.8027888],[-122.4498328,37.8027188],[-122.4498828,37.8026888],[-122.4500528,37.8026488],[-122.4502428,37.8026288],[-122.4503128,37.8026388],[-122.4503528,37.8026588],[-122.4503628,37.8027088],[-122.4502828,37.8027388],[-122.4502128,37.8027188],[-122.4501228,37.8027088],[-122.4500228,37.8027288],[-122.4499928,37.8028388],[-122.4498728,37.8028788],[-122.4498228,37.8029188],[-122.4497828,37.8030288],[-122.4497328,37.8030288],[-122.4497028,37.8030088]],[[-122.4448027,37.8012488],[-122.4447627,37.8011488],[-122.4447127,37.8011188],[-122.4446327,37.8010488],[-122.4445427,37.8010088],[-122.4445127,37.8009788],[-122.4445127,37.8009488],[-122.4445527,37.8009388],[-122.4446027,37.8009488],[-122.4446827,37.8009888],[-122.4447727,37.8010088],[-122.4448527,37.8010088],[-122.4450427,37.8009688],[-122.4450927,37.8009788],[-122.4450727,37.8010788],[-122.4450427,37.8011588],[-122.4450527,37.8012288],[-122.4450227,37.8013188],[-122.4450227,37.8013588],[-122.4449927,37.8013988],[-122.4449627,37.8014088],[-122.4448927,37.8013688],[-122.4448027,37.8012488]],[[-122.4438827,37.8004188],[-122.4437427,37.8003788],[-122.4436027,37.8003588],[-122.4435727,37.8003088],[-122.4436927,37.8002188],[-122.4438827,37.8001488],[-122.4439327,37.8000988],[-122.4439827,37.8001388],[-122.4439927,37.8003388],[-122.4440527,37.8003788],[-122.4441327,37.8004088],[-122.4442527,37.8003888],[-122.4442827,37.8003488],[-122.4442827,37.8002788],[-122.4442627,37.8001688],[-122.4443027,37.8001788],[-122.4443527,37.8002088],[-122.4444027,37.8002588],[-122.4444227,37.8003288],[-122.4444127,37.8003788],[-122.4443227,37.8003888],[-122.4442327,37.8004288],[-122.4441527,37.8005088],[-122.4441027,37.8005088],[-122.4440327,37.8004888],[-122.4438827,37.8004188]],[[-122.4480928,37.8023888],[-122.4480428,37.8023388],[-122.4480228,37.8022588],[-122.4479728,37.8022588],[-122.4479728,37.8022188],[-122.4480028,37.8021788],[-122.4480428,37.8021788],[-122.4481828,37.8022388],[-122.4484528,37.8023788],[-122.4484328,37.8024688],[-122.4484428,37.8025688],[-122.4484728,37.8026388],[-122.4485828,37.8027588],[-122.4486028,37.8028088],[-122.4485928,37.8028488],[-122.4485428,37.8028888],[-122.4484728,37.8028688],[-122.4483928,37.8028288],[-122.4482528,37.8026988],[-122.4482128,37.8026388],[-122.4481728,37.8025488],[-122.4480928,37.8024888],[-122.4480828,37.8024588],[-122.4480928,37.8023888]],[[-122.4552729,37.8043188],[-122.4552729,37.8042588],[-122.4553329,37.8042288],[-122.4554629,37.8042088],[-122.4555029,37.8041588],[-122.4556129,37.8041388],[-122.4557929,37.8039788],[-122.4558429,37.8039888],[-122.4558929,37.8040388],[-122.4559429,37.8040588],[-122.4560029,37.8040688],[-122.4560829,37.8040188],[-122.4561229,37.8039788],[-122.4561529,37.8039288],[-122.4561229,37.8039088],[-122.4560629,37.8039588],[-122.4560229,37.8040188],[-122.4559829,37.8040088],[-122.4559729,37.8039788],[-122.4560029,37.8039088],[-122.4560029,37.8038788],[-122.4559529,37.8038488],[-122.4558629,37.8038988],[-122.4558529,37.8038488],[-122.4559129,37.8037888],[-122.4560129,37.8037588],[-122.4560929,37.8037488],[-122.4561529,37.8036788],[-122.4561829,37.8036088],[-122.4562229,37.8035888],[-122.4563229,37.8035788],[-122.4565129,37.8035888],[-122.4566629,37.8036288],[-122.4568029,37.8036488],[-122.4569129,37.8036988],[-122.4569329,37.8037388],[-122.4570129,37.8037488],[-122.4571729,37.8038988],[-122.4572029,37.8039488],[-122.4572329,37.8040088],[-122.4572629,37.8041688],[-122.4573129,37.8042488],[-122.4573729,37.8043088],[-122.4573729,37.8043488],[-122.4572929,37.8043388],[-122.4571929,37.8043088],[-122.4571229,37.8043088],[-122.4570429,37.8043288],[-122.4569629,37.8043288],[-122.4568429,37.8042788],[-122.4567729,37.8043188],[-122.4566829,37.8043488],[-122.4566229,37.8043288],[-122.4565129,37.8043288],[-122.4564129,37.8043388],[-122.4561629,37.8042688],[-122.4560529,37.8042288],[-122.4559629,37.8042188],[-122.4558829,37.8042388],[-122.4558229,37.8042688],[-122.4556929,37.8042588],[-122.4555729,37.8042688],[-122.4554129,37.8042988],[-122.4553029,37.8043388],[-122.4552729,37.8043188]],[[-122.4447127,37.8020688],[-122.4446727,37.8019688],[-122.4446427,37.8019188],[-122.4446327,37.8018688],[-122.4446527,37.8018088],[-122.4446927,37.8018388],[-122.4447127,37.8018788],[-122.4447127,37.8019288],[-122.4447527,37.8019888],[-122.4447727,37.8020388],[-122.4448227,37.8020688],[-122.4448627,37.8021088],[-122.4448927,37.8021588],[-122.4449227,37.8021888],[-122.4449827,37.8021788],[-122.4449327,37.8021088],[-122.4449227,37.8020388],[-122.4448527,37.8019288],[-122.4448427,37.8018788],[-122.4448727,37.8018188],[-122.4449027,37.8018088],[-122.4449427,37.8018188],[-122.4449827,37.8017988],[-122.4449927,37.8017288],[-122.4449627,37.8016188],[-122.4450127,37.8015788],[-122.4450527,37.8015988],[-122.4451527,37.8016088],[-122.4452627,37.8014988],[-122.4453127,37.8015288],[-122.4453327,37.8015688],[-122.4453927,37.8016088],[-122.4454427,37.8016188],[-122.4454827,37.8016688],[-122.4455327,37.8016088],[-122.4457327,37.8015888],[-122.4459327,37.8015588],[-122.4460627,37.8014988],[-122.4461727,37.8014688],[-122.4462327,37.8014988],[-122.4462627,37.8015388],[-122.4464427,37.8015788],[-122.4464827,37.8016188],[-122.4464527,37.8016388],[-122.4465027,37.8017488],[-122.4466827,37.8017888],[-122.4467427,37.8018088],[-122.4467727,37.8018288],[-122.4467927,37.8018688],[-122.4468027,37.8019288],[-122.4467927,37.8020188],[-122.4468627,37.8020988],[-122.4469027,37.8021188],[-122.4470028,37.8020988],[-122.4470928,37.8020688],[-122.4471528,37.8019988],[-122.4472528,37.8020588],[-122.4473528,37.8020788],[-122.4474228,37.8021088],[-122.4474028,37.8021288],[-122.4471728,37.8021788],[-122.4468928,37.8022288],[-122.4467427,37.8022888],[-122.4465627,37.8024288],[-122.4463027,37.8025188],[-122.4461527,37.8026288],[-122.4459427,37.8026788],[-122.4457827,37.8027088],[-122.4456827,37.8027188],[-122.4455427,37.8026988],[-122.4452027,37.8025988],[-122.4450527,37.8025088],[-122.4450027,37.8024688],[-122.4449827,37.8024188],[-122.4449427,37.8023888],[-122.4449127,37.8023788],[-122.4448727,37.8023188],[-122.4448227,37.8022188],[-122.4448227,37.8021588],[-122.4447727,37.8020988],[-122.4447127,37.8020688]],[[-122.3971318,37.7417604],[-122.3972418,37.7416205],[-122.3972818,37.7415905],[-122.3973618,37.7415505],[-122.3973618,37.7415105],[-122.3973818,37.7414605],[-122.3974218,37.7414105],[-122.3975318,37.7413705],[-122.3975818,37.7413405],[-122.3976118,37.7412905],[-122.3976118,37.7411905],[-122.3976518,37.7411205],[-122.3976918,37.7410905],[-122.3976918,37.7410505],[-122.3977118,37.7410005],[-122.3978218,37.7409305],[-122.3978818,37.7409205],[-122.3979218,37.7408905],[-122.3979218,37.7408005],[-122.3979718,37.7408005],[-122.3980019,37.7407905],[-122.3980319,37.7407505],[-122.3980419,37.7407205],[-122.3980119,37.7406805],[-122.3979719,37.7406605],[-122.3979719,37.7406305],[-122.3980319,37.7406205],[-122.3980719,37.7406305],[-122.3981119,37.7406105],[-122.3981419,37.7405705],[-122.3981819,37.7405505],[-122.3982019,37.7406205],[-122.3982219,37.7406505],[-122.3982819,37.7406605],[-122.3983319,37.7406505],[-122.3984319,37.7405605],[-122.3984519,37.7405205],[-122.3984619,37.7404705],[-122.3984519,37.7404305],[-122.3984319,37.7404005],[-122.3984319,37.7403605],[-122.3984719,37.7403405],[-122.3985119,37.7403605],[-122.3986419,37.7403605],[-122.3986819,37.7403305],[-122.3987119,37.7403205],[-122.3987519,37.7403405],[-122.3987819,37.7403705],[-122.3988419,37.7403605],[-122.3989019,37.7403205],[-122.3989319,37.7402905],[-122.3989719,37.7402805],[-122.3989819,37.7403005],[-122.3989919,37.7403805],[-122.3990319,37.7404105],[-122.3991219,37.7404105],[-122.3991819,37.7403905],[-122.3992619,37.7403405],[-122.3993519,37.7403905],[-122.3994919,37.7404305],[-122.3995219,37.7404605],[-122.3995319,37.7405005],[-122.3993319,37.7405705],[-122.3990519,37.7407005],[-122.3986419,37.7408505],[-122.3985819,37.7409205],[-122.3984919,37.7409605],[-122.3984019,37.7409805],[-122.3983319,37.7410105],[-122.3982719,37.7410705],[-122.3981418,37.7411405],[-122.3980818,37.7411505],[-122.3980018,37.7411805],[-122.3978818,37.7412505],[-122.3977118,37.7413705],[-122.3976918,37.7414105],[-122.3975918,37.7415005],[-122.3975118,37.7416605],[-122.3974118,37.7417005],[-122.3973518,37.7417005],[-122.3972918,37.7417105],[-122.3972418,37.7417504],[-122.3971418,37.7418604],[-122.3970918,37.7419004],[-122.3970418,37.7419204],[-122.3969918,37.7418904],[-122.3969918,37.7418404],[-122.3971318,37.7417604]]]}}
+]}
+```
+
+`pipeline/data/full-city/hand/hand_marsh_noaa.geojson`
+
+```json
+{"type": "FeatureCollection", "features": [
+{"type":"Feature","properties":{"source":"NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-islais-marsh","confidence":"inferred","area_id":"CA37A02-12","area_m2":1293184,"seed":"a02-islais-marsh"},"geometry":{"type":"Polygon","coordinates":[[[-122.392963,37.7394293],[-122.3942063,37.7479563],[-122.39427,37.74802],[-122.39431,37.74816],[-122.39443,37.74824],[-122.39461,37.7483],[-122.3948,37.74832],[-122.39493,37.74832],[-122.39502,37.74834],[-122.39521,37.74836],[-122.39551,37.74811],[-122.39557,37.74801],[-122.3956,37.7479],[-122.39564,37.74781],[-122.3958,37.74751],[-122.39582,37.74729],[-122.39582,37.7472],[-122.39594,37.74715],[-122.39612,37.74697],[-122.39625,37.74689],[-122.39641,37.74686],[-122.39685,37.74689],[-122.39704,37.74696],[-122.39718,37.74699],[-122.39724,37.74703],[-122.39731,37.74711],[-122.39735,37.74717],[-122.39752,37.74726],[-122.39767,37.74737],[-122.39772,37.74744],[-122.39786,37.74758],[-122.39795,37.74765],[-122.39812,37.74783],[-122.39818,37.7479],[-122.39821,37.74799],[-122.39846,37.74809],[-122.39873,37.74815],[-122.3988,37.74818],[-122.39888,37.74819],[-122.39895,37.74822],[-122.39903,37.74823],[-122.39912,37.74826],[-122.39921,37.74828],[-122.39931,37.74828],[-122.39948,37.74822],[-122.39962,37.74809],[-122.39994,37.74731],[-122.40007,37.74714],[-122.40016,37.74709],[-122.40036,37.74709],[-122.40045,37.74712],[-122.40064,37.74726],[-122.40103,37.74761],[-122.40115,37.74766],[-122.40131,37.74766],[-122.40146,37.74765],[-122.40169,37.74779],[-122.40172,37.74789],[-122.40178,37.74804],[-122.40182,37.74811],[-122.40193,37.74819],[-122.40197,37.74823],[-122.40203,37.74841],[-122.40214,37.74857],[-122.40227,37.74864],[-122.40239,37.74872],[-122.4027,37.74876],[-122.40277,37.7488],[-122.40287,37.74887],[-122.40292,37.74892],[-122.40299,37.74897],[-122.40317,37.74906],[-122.40323,37.74911],[-122.40325,37.74919],[-122.40328,37.74925],[-122.40343,37.74941],[-122.40362,37.7495],[-122.40373,37.74954],[-122.40381,37.74956],[-122.40393,37.74965],[-122.40402,37.7497],[-122.40413,37.74981],[-122.40425,37.74985],[-122.40435,37.74986],[-122.40444,37.74988],[-122.40453,37.74988],[-122.40462,37.7499],[-122.40472,37.74991],[-122.40507,37.74991],[-122.4052,37.75001],[-122.40529,37.75005],[-122.40536,37.75006],[-122.40545,37.75005],[-122.4055,37.75],[-122.40556,37.74986],[-122.40561,37.74982],[-122.40569,37.74979],[-122.4058,37.74984],[-122.406,37.7499],[-122.40619,37.74987],[-122.40628,37.74981],[-122.40637,37.74971],[-122.40647,37.74963],[-122.40654,37.74959],[-122.40661,37.74953],[-122.40668,37.74945],[-122.40678,37.74937],[-122.4069,37.74935],[-122.40717,37.74932],[-122.40729,37.74927],[-122.40736,37.74918],[-122.40758,37.74906],[-122.40775,37.74898],[-122.40791,37.74889],[-122.40814,37.74878],[-122.40825,37.74874],[-122.40835,37.74869],[-122.40855,37.7485],[-122.4086,37.74844],[-122.40861,37.74834],[-122.40868,37.74826],[-122.40873,37.74822],[-122.40883,37.74816],[-122.40872,37.74809],[-122.40865,37.74812],[-122.40861,37.74816],[-122.40855,37.74818],[-122.40849,37.74822],[-122.40841,37.74824],[-122.40833,37.74824],[-122.40826,37.74821],[-122.40808,37.74824],[-122.40799,37.74824],[-122.40788,37.74822],[-122.40777,37.74821],[-122.40765,37.74821],[-122.40754,37.74824],[-122.40744,37.74829],[-122.40731,37.74831],[-122.40715,37.74832],[-122.40696,37.74835],[-122.40688,37.74838],[-122.40681,37.74843],[-122.40673,37.74844],[-122.40652,37.74843],[-122.40638,37.74846],[-122.40617,37.74854],[-122.40602,37.74857],[-122.40593,37.74861],[-122.40586,37.74866],[-122.40566,37.7487],[-122.40543,37.74877],[-122.40519,37.74887],[-122.40512,37.74887],[-122.4049,37.74878],[-122.40474,37.7487],[-122.40434,37.74837],[-122.40423,37.74831],[-122.40414,37.74829],[-122.40402,37.74822],[-122.40396,37.7482],[-122.40387,37.74814],[-122.40376,37.74805],[-122.4037,37.74794],[-122.40367,37.74785],[-122.40369,37.74764],[-122.40377,37.74747],[-122.40382,37.74726],[-122.40384,37.74711],[-122.40387,37.74699],[-122.40384,37.74685],[-122.40378,37.74665],[-122.40368,37.74644],[-122.40372,37.74622],[-122.40371,37.74611],[-122.40349,37.74575],[-122.40349,37.74567],[-122.40352,37.74563],[-122.40358,37.74558],[-122.40365,37.74554],[-122.40369,37.74544],[-122.4037,37.74527],[-122.40369,37.74515],[-122.40365,37.74498],[-122.40369,37.74492],[-122.40373,37.74483],[-122.40407,37.7445],[-122.40415,37.7444],[-122.40418,37.74432],[-122.40424,37.74422],[-122.40423,37.74413],[-122.40425,37.74397],[-122.40434,37.74379],[-122.40452,37.74355],[-122.40473,37.74333],[-122.40487,37.74317],[-122.40494,37.7427],[-122.40499,37.74252],[-122.40514,37.74239],[-122.40518,37.74232],[-122.40529,37.74226],[-122.40547,37.74223],[-122.40577,37.7422],[-122.4059,37.74215],[-122.40599,37.74205],[-122.40603,37.74195],[-122.40602,37.74184],[-122.40596,37.74165],[-122.40603,37.74153],[-122.40604,37.74144],[-122.40608,37.74128],[-122.40614,37.74111],[-122.40613,37.74101],[-122.40615,37.74091],[-122.40642,37.74065],[-122.40667,37.74035],[-122.4068,37.74027],[-122.40698,37.74021],[-122.40707,37.74017],[-122.40716,37.74012],[-122.4072,37.74005],[-122.40732,37.73999],[-122.40748,37.73993],[-122.40758,37.7399],[-122.40766,37.73989],[-122.40775,37.73986],[-122.40779,37.73982],[-122.40786,37.73967],[-122.40786,37.7396],[-122.40783,37.73951],[-122.40779,37.73945],[-122.40768,37.73941],[-122.40702,37.73926],[-122.40693,37.73921],[-122.40692,37.73912],[-122.40689,37.73902],[-122.40689,37.73895],[-122.40693,37.73889],[-122.40695,37.73882],[-122.40699,37.73874],[-122.4071,37.7386],[-122.4072,37.73843],[-122.40725,37.73839],[-122.40729,37.73832],[-122.40741,37.73826],[-122.40754,37.73812],[-122.40758,37.73805],[-122.40766,37.73802],[-122.40771,37.73794],[-122.40783,37.73787],[-122.40796,37.73784],[-122.40801,37.73776],[-122.40809,37.73772],[-122.40817,37.73764],[-122.40823,37.73762],[-122.4083,37.73756],[-122.40844,37.73749],[-122.4085,37.73743],[-122.4086,37.73736],[-122.40867,37.73722],[-122.40871,37.73709],[-122.40878,37.73694],[-122.40885,37.73684],[-122.40899,37.73667],[-122.40902,37.73662],[-122.40931,37.73644],[-122.40948,37.73639],[-122.40955,37.73634],[-122.40964,37.73631],[-122.40975,37.73626],[-122.40986,37.73624],[-122.40999,37.7362],[-122.41009,37.73614],[-122.41013,37.73606],[-122.41014,37.7358],[-122.41021,37.73569],[-122.41025,37.7356],[-122.41036,37.73548],[-122.41046,37.73544],[-122.41052,37.7354],[-122.41063,37.73538],[-122.41083,37.73538],[-122.41091,37.73535],[-122.41108,37.73532],[-122.41118,37.73529],[-122.41128,37.73524],[-122.41136,37.73519],[-122.41147,37.73515],[-122.41157,37.73507],[-122.41168,37.73484],[-122.41179,37.73473],[-122.41191,37.73466],[-122.41198,37.73459],[-122.41186,37.7344],[-122.41179,37.73434],[-122.41177,37.73425],[-122.4118,37.73418],[-122.41193,37.73406],[-122.41217,37.73396],[-122.4124,37.73385],[-122.41254,37.73381],[-122.41266,37.73376],[-122.41279,37.73377],[-122.41283,37.73384],[-122.41292,37.73388],[-122.41294,37.73377],[-122.41306,37.73368],[-122.4132,37.73367],[-122.41331,37.73365],[-122.41343,37.73359],[-122.41361,37.73356],[-122.41377,37.73351],[-122.41385,37.73345],[-122.41389,37.7334],[-122.414,37.7333],[-122.41405,37.73324],[-122.41411,37.73319],[-122.41425,37.73313],[-122.41444,37.73303],[-122.41451,37.73295],[-122.41461,37.73291],[-122.41473,37.73285],[-122.41484,37.73281],[-122.41506,37.7327],[-122.41526,37.73263],[-122.41546,37.73259],[-122.41563,37.73257],[-122.41585,37.73253],[-122.41556,37.73194],[-122.41513,37.73202],[-122.41504,37.73202],[-122.41479,37.732],[-122.41461,37.73206],[-122.41451,37.73211],[-122.41444,37.73212],[-122.4143,37.73216],[-122.41409,37.73224],[-122.41382,37.7323],[-122.4137,37.73234],[-122.41345,37.73244],[-122.41337,37.73246],[-122.41328,37.73251],[-122.41316,37.73253],[-122.41304,37.73253],[-122.41287,37.73255],[-122.41271,37.7325],[-122.4126,37.73249],[-122.41243,37.73244],[-122.41225,37.73242],[-122.41214,37.73242],[-122.41157,37.73247],[-122.41147,37.73253],[-122.41125,37.73264],[-122.41102,37.73284],[-122.41079,37.73302],[-122.41073,37.73308],[-122.41049,37.73325],[-122.41038,37.73328],[-122.41026,37.73327],[-122.41017,37.73324],[-122.40999,37.73321],[-122.40969,37.7333],[-122.40951,37.73332],[-122.40943,37.73336],[-122.40941,37.73346],[-122.40946,37.73354],[-122.40952,37.73361],[-122.40951,37.73367],[-122.40934,37.73367],[-122.40923,37.73365],[-122.40891,37.73363],[-122.40883,37.73364],[-122.40869,37.73369],[-122.40865,37.73376],[-122.40857,37.73386],[-122.40795,37.73432],[-122.40772,37.73438],[-122.40755,37.73438],[-122.40739,37.73439],[-122.40732,37.73443],[-122.40727,37.73452],[-122.40727,37.73479],[-122.4073,37.7349],[-122.40731,37.73501],[-122.40728,37.73507],[-122.40722,37.73515],[-122.40712,37.73525],[-122.40692,37.73542],[-122.40682,37.73562],[-122.40673,37.73565],[-122.40659,37.73575],[-122.40657,37.73585],[-122.40653,37.73592],[-122.40634,37.73598],[-122.4062,37.73604],[-122.40604,37.73614],[-122.40598,37.73629],[-122.40585,37.73632],[-122.40576,37.73636],[-122.40553,37.73638],[-122.40523,37.73645],[-122.40514,37.73649],[-122.40504,37.73652],[-122.40495,37.73657],[-122.40488,37.73662],[-122.40476,37.73668],[-122.40465,37.73671],[-122.40457,37.73671],[-122.40448,37.73672],[-122.40429,37.73672],[-122.40417,37.73674],[-122.40406,37.73678],[-122.4039,37.73686],[-122.40373,37.73697],[-122.40354,37.73724],[-122.40346,37.73737],[-122.40326,37.73756],[-122.40304,37.73766],[-122.40295,37.73768],[-122.40277,37.73775],[-122.40265,37.73785],[-122.40261,37.73794],[-122.4026,37.73804],[-122.4026,37.73817],[-122.40264,37.73829],[-122.40258,37.73835],[-122.40254,37.73848],[-122.40249,37.73854],[-122.40246,37.73862],[-122.4023,37.7388],[-122.40209,37.73886],[-122.40178,37.73891],[-122.4015,37.73893],[-122.40127,37.73893],[-122.40115,37.73891],[-122.40083,37.73896],[-122.40067,37.73905],[-122.40053,37.73909],[-122.40048,37.73918],[-122.40041,37.73924],[-122.40018,37.73934],[-122.40009,37.73937],[-122.40001,37.73942],[-122.39989,37.73948],[-122.39956,37.73951],[-122.39938,37.73954],[-122.39923,37.73954],[-122.3991,37.73956],[-122.39893,37.73956],[-122.3984,37.73958],[-122.39773,37.73958],[-122.39761,37.7396],[-122.39745,37.7396],[-122.39719,37.73964],[-122.39662,37.73961],[-122.39645,37.73961],[-122.3962,37.73965],[-122.39595,37.73965],[-122.39547,37.73967],[-122.3952,37.73967],[-122.39504,37.73964],[-122.39493,37.73961],[-122.39479,37.73955],[-122.3946,37.73951],[-122.39427,37.73957],[-122.39376,37.73946],[-122.39351,37.73943],[-122.39334,37.7394],[-122.392963,37.7394293]]]}}
+]}
+```
+
+`pipeline/regions/full-city.json` (modified; apply with `git apply`)
+
+```bash
+git apply --whitespace=nowarn <<'PATCH'
+--- a/pipeline/regions/full-city.json
++++ b/pipeline/regions/full-city.json
+@@ -6,8 +6,8 @@
+   "habitats": "data/raw/sf_habitats.geojson",
+   "bay": "data/raw/bay.geojson",
+   "marsh": "data/raw/marsh.geojson",
+-  "hand_bay": ["data/full-city/hand/hand_bay.geojson"],
+-  "hand_marsh": ["data/full-city/hand/hand_marsh.geojson"],
++  "hand_bay": ["data/full-city/hand/hand_bay.geojson", "data/full-city/hand/hand_bay_noaa.geojson"],
++  "hand_marsh": ["data/full-city/hand/hand_marsh.geojson", "data/full-city/hand/hand_marsh_noaa.geojson"],
+   "hand_ponds": ["data/full-city/hand/hand_ponds.geojson"],
+   "pond_classes": [
+     "Dune-dammed pond or lake",
+PATCH
+```
+
+`pipeline/data/full-city/checks.json` (modified; apply with `git apply`)
+
+```bash
+git apply --whitespace=nowarn <<'PATCH'
+--- a/pipeline/data/full-city/checks.json
++++ b/pipeline/data/full-city/checks.json
+@@ -2,5 +2,11 @@
+   {"name": "Twin Peaks summit", "lon": -122.4477, "lat": 37.7544, "min_m": 200},
+   {"name": "Mount Davidson summit", "lon": -122.4547, "lat": 37.7386, "min_m": 200},
+   {"name": "Pacific Ocean off Ocean Beach", "lon": -122.5200, "lat": 37.7600, "max_m": 1.0},
+-  {"name": "Ferry Building (Yerba Buena Cove)", "lon": -122.3935, "lat": 37.7955, "max_m": 1.0}
++  {"name": "Ferry Building (Yerba Buena Cove)", "lon": -122.3935, "lat": 37.7955, "max_m": 1.0},
++  {"name": "Islais Creek marsh (NOAA 1852)", "lon": -122.4003, "lat": 37.7436, "expect_water": true},
++  {"name": "Islais Cove open water (NOAA 1852)", "lon": -122.3850, "lat": 37.7460, "expect_water": true},
++  {"name": "South Basin open water (NOAA 1852)", "lon": -122.3810, "lat": 37.7170, "expect_water": true},
++  {"name": "Potrero Hill stays land", "lon": -122.4005, "lat": 37.7605, "expect_water": false},
++  {"name": "Hunters Point ridge stays land", "lon": -122.3780, "lat": 37.7290, "expect_water": false},
++  {"name": "Ocean Beach dunes stay land (NOAA ocean shore not imported)", "lon": -122.5085, "lat": 37.7600, "expect_water": false}
+ ]
+PATCH
+```
+
+`pipeline/data/full-city/hand/README.md` (modified; apply with `git apply`)
+
+```bash
+git apply --whitespace=nowarn <<'PATCH'
+--- a/pipeline/data/full-city/hand/README.md
++++ b/pipeline/data/full-city/hand/README.md
+@@ -20,3 +20,52 @@
+   Sources panel under "Hand-drawn and sculpted".
+ - Only trace from sources you may use. Never copy data from a source whose terms forbid it.
+ - Check a file before building: `uv run python scripts/check_polygons.py FILE --region regions/full-city.json`.
++
++## NOAA 1850s shoreline (generated files)
++
++`hand_bay_noaa.geojson` and `hand_marsh_noaa.geojson` are **generated**: do not edit them by
++hand. `regions/full-city.json` lists each after your own hand file; the build unions all the
++files of a list, so overlaps between them are fine. Both may be empty
++(`{"type": "FeatureCollection", "features": []}`), which adds nothing.
++
++They come from the NOAA Shoreline Data Rescue Project vectors of the 1850s Coast Survey
++sheets (`data/raw/noaa/extracted/<project>/historicl1` and `projbnd`).
++`scripts/import_noaa.py` closes each project's lines into numbered candidate areas, and
++your seeds in `noaa_seeds.json` say which areas are bay, marsh or land. Land is not written,
++and unseeded areas are left unchanged. Every written feature has `confidence: inferred` (or
++lower, if a seed says so), a `source` naming the project, sheet, year and seed, and
++`area_id`, `area_m2` and `seed`.
++
++Regenerate (from `pipeline/`):
++
++    uv run python scripts/import_noaa.py --projects CA37A02 CA37B02B CA37B07 CA37B08 \
++        --seeds data/full-city/hand/noaa_seeds.json
++
++To list the candidate areas only (no seeds; nothing is written), leave out `--seeds`. To
++see them, add `--preview preview.png` (needs Pillow: run with `uv run --with pillow python`).
++`--bbox W S E N` crops the preview, and `--preview-assets ../viewer/public/assets/real-city`
++draws the current build underneath. The report prints, for every area, its id, hectares, an
++inside point to copy into a seed, its sheet and its year. Ids are stable for the same lines and
++settings, but change when closures or settings change: seeds are points, not ids, so they
++keep working.
++
++`noaa_seeds.json` is an object:
++
++- `seeds`: a list of `{id, project, lon, lat, class, source, confidence, note?}`.
++  - `id` is lower-case letters, digits and `-`, unique in the file.
++  - `project` is the NOAA project whose area the seed classes (seeds never class another
++    project's areas).
++  - `class` is `bay`, `marsh` or `land`.
++  - `source` (at most 200 characters) is why you read it so.
++  - `confidence` is one of the levels above.
++  - `note` is for doubts.
++
++  A seed must lie inside one area. Two seeds of different classes in one area are an error.
++- `closures` (optional): a list of `{id, project, coordinates: [[lon, lat], ...], source,
++  note?}`. These are straight lines you draw where the NOAA lines do not separate two places,
++  e.g. across the Golden Gate (to keep the ocean shore out) or a ring around Yerba Buena and
++  Treasure Islands (not in the vectors). They split that project's areas and are never
++  written themselves.
++- `note` (optional): free text.
++
++Any seed or input error exits with status 1 and writes nothing.
+PATCH
+```
+
+- [ ] **Step 4: Run the whole suite**
+
+Run: `cd pipeline && uv run pytest -q -W error`
+
+Expected: **612 passed, 3 skipped**, no warnings.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add pipeline/tests/test_noaa_shipped.py pipeline/data/full-city/hand/noaa_seeds.json pipeline/data/full-city/hand/hand_bay_noaa.geojson pipeline/data/full-city/hand/hand_marsh_noaa.geojson pipeline/tests/test_handcheck.py pipeline/tests/test_region.py pipeline/regions/full-city.json pipeline/data/full-city/checks.json pipeline/data/full-city/hand/README.md
+git commit -m "feat(pipeline): NOAA 1850s water for the south-east, with seeds and sanity checks"
+```
+
+---
+
+### Task V1: NOAA credit
+
+**Files:**
+- Modify: `viewer/src/ui/about.ts`
+
+NOAA asks to be credited when its data is used; one line in the About dialog's Credits list, beside the Census credit.
+
+- [ ] **Step 1: Write the implementation**
+
+`viewer/src/ui/about.ts` (modified; apply with `git apply`)
+
+```bash
+git apply --whitespace=nowarn <<'PATCH'
+--- a/viewer/src/ui/about.ts
++++ b/viewer/src/ui/about.ts
+@@ -96,6 +96,7 @@
+   );
+   credit("U.S. Geological Survey 3D Elevation Program.");
+   credit("U.S. Census Bureau TIGER/Line.");
++  credit("NOAA National Geodetic Survey, Shoreline Data Rescue Project (historical shoreline vectors, 1850s).");
+   credit("three.js.");
+   inner.appendChild(section("Credits", credits));
+ 
+PATCH
+```
+
+- [ ] **Step 2: Run the whole suite, the typecheck**
+
+Run: `cd viewer && npx vitest run && npx tsc --noEmit`
+
+Expected: **Tests  572 passed (572)** (vitest), no type errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add viewer/src/ui/about.ts
+git commit -m "feat(viewer): credit NOAA's Shoreline Data Rescue Project"
+```
+
+---
+
+### Task R1: Run it on the real files and look at the result (no commit until Step 7)
+
+- [ ] **Step 1: Make sure the four NOAA projects are in place**
+
+```bash
+ls pipeline/data/raw/noaa/extracted/CA37A02/historicl1.shp pipeline/data/raw/noaa/extracted/CA37B02B/historicl1.shp pipeline/data/raw/noaa/extracted/CA37B07/historicl1.shp pipeline/data/raw/noaa/extracted/CA37B08/historicl1.shp
+```
+
+If any is missing, **ask the owner before downloading** (files CA37A02.zip 110 KB, CA37B02B.zip 621 KB, CA37B07.zip 48 KB, CA37B08.zip 90 KB, from `https://nsde.ngs.noaa.gov/downloads/<PROJECT>.zip`, NOAA National Geodetic Survey, no access constraints), then:
+
+```bash
+mkdir -p pipeline/data/raw/noaa/zips && cd pipeline/data/raw/noaa
+for p in CA37A02 CA37B02B CA37B07 CA37B08; do curl -sSf -o zips/$p.zip "https://nsde.ngs.noaa.gov/downloads/$p.zip"; mkdir -p extracted/$p; unzip -q -o zips/$p.zip -d extracted/$p; done
+```
+
+- [ ] **Step 2: Regenerate and confirm the committed files are reproduced exactly**
+
+```bash
+cd pipeline
+uv run python scripts/import_noaa.py --projects CA37A02 CA37B02B CA37B07 CA37B08 --seeds data/full-city/hand/noaa_seeds.json --region regions/full-city.json
+git status --short data/full-city/hand
+```
+
+Expected: the report ends with `unseeded: 67 areas (left unchanged)` and `overlap between projects: 3965.6 ha in 2 pairs`, and `git status` shows **no change** to `hand_bay_noaa.geojson` and `hand_marsh_noaa.geojson` (the output is deterministic). If they differ, the NOAA files differ from the prototype's: stop and look at the preview before building.
+
+- [ ] **Step 3: Look at the preview** (this is the review the seeds need)
+
+```bash
+uv run --with pillow python scripts/import_noaa.py --projects CA37A02 CA37B02B CA37B07 CA37B08 --seeds data/full-city/hand/noaa_seeds.json --region regions/full-city.json --preview ../docs/research/local/noaa-preview.png --bbox -122.43 37.70 -122.33 37.79
+```
+
+Open `docs/research/local/noaa-preview.png` (gitignored). Check each seed against what you see; confirm or change the ones whose `note` starts `UNCERTAIN` (the Islais marsh; the 1857 open-bay seed; the two closing lines). Unseeded areas stay as they are today.
+
+- [ ] **Step 4: Rebuild the real city and compare**
+
+```bash
+cp ../viewer/public/assets/real-city/heightmap.u16 /tmp/heightmap-before-noaa.u16
+uv run python -m yelamu.cli --region regions/full-city.json
+uv run python scripts/build_overlay.py --region regions/full-city.json
+uv run python scripts/verify_overlay_data.py ../viewer/public/assets/real-city
+uv run python - <<'PY'
+import numpy as np
+a = np.fromfile("/tmp/heightmap-before-noaa.u16", dtype="<u2").astype(int)
+b = np.fromfile("../viewer/public/assets/real-city/heightmap.u16", dtype="<u2").astype(int)
+print("cells that differ:", int((a != b).sum()))
+PY
+```
+
+Expected (the prototype's figures; the pond and terrain changes of Phase 3b-1 are already in the baseline): the build passes all ten sanity checks, and the cells that differ are mostly the 81,115 land-to-water cells plus a thin band of recalculated shore, nothing at the Ocean Beach dunes or Potrero Hill.
+
+- [ ] **Step 5: Look at it in the viewer**
+
+```bash
+cd ../viewer && npx vite --port 5199
+```
+
+Open `http://localhost:5199/?data=real-city&debug` and look at the south-east (Islais Creek, India Basin, Hunters Point, Candlestick) at zoom 5 to 7. Expected: the Islais estuary as water with marsh channels, the India Basin and South Basin inlets, a Hunters Point peninsula with its own shore; Sources shows `hand_water` listing the NOAA sources as Inferred; the About dialog's Credits list ends with the NOAA line; no console warnings. Rotate (Q and E) and zoom across the LOD switch while watching the new shores for flicker.
+
+- [ ] **Step 6: Run the comparison tool on the result**
+
+```bash
+cd ../pipeline
+uv run --with pillow python scripts/render_compare.py ../viewer/public/assets/real-city --bbox -122.43 37.70 -122.33 37.79 --out ../docs/research/local/compare-southeast.png
+```
+
+Expected: the red shoreline follows the NOAA lines you saw in the preview.
+
+- [ ] **Step 7: Write the results note and commit it**
+
+Create `docs/research/phase-3b2-results.md` in the style of `phase-3b-results.md`: the numbers from Steps 2 to 4 against the prototype's, a pass/fail checklist for Step 5, what was **not** exercised (the 1850s lines' positional accuracy; Treasure Island; reduced motion; phones), and what still needs the owner (the uncertain seeds). Then:
+
+```bash
+git add docs/research/phase-3b2-results.md
+git commit -m "docs: Phase 3b-2 results"
+```
+
+---
+
+## What still needs a person (after this plan)
+
+1. **Confirm or change the uncertain seeds** (Task R1 Step 3), and decide whether the 1857 area (`b08-open-bay-east`) should stay beside the 1852 one.
+2. **Unseeded areas**: Hunters Point's own area, the north-waterfront pieces and the Pacific shore are unchanged; decide with the preview whether any should become bay, marsh or stay land.
+3. **Treasure Island and Yerba Buena Island**: not covered by the vectors. Download the georeferenced scan of sheet T-00687 (name file, source and size first), compare with `render_compare.py`, and trace the shoals if the sheet shows them.
+4. The Phase 3b-1 items still stand: Lake Merced, the `Tidal coastal lagoon` polygons, Rincon Hill and the Market Street dune ridge, and the Phase 3 launch items (About and hotspot review, phone measurement, SFEI's reply, hosting).
+
+## Spec coverage
+
+| Spec item | Where |
+|---|---|
+| A. Read projects, select line classes, close linework, polygonise with the frame, ids | Task N1 |
+| B. Seeds file, classification, GeoJSON output with provenance, unseeded report | Tasks N1, N2, N3 |
+| C. Numbered preview and report | Task N2 |
+| D. Region wiring, sanity checks, credit | Tasks N3, V1 |
+| Testing on synthetic linework and on the real files | Tasks N1, N2 (synthetic); Task R1 (real) |
+| Not verifiable: 1850s positional accuracy | "Known limits", Task R1 Step 7 |
