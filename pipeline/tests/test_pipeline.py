@@ -1,6 +1,7 @@
 """End-to-end test on synthetic data: a flat 'modern fill' DEM with a historical bay."""
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -9,10 +10,11 @@ from rasterio.transform import from_origin
 from shapely.geometry import Point
 
 from yelamu.checks import Expectation, run_checks
-from yelamu.cli import main
+from yelamu.cli import main, parse_args
 from yelamu.export import dequantize_heights
 from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
-from yelamu.terrain import LAND_FLOOR_M, WATER_LEVEL_M
+from yelamu.habitat import ID_HAND_BAY, ID_HAND_MARSH, ID_OPEN_BAY_INFERRED, ID_UNMAPPED
+from yelamu.terrain import LAND_FLOOR_M, MARSH_LEVEL_M, WATER_LEVEL_M
 from yelamu.sources import load_dem, load_polygons
 from yelamu.water import water_mask
 
@@ -530,3 +532,279 @@ def test_load_polygons_allow_empty(tmp_path):
     # Unusable content (only lines) is also empty under allow_empty.
     _write_geojson(tmp_path / "l.geojson", [_feature({"type": "LineString", "coordinates": _LINE})])
     assert load_polygons(tmp_path / "l.geojson", allow_empty=True) == []
+
+
+# ------------------------------------------------------- hand-drawn water ---
+
+
+def _hand_run(tmp_path, *extra, dem_value=5.0, name="out"):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, dem_value)
+    out = tmp_path / name
+    code = main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+                 "--out", str(out), *_FLAT, *extra])
+    assert code == 0
+    meta = json.loads((out / "meta.json").read_text())
+    return grid, out, meta, _read_heights(out, meta)
+
+
+def test_hand_marsh_over_fill_becomes_marsh_level(tmp_path):
+    _write_bay_geojson(tmp_path / "hm.geojson", -122.40, 37.77, -122.38, 37.79)
+    grid, out, meta, heights = _hand_run(tmp_path, "--hand-marsh", str(tmp_path / "hm.geojson"))
+    assert abs(heights[_pixel(grid, -122.39, 37.78)] - MARSH_LEVEL_M) < 0.01
+    assert abs(heights[_pixel(grid, -122.415, 37.76)] - 5.0) < 0.01  # elsewhere unchanged
+    assert "hand_water" in _layer_ids(out)
+    layer = next(l for l in meta["layers"] if l["id"] == "hand_water")
+    assert layer["confidence"] == "inferred" and layer["attribution"] == "this project"
+    assert layer["source"] == "hand-drawn from historical maps (user-authored)"
+
+
+def test_hand_bay_becomes_bay(tmp_path):
+    _write_bay_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.38, 37.79)
+    grid, out, _, heights = _hand_run(tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"))
+    assert abs(heights[_pixel(grid, -122.39, 37.78)] - (-3.0)) < 0.01
+    assert abs(heights[_pixel(grid, -122.415, 37.76)] - 5.0) < 0.01
+    assert "hand_water" in _layer_ids(out)
+
+
+def test_hand_bay_wins_over_hand_marsh_and_multiple_files_are_merged(tmp_path):
+    _write_bay_geojson(tmp_path / "hb1.geojson", -122.40, 37.77, -122.39, 37.79)
+    _write_bay_geojson(tmp_path / "hb2.geojson", -122.38, 37.77, -122.375, 37.79)
+    _write_bay_geojson(tmp_path / "hm.geojson", -122.405, 37.77, -122.385, 37.79)
+    grid, _, _, heights = _hand_run(
+        tmp_path, "--hand-bay", str(tmp_path / "hb1.geojson"), str(tmp_path / "hb2.geojson"),
+        "--hand-marsh", str(tmp_path / "hm.geojson"))
+    assert abs(heights[_pixel(grid, -122.395, 37.78)] - (-3.0)) < 0.01  # bay + marsh: bay
+    assert abs(heights[_pixel(grid, -122.387, 37.78)] - MARSH_LEVEL_M) < 0.01  # marsh only
+    assert abs(heights[_pixel(grid, -122.3775, 37.78)] - (-3.0)) < 0.01  # second bay file
+
+
+def test_empty_hand_files_are_accepted_and_add_nothing(tmp_path):
+    for name in ("hb", "hm"):
+        (tmp_path / f"{name}.geojson").write_text(json.dumps(_EMPTY_FC))
+    grid, out, meta, heights = _hand_run(
+        tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"),
+        "--hand-marsh", str(tmp_path / "hm.geojson"))
+    assert "hand_water" not in _layer_ids(out)
+    assert np.abs(heights - 5.0).max() < 0.01
+
+
+def test_hand_polygons_stop_the_gap_rule(tmp_path):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"), *_FLAT)
+    # A hand marsh in the unmapped (east) north half, where the modern DEM is 0 m.
+    _write_bay_geojson(tmp_path / "hm.geojson", -122.385, 37.785, -122.375, 37.795)
+
+    assert main([*args, "--hand-marsh", str(tmp_path / "hm.geojson")]) == 0
+
+    heights = _read_heights(out, json.loads((out / "meta.json").read_text()))
+    assert abs(heights[_pixel(grid, -122.38, 37.79)] - MARSH_LEVEL_M) < 0.01  # not gap bay
+    # Elsewhere in the unmapped north the gap fill still makes open bay.
+    assert abs(heights[_pixel(grid, -122.372, 37.79)] - (-3.0)) < 0.01
+    ids = _layer_ids(out)
+    assert "hand_water" in ids and "open_water_gap_fill" in ids
+
+
+# ------------------------------------------------------------ habitat raster ---
+
+def _habitat_collection(tmp_path, with_unknown=False):
+    feats = [{"type": "Feature", "properties": {"HabitatCla": "Coast live oak woodland"},
+              "geometry": {"type": "Polygon", "coordinates": [[
+                  [-122.43, 37.74], [-122.395, 37.74], [-122.395, 37.84], [-122.43, 37.84],
+                  [-122.43, 37.74]]]}}]
+    if with_unknown:
+        feats.append({"type": "Feature", "properties": {"HabitatCla": "Weird thing"},
+                      "geometry": {"type": "Polygon", "coordinates": [[
+                          [-122.42, 37.80], [-122.41, 37.80], [-122.41, 37.81],
+                          [-122.42, 37.81], [-122.42, 37.80]]]}})
+    path = tmp_path / "hab.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+    return path
+
+
+def _habitat(out, meta) -> np.ndarray:
+    return np.fromfile(out / "habitat.u8", dtype=np.uint8).reshape(meta["height"], meta["width"])
+
+
+def test_habitats_flag_writes_raster_legend_and_inferred_open_bay(tmp_path, capsys):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out)
+    hab = _habitat_collection(tmp_path, with_unknown=True)
+
+    assert main([*args, "--habitats", str(hab)]) == 0
+
+    meta = json.loads((out / "meta.json").read_text())
+    assert (out / "habitat.u8").stat().st_size == meta["width"] * meta["height"]
+    assert meta["habitat_file"] == "habitat.u8"
+    ids = {e["name"]: e["id"] for e in meta["habitat_classes"]}
+    assert (ids["Coast live oak woodland"], ids["Weird thing"]) == (4, 5)  # sorted-name ids
+    woodland = ids["Coast live oak woodland"]
+    raster = _habitat(out, meta)
+    # --habitats is the coverage too: the unmapped, low (0 m) north-east is gap-filled bay.
+    assert raster[_pixel(grid, *_UNCOVERED_N)] == ID_OPEN_BAY_INFERRED
+    assert raster[_pixel(grid, *_UNCOVERED_S)] == ID_UNMAPPED  # unmapped high land
+    assert raster[_pixel(grid, *_COVERED_S)] == woodland
+    assert raster[_pixel(grid, *_COVERED_N)] == woodland  # mapped cells are never gap bay
+    heights = _read_heights(out, meta)
+    assert abs(heights[_pixel(grid, *_UNCOVERED_N)] - (-3.0)) < 0.01
+    assert "open_water_gap_fill" in _layer_ids(out)
+    assert "Weird thing" in capsys.readouterr().err  # unknown class warned on stderr
+
+
+def test_explicit_coverage_wins_over_habitats_as_coverage(tmp_path):
+    out = tmp_path / "out"
+    # cov.geojson covers lon < -122.395; the habitat polygon covers everything east.
+    grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"))
+    hab = tmp_path / "hab.geojson"
+    _write_bay_geojson(hab, -122.395, 37.74, -122.30, 37.84)
+    data = json.loads(hab.read_text())
+    data["features"][0]["properties"] = {"HabitatCla": "Beach"}
+    hab.write_text(json.dumps(data))
+
+    assert main([*args, "--habitats", str(hab)]) == 0
+
+    meta = json.loads((out / "meta.json").read_text())
+    heights = _read_heights(out, meta)
+    assert abs(heights[_pixel(grid, *_UNCOVERED_N)] - (-3.0)) < 0.01  # gap from --coverage
+    assert _habitat(out, meta)[_pixel(grid, *_UNCOVERED_N)] == ID_OPEN_BAY_INFERRED
+
+
+def test_without_habitats_no_habitat_file(tmp_path):
+    out = tmp_path / "out"
+    _, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"))
+    assert main(args) == 0
+    meta = json.loads((out / "meta.json").read_text())
+    assert not (out / "habitat.u8").exists()
+    assert "habitat_file" not in meta and "habitat_classes" not in meta
+
+
+def test_hand_marsh_is_stamped_on_the_habitat_raster(tmp_path):
+    out = tmp_path / "out"
+    grid, args = _gap_args(tmp_path, out)
+    hab = _habitat_collection(tmp_path)
+    _write_bay_geojson(tmp_path / "hm.geojson", -122.385, 37.785, -122.375, 37.795)
+    _write_bay_geojson(tmp_path / "hb.geojson", -122.385, 37.765, -122.375, 37.775)
+
+    assert main([*args, "--habitats", str(hab), "--hand-marsh", str(tmp_path / "hm.geojson"),
+                 "--hand-bay", str(tmp_path / "hb.geojson")]) == 0
+
+    meta = json.loads((out / "meta.json").read_text())
+    raster = _habitat(out, meta)
+    assert raster[_pixel(grid, -122.38, 37.79)] == ID_HAND_MARSH  # not gap bay, not unmapped
+    assert raster[_pixel(grid, -122.38, 37.77)] == ID_HAND_BAY
+    assert raster[_pixel(grid, -122.372, 37.79)] == ID_OPEN_BAY_INFERRED  # rest of the gap
+
+
+def test_thin_pier_removed_from_water_is_inferred_open_bay_in_the_raster(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem_with_block(tmp_path / "dem.tif", grid, 0.0, (-122.38200, 37.780, -122.38175, 37.783),
+                          5.0, tag_nodata=None)
+    hab = _habitat_collection(tmp_path)
+    out = tmp_path / "out"
+    assert main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+                 "--out", str(out), "--habitats", str(hab)]) == 0
+    meta = json.loads((out / "meta.json").read_text())
+    assert _habitat(out, meta)[_pixel(grid, -122.381875, 37.7815)] == ID_OPEN_BAY_INFERRED
+
+
+# -------------------------------------------------------------- --region ---
+
+def _region_setup(tmp_path, **overrides):
+    """A tmp pipeline dir with a DEM, a bay and a region file; returns (region_path, grid)."""
+    pipe = tmp_path / "pipeline"
+    (pipe / "regions").mkdir(parents=True)
+    (pipe / "data").mkdir()
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(pipe / "data" / "dem.tif", grid, 5.0)
+    _write_bay_geojson(pipe / "data" / "bay.geojson", -122.40, 37.77, -122.38, 37.79)
+    region = {"name": "t", "bbox": list(BBOX), "cell_m": 10, "dem": "data/dem.tif",
+              "bay": "data/bay.geojson", "out": "build/out", **overrides}
+    path = pipe / "regions" / "t.json"
+    path.write_text(json.dumps(region))
+    return path, grid
+
+
+def test_region_alone_runs_the_pipeline(tmp_path):
+    path, grid = _region_setup(tmp_path)
+    assert main(["--region", str(path)]) == 0
+    out = tmp_path / "pipeline" / "build" / "out"
+    meta = json.loads((out / "meta.json").read_text())
+    assert abs(_read_heights(out, meta)[_pixel(grid, -122.39, 37.78)] - (-3.0)) < 0.01
+    assert "water" in [l["id"] for l in meta["layers"]]
+
+
+def test_cli_flags_override_region_values(tmp_path):
+    path, _ = _region_setup(tmp_path, smooth_m=20, shelf_m=90, shore_open_cells=3)
+    assert main(["--region", str(path), "--out", str(tmp_path / "o1")]) == 0
+    proc = json.loads((tmp_path / "o1" / "meta.json").read_text())["processing"]
+    assert proc["smooth_m"] == 20 and proc["shelf_m"] == 90 and proc["shore_open_cells"] == 3
+    assert proc["shore_slope"] == 0.30  # region None/absent: CLI default
+
+    assert main(["--region", str(path), "--out", str(tmp_path / "o2"),
+                 "--smooth-m", "5", "--shore-open-cells", "0", "--cell", "20"]) == 0
+    meta = json.loads((tmp_path / "o2" / "meta.json").read_text())
+    assert meta["processing"]["smooth_m"] == 5 and meta["processing"]["shore_open_cells"] == 0
+    assert meta["processing"]["shelf_m"] == 90  # still from the region
+    assert meta["cell_m"] == 20  # CLI --cell beat the region's cell_m 10
+    assert not (tmp_path / "pipeline" / "build").exists()  # --out replaced the region's out
+
+
+def test_parse_args_merges_region_defaults_and_overrides(tmp_path):
+    path, _ = _region_setup(tmp_path, hand_bay=["data/a.geojson"],
+                            hand_marsh=["data/m.geojson"], habitats="data/h.geojson")
+    base = tmp_path / "pipeline"
+    a = parse_args(["--region", str(path)])
+    assert a.dem == base / "data/dem.tif" and a.out == base / "build/out"
+    assert tuple(a.bbox) == BBOX and a.cell == 10.0
+    assert a.hand_bay == [base / "data/a.geojson"] and a.hand_marsh == [base / "data/m.geojson"]
+    assert a.habitats == base / "data/h.geojson"
+    assert a.smooth_m == 30.0 and a.shelf_m == 150.0  # untouched defaults
+
+    b = parse_args(["--region", str(path), "--hand-bay", "x.geojson", "y.geojson",
+                    "--bbox", "1", "2", "3", "4", "--habitats", "z.geojson"])
+    assert b.hand_bay == [Path("x.geojson"), Path("y.geojson")]  # replaced, not appended
+    assert b.bbox == [1.0, 2.0, 3.0, 4.0] and b.habitats == Path("z.geojson")
+    assert b.hand_marsh == [base / "data/m.geojson"]
+    # Form --region=FILE works too.
+    assert parse_args([f"--region={path}"]).dem == base / "data/dem.tif"
+
+
+def test_parse_args_without_region_is_the_old_interface(tmp_path):
+    a = parse_args(["--dem", "d.tif", "--bbox", "1", "2", "3", "4", "--out", "o"])
+    assert a.dem == Path("d.tif") and a.hand_bay == [] and a.hand_marsh == []
+    assert a.habitats is None and a.cell == 10.0 and a.region is None
+
+
+@pytest.mark.parametrize("given, missing", [
+    ([], ["--dem", "--bbox", "--out"]),
+    (["--dem", "d.tif", "--bbox", "1", "2", "3", "4"], ["--out"]),
+    (["--dem", "d.tif", "--out", "o"], ["--bbox"]),
+    (["--bbox", "1", "2", "3", "4", "--out", "o"], ["--dem"]),
+])
+def test_missing_required_inputs_is_a_clear_parser_error(capsys, given, missing):
+    with pytest.raises(SystemExit) as exc:
+        main(given)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "missing" in err and all(m in err for m in missing)
+
+
+def test_a_broken_region_file_is_a_parser_error_naming_the_file(tmp_path, capsys):
+    path, _ = _region_setup(tmp_path, nope=1)
+    with pytest.raises(SystemExit) as exc:
+        main(["--region", str(path)])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "t.json" in err and "nope" in err
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--region", str(tmp_path / "absent.json")])
+    assert exc.value.code == 2 and "absent.json" in capsys.readouterr().err
+
+
+def test_region_checks_run_and_can_fail(tmp_path):
+    pipe = tmp_path / "pipeline"
+    path, _ = _region_setup(tmp_path, checks="data/checks.json")
+    (pipe / "data" / "checks.json").write_text(json.dumps(
+        [{"name": "needs a hill", "lon": -122.415, "lat": 37.76, "min_m": 60.0}]))
+    assert main(["--region", str(path)]) == 2
