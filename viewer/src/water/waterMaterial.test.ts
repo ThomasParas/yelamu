@@ -1,0 +1,100 @@
+import * as THREE from "three";
+import { describe, expect, it } from "vitest";
+import { WATER_COLOR, WATER_OPACITY, WAVE_SLOPE, createWaterMaterial, patchWaterShaders } from "./waterMaterial";
+
+/** Run the material's onBeforeCompile on three's real standard-material shader text. */
+function compile(m: ReturnType<typeof createWaterMaterial>) {
+  const shader = {
+    uniforms: {} as Record<string, { value: number }>,
+    vertexShader: THREE.ShaderLib.standard.vertexShader,
+    fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+  };
+  m.material.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, undefined as never);
+  return shader;
+}
+
+describe("createWaterMaterial", () => {
+  it("keeps the old look: colour, transparency, opacity", () => {
+    const { material } = createWaterMaterial();
+    expect(material).toBeInstanceOf(THREE.MeshStandardMaterial);
+    expect(material.color.getHex()).toBe(WATER_COLOR);
+    expect(WATER_COLOR).toBe(0x3f7fa6);
+    expect(material.transparent).toBe(true);
+    expect(material.opacity).toBe(WATER_OPACITY);
+    expect(WATER_OPACITY).toBe(0.8);
+  });
+
+  it("starts static: amplitude uniform is 0", () => {
+    const m = createWaterMaterial();
+    const s = compile(m);
+    expect(s.uniforms.uAmp.value).toBe(0);
+    expect(s.uniforms.uTime.value).toBe(0);
+  });
+
+  it("setAnimated switches the amplitude uniform on and off; setTime updates uTime", () => {
+    const m = createWaterMaterial();
+    const s = compile(m);
+    m.setAnimated(true);
+    expect(s.uniforms.uAmp.value).toBe(WAVE_SLOPE);
+    m.setTime(12.5);
+    expect(s.uniforms.uTime.value).toBe(12.5);
+    m.setAnimated(false);
+    expect(s.uniforms.uAmp.value).toBe(0);
+    m.setTime(Number.NaN); // ignored
+    expect(s.uniforms.uTime.value).toBe(12.5);
+  });
+
+  it("uniform objects are shared by every compile (state survives recompiles)", () => {
+    const m = createWaterMaterial();
+    const a = compile(m);
+    m.setAnimated(true);
+    const b = compile(m);
+    expect(b.uniforms.uAmp).toBe(a.uniforms.uAmp);
+    expect(b.uniforms.uAmp.value).toBe(WAVE_SLOPE);
+  });
+
+  it("patches the vertex and fragment shaders at real three anchors", () => {
+    const original = THREE.ShaderLib.standard;
+    const s = compile(createWaterMaterial());
+    // vertex: world XZ varying
+    expect(s.vertexShader).toContain("varying vec2 vWaterXZ;");
+    expect(s.vertexShader).toContain("modelMatrix * vec4( transformed, 1.0 )");
+    expect(s.vertexShader.indexOf("#include <project_vertex>")).toBeLessThan(s.vertexShader.indexOf("vWaterXZ = "));
+    // fragment: uniforms, normal perturbation after the normal chunk, glint before the output
+    expect(s.fragmentShader).toContain("uniform float uTime;");
+    expect(s.fragmentShader).toContain("uniform float uAmp;");
+    const iNormal = s.fragmentShader.indexOf("#include <normal_fragment_maps>");
+    const iPerturb = s.fragmentShader.indexOf("vec3 nWorld");
+    const iGlint = s.fragmentShader.indexOf("float glint");
+    const iOutput = s.fragmentShader.indexOf("#include <opaque_fragment>");
+    expect(iNormal).toBeGreaterThan(-1);
+    expect(iNormal).toBeLessThan(iPerturb);
+    expect(iPerturb).toBeLessThan(iGlint);
+    expect(iGlint).toBeLessThan(iOutput);
+    // two crossed waves
+    expect(s.fragmentShader).toContain("float w1");
+    expect(s.fragmentShader).toContain("float w2");
+    // the shared source is untouched
+    expect(original.fragmentShader).not.toContain("uAmp");
+    expect(original.vertexShader).not.toContain("vWaterXZ");
+  });
+
+  it("each patched section is applied exactly once", () => {
+    const s = compile(createWaterMaterial());
+    for (const needle of ["varying vec2 vWaterXZ;", "uniform float uAmp;", "float glint =", "vec3 nWorld"]) {
+      expect(s.vertexShader.split(needle).length - 1 + s.fragmentShader.split(needle).length - 1).toBeLessThanOrEqual(2);
+    }
+    expect(s.fragmentShader.split("vec3 nWorld").length - 1).toBe(1);
+    expect(s.fragmentShader.split("float glint =").length - 1).toBe(1);
+  });
+
+  it("throws a clear error when three's shader no longer has an anchor", () => {
+    expect(() => patchWaterShaders({ vertexShader: "void main(){}", fragmentShader: "void main(){}" })).toThrow(/anchor/);
+  });
+
+  it("shares one program cache key", () => {
+    const a = createWaterMaterial().material;
+    const b = createWaterMaterial().material;
+    expect(a.customProgramCacheKey()).toBe(b.customProgramCacheKey());
+  });
+});
