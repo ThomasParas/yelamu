@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import rasterio
@@ -14,6 +16,7 @@ from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
 from yelamu.geo import UTM_CRS, Grid
+from yelamu.provenance import provenance_problem
 
 _LONLAT_TO_UTM = Transformer.from_crs("EPSG:4326", UTM_CRS, always_xy=True)
 
@@ -87,3 +90,77 @@ def load_polygons(path: Path, allow_empty: bool = False) -> list[BaseGeometry]:
     if not geoms and not allow_empty:
         raise ValueError(f"{path}: no usable polygon geometry was found")
     return geoms
+
+
+@dataclass(frozen=True)
+class Feature:
+    """One GeoJSON feature with polygonal geometry, in UTM metres, plus its provenance.
+
+    `geometry` is a valid Polygon or MultiPolygon (the union of the cleaned-up parts);
+    `polygons` lists its Polygons. `source` / `confidence` come from properties and are
+    None when the feature has none (only possible without require_provenance).
+    `properties` is the feature's full GeoJSON properties dict. `index` is the feature's
+    position (0-based) in the file.
+    """
+
+    geometry: BaseGeometry
+    source: str | None
+    confidence: str | None
+    properties: dict[str, Any] = field(default_factory=dict)
+    index: int = 0
+
+    @property
+    def polygons(self) -> list[BaseGeometry]:
+        return _polygonal_parts(self.geometry)
+
+    @property
+    def name(self) -> str | None:
+        value = self.properties.get("name")
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def feature_label(path: Path | str, index: int, properties: Any) -> str:
+    """'<file>: feature <index> ('<name>')' for error messages."""
+    name = properties.get("name") if isinstance(properties, dict) else None
+    suffix = f" ({name!r})" if isinstance(name, str) and name.strip() else ""
+    return f"{path}: feature {index}{suffix}"
+
+
+def load_features(
+    path: Path, *, allow_empty: bool = False, require_provenance: bool = False
+) -> list[Feature]:
+    """Read GeoJSON in lon/lat (EPSG:4326) as UTM Features, one per usable feature.
+
+    Geometry is cleaned exactly as load_polygons does (only polygonal parts, repaired).
+    Features with no polygonal geometry are skipped. With `require_provenance` every
+    kept feature must have properties.source (a non-blank string of at most 200
+    characters) and properties.confidence (one of yelamu.export.CONFIDENCE_LEVELS); the
+    first violation raises ValueError naming the file and the feature index / name.
+    An empty result raises ValueError unless `allow_empty` is True.
+    """
+    data = json.loads(Path(path).read_text())
+    raw_features = data["features"] if data.get("type") == "FeatureCollection" else [data]
+    out: list[Feature] = []
+    for index, feature in enumerate(raw_features):
+        is_feature = feature.get("type") == "Feature"
+        raw = feature.get("geometry") if is_feature else feature
+        properties = (feature.get("properties") or {}) if is_feature else {}
+        parts = geometry_to_utm_polygons(raw)
+        if not parts:
+            continue
+        if require_provenance:
+            problem = provenance_problem(properties)
+            if problem is not None:
+                raise ValueError(f"{feature_label(path, index, properties)}: {problem}")
+        source = properties.get("source")
+        confidence = properties.get("confidence")
+        out.append(Feature(
+            geometry=shapely.unary_union(parts),
+            source=source.strip() if isinstance(source, str) and source.strip() else None,
+            confidence=confidence if isinstance(confidence, str) else None,
+            properties=dict(properties),
+            index=index,
+        ))
+    if not out and not allow_empty:
+        raise ValueError(f"{path}: no usable polygon geometry was found")
+    return out
