@@ -3949,6 +3949,22 @@ git commit -m "docs: full-city results and decision"
 
 ---
 
+## Addendum C: Changes made during execution (supersede the tasks above where they differ)
+
+Phase 2 was executed with one implementer subagent per part (pipeline Tasks 0-5, viewer Tasks 6-10) with a byte-for-byte cross-check against the verified files, then one read-only review on a stronger model. Stage 1 (compliance) was clean: 30 of 33 changed files were byte-identical and the rest differed only in test order or `package.json` script order. Stage 2 found five real issues, fixed in commits `6b1ea4f` and `f6f4199` (pipeline 167 tests, viewer 93 tests):
+
+1. **Region paths from a subdirectory.** `load_region` derived the base directory without resolving the file path, so `--region full-city.json` run from inside `regions/` resolved everything wrongly. It now uses `path.resolve().parent.parent`. Test added.
+2. **LOD switch follows resizes.** `switchZoom` was computed once at startup, but `fitViewSize` changes with the window aspect (a half-width window or a rotated phone puts up to about 1.7 to 2.8 times more chunks in view at the switch). `TerrainChunks.setSwitchZoom` was added, and `main.ts` recomputes it in `resize()` with the same formula as at startup. Checked in a browser: the switch moved from 2.62 at 1500x900 to 4.87 at 800x900.
+3. **No holes while chunks build.** An in-view chunk keeps its coarse (LOD1) mesh until its full-resolution mesh exists. Previously the coarse meshes were hidden at once and up to 12 frames of holes showed the sea floor.
+4. **Memory after zooming out.** The LRU capacity grew to the in-view count and never shrank. `LruCache.trim()` was added and `update()` trims back to the base capacity while at LOD1.
+5. **Never guess colours.** When a habitat raster exists, a class id missing from the legend now renders as the neutral "unmapped" grey instead of the old tan fallback.
+
+**Checked and not changed:** overlapping SFEI polygons. On the real data no cell is covered by more than one class (the layer is dissolved), so the "later class wins" rule is only theoretical; it stays documented in `habitat.py`.
+
+**Measured after the fixes (browser, 800x900 window):** whole city 346,430 triangles / 184 draw calls; zoomed in 720,900 triangles, 22 chunks, 120 fps; no console errors.
+
+---
+
 ## Self-Review
 
 | Spec requirement | Task |
