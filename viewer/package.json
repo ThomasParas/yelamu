@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "make:city-synth": "node scripts/make_city_synth.mjs",
     "test": "vitest run",
-    "make:overlay-synth": "node scripts/make_overlay_synth.mjs"
+    "make:overlay-synth": "node scripts/make_overlay_synth.mjs",
+    "make:ponds-synth": "node scripts/make_ponds_synth.mjs"
   },
   "dependencies": {
     "three": "^0.187.0"
