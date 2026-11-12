@@ -52,7 +52,7 @@ def _is_number(v: Any) -> bool:
 def load_region(path: Path) -> Region:
     """Read and validate a region JSON file. Raises ValueError naming the file."""
     path = Path(path)
-    base = path.parent.parent  # the pipeline directory
+    base = path.resolve().parent.parent  # the pipeline directory (resolved: cwd may be regions/)
 
     def fail(msg: str) -> ValueError:
         return ValueError(f"{path}: {msg}")

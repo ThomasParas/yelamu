@@ -67,6 +67,18 @@ def test_absolute_paths_are_kept(tmp_path):
     assert region.dem == Path("/abs/dem.tif")
 
 
+def test_relative_region_path_is_resolved_before_deriving_the_base(tmp_path, monkeypatch):
+    """Running from inside regions/ (`--region x.json`) must still find the pipeline dir."""
+    _write(tmp_path, {**MINIMAL, "habitats": "data/raw/h.geojson"}, "x.json")
+    base = (tmp_path / "pipeline").resolve()
+    monkeypatch.chdir(base / "regions")
+    region = load_region(Path("x.json"))
+    assert region.dem.is_absolute() and region.out.is_absolute()
+    assert region.dem == base / "data/raw/dem.tif"
+    assert region.habitats == base / "data/raw/h.geojson"
+    assert region.out == base.parent / "viewer" / "out"
+
+
 def test_region_is_frozen(tmp_path):
     region = load_region(_write(tmp_path, MINIMAL))
     with pytest.raises(Exception):
