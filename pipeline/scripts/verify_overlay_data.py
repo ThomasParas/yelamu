@@ -7,7 +7,7 @@ Reads heightmap.u16, habitat.u8 and meta.json from ASSET_DIR (no writes). Rules:
   * landmark kind "water" / "beach": DEM height must be <= 30 m
   * hotspot kinds marsh/lagoon/lake/bay/creek: the habitat group at the point (and the
     groups within 100 m) are reported; water/marsh/wetland (or unmapped) is expected.
-Exit code 1 if a landmark rule fails. Hotspot results are informational (printed).
+Exit code 1 if a landmark rule fails or an id is shared by a landmark and a hotspot. Hotspot results are informational (printed).
 """
 
 from __future__ import annotations
@@ -65,8 +65,15 @@ def main(argv=None) -> int:
     meta, grid, dem, habitat, group_by_id = load_assets(args.asset_dir)
     failures = 0
 
+    landmarks = json.loads(args.landmarks.read_text())
+    hotspots = json.loads(args.hotspots.read_text()) if args.hotspots.exists() else []
+    shared = {i["id"] for i in landmarks} & {i["id"] for i in hotspots}
+    for item_id in sorted(shared):
+        print(f"FAIL {item_id}: id is used by both a landmark and a hotspot")
+        failures += 1
+
     print("== landmarks (DEM height) ==")
-    for item in json.loads(args.landmarks.read_text()):
+    for item in landmarks:
         rc = cell_of(grid, item["lon"], item["lat"])
         if rc is None:
             print(f"FAIL {item['id']}: outside the grid")
@@ -82,8 +89,8 @@ def main(argv=None) -> int:
         print(f"{status:8} {item['id']:26} {item['kind']:9} {height:7.1f} m  cell={rc}")
 
     print("== hotspots (habitat raster) ==")
-    if args.hotspots.exists():
-        for item in json.loads(args.hotspots.read_text()):
+    if hotspots:
+        for item in hotspots:
             rc = cell_of(grid, item["lon"], item["lat"])
             if rc is None:
                 print(f"FAIL {item['id']}: outside the grid")
@@ -95,6 +102,7 @@ def main(argv=None) -> int:
                 "marsh", "lagoon", "lake", "bay", "creek") else "CHECK"
             print(f"{note:6} {item['id']:26} {item['kind']:9} here={group:9} "
                   f"dem={float(dem[rc]):6.1f} m  within100m={near}")
+    print(f"{len(landmarks)} landmarks, {len(hotspots)} hotspots")
     return 1 if failures else 0
 
 

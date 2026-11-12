@@ -91,13 +91,6 @@
   "lat": 37.7853
  },
  {
-  "id": "lake-merced",
-  "name": "Lake Merced",
-  "kind": "water",
-  "lon": -122.493,
-  "lat": 37.7268
- },
- {
   "id": "bernal-heights",
   "name": "Bernal Heights summit",
   "kind": "hill",
@@ -189,7 +182,7 @@
   "lat": 37.7366
  },
  {
-  "id": "mountain-lake",
+  "id": "mountain-lake-park",
   "name": "Mountain Lake Park",
   "kind": "park",
   "lon": -122.4716,

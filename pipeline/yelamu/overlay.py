@@ -49,6 +49,15 @@ LANDMARK_KINDS = ("park", "bridge", "hill", "building", "neighborhood", "beach",
                   "fort", "other")
 HOTSPOT_KINDS = ("creek", "lagoon", "marsh", "dune", "hill", "shoreline", "bay", "lake",
                  "valley", "other")
+
+# Limits of the viewer's overlay parser. The viewer rejects the WHOLE file when one is
+# exceeded, so the validators below must be at least as strict.
+# keep in sync with viewer/src/overlay/parse.ts
+MAX_STREETS = 6000
+MAX_STREET_POINTS = 400_000
+MAX_PLACES = 5000  # per section (landmarks, hotspots)
+MAX_NAME_CHARS = 120
+MAX_SOURCES = 20
 DESCRIPTION_MIN, DESCRIPTION_MAX = 20, 400
 
 _ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
@@ -232,11 +241,38 @@ def _nonblank(item: dict, key: str, label: str) -> str:
     return value
 
 
+def _js_length(text: str) -> int:
+    """Length as JavaScript counts it (UTF-16 code units), which is what the viewer checks."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _check_name(name: str, label: str) -> None:
+    if _js_length(name.strip()) > MAX_NAME_CHARS:
+        raise ValueError(f"{label}: 'name' is longer than {MAX_NAME_CHARS} characters")
+
+
+def _url_ok(url: Any) -> bool:
+    """True for an http(s) URL that the viewer's `new URL()` accepts (and a bit stricter)."""
+    if not isinstance(url, str):
+        return False
+    url = url.strip()
+    if not url or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        return False
+    try:
+        parsed = urlparse(url)
+        parsed.port  # raises ValueError for a non-numeric or out-of-range port
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+
+
 def _validate_common(
     items: Any, bbox: tuple[float, float, float, float], kinds: Sequence[str], what: str
 ) -> None:
     if not isinstance(items, list):
         raise ValueError(f"{what} must be a JSON list of objects, got {type(items).__name__}")
+    if len(items) > MAX_PLACES:
+        raise ValueError(f"{what} has {len(items)} entries, more than the limit of {MAX_PLACES}")
     west, south, east, north = bbox
     seen: set[str] = set()
     for index, item in enumerate(items):
@@ -249,7 +285,7 @@ def _validate_common(
         if item_id in seen:
             raise ValueError(f"{label}: duplicate id {item_id!r}")
         seen.add(item_id)
-        _nonblank(item, "name", label)
+        _check_name(_nonblank(item, "name", label), label)
         kind = _nonblank(item, "kind", label)
         if kind not in kinds:
             raise ValueError(f"{label}: kind {kind!r} is not one of {', '.join(kinds)}")
@@ -278,7 +314,7 @@ def validate_hotspots(items: Any, bbox: tuple[float, float, float, float]) -> No
         label = _label(item, index)
         description = item.get("description")
         if not isinstance(description, str) or not (
-            DESCRIPTION_MIN <= len(description.strip()) <= DESCRIPTION_MAX
+            DESCRIPTION_MIN <= _js_length(description.strip()) <= DESCRIPTION_MAX
         ):
             raise ValueError(
                 f"{label}: 'description' must be a string of {DESCRIPTION_MIN}.."
@@ -287,14 +323,15 @@ def validate_hotspots(items: Any, bbox: tuple[float, float, float, float]) -> No
         sources = item.get("sources")
         if not isinstance(sources, list) or not sources:
             raise ValueError(f"{label}: 'sources' must be a non-empty list of {{title, url}}")
+        if len(sources) > MAX_SOURCES:
+            raise ValueError(f"{label}: 'sources' has more than {MAX_SOURCES} entries")
         for source in sources:
             if not isinstance(source, dict):
                 raise ValueError(f"{label}: each of 'sources' must be an object, got {source!r}")
             title, url = source.get("title"), source.get("url")
             if not isinstance(title, str) or not title.strip():
                 raise ValueError(f"{label}: every source in 'sources' needs a non-blank title")
-            parsed = urlparse(url) if isinstance(url, str) else None
-            if parsed is None or parsed.scheme not in ("http", "https") or not parsed.netloc:
+            if not _url_ok(url):
                 raise ValueError(
                     f"{label}: source url in 'sources' must be an http(s) URL, got {url!r}"
                 )
@@ -304,6 +341,45 @@ def validate_hotspots(items: Any, bbox: tuple[float, float, float, float]) -> No
                 f"{label}: 'confidence' must be one of {', '.join(CONFIDENCE_LEVELS)}, "
                 f"got {confidence!r}"
             )
+
+
+def validate_unique_ids(landmarks: Sequence[dict], hotspots: Sequence[dict]) -> None:
+    """Raise ValueError if an id is used by both a landmark and a hotspot.
+
+    The viewer keys places by id across both lists, so ids must be unique overall. Each list
+    is already checked for duplicates on its own by `validate_landmarks`/`validate_hotspots`.
+    """
+    landmark_ids = {item["id"] for item in landmarks}
+    for item in hotspots:
+        if item["id"] in landmark_ids:
+            raise ValueError(f"id {item['id']!r} is used by both a landmark and a hotspot")
+
+
+def validate_streets(streets: Sequence[dict]) -> None:
+    """Raise ValueError if the built streets would be rejected by the viewer's parser."""
+    if len(streets) > MAX_STREETS:
+        raise ValueError(f"{len(streets)} streets, more than the viewer's limit of {MAX_STREETS}")
+    points = 0
+    for index, street in enumerate(streets):
+        label = f"street #{index} ({street.get('name')!r})"
+        name = street.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{label}: 'name' must be a non-blank string")
+        _check_name(name, label)
+        if street.get("kind") not in STREET_KINDS:
+            raise ValueError(f"{label}: kind {street.get('kind')!r} is not one of {', '.join(STREET_KINDS)}")
+        lines = street.get("lines")
+        if not isinstance(lines, list):
+            raise ValueError(f"{label}: 'lines' must be a list")
+        for line in lines:
+            if not isinstance(line, list) or len(line) % 2 != 0 or len(line) < 4:
+                raise ValueError(f"{label}: each line needs an even number (>= 4) of values")
+            if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                       for v in line):
+                raise ValueError(f"{label}: line values must be finite numbers")
+            points += len(line) // 2
+            if points > MAX_STREET_POINTS:
+                raise ValueError(f"streets hold more than {MAX_STREET_POINTS} points in total")
 
 
 def _place(grid: Grid, item: dict, extra: Sequence[str]) -> dict:
@@ -380,13 +456,16 @@ def build_overlay(
     hotspots = _load_json_list(Path(hotspots_path), "hotspots")
     validate_landmarks(landmarks, bbox)
     validate_hotspots(hotspots, bbox)
+    validate_unique_ids(landmarks, hotspots)
+    streets = promote_long_streets(
+        build_streets(read_tiger_roads(tiger_path), grid, tolerance_m=tolerance_m),
+        promote_m,
+    )
+    validate_streets(streets)
 
     overlay = {
         "version": OVERLAY_VERSION,
-        "streets": promote_long_streets(
-            build_streets(read_tiger_roads(tiger_path), grid, tolerance_m=tolerance_m),
-            promote_m,
-        ),
+        "streets": streets,
         "landmarks": [_place(grid, i, ()) for i in sorted(landmarks, key=lambda i: i["id"])],
         "hotspots": [
             _place(grid, i, ("description", "sources", "confidence"))

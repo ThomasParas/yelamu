@@ -17,6 +17,8 @@ from yelamu.overlay import (
     read_tiger_roads,
     validate_hotspots,
     validate_landmarks,
+    validate_streets,
+    validate_unique_ids,
     world_xz,
 )
 
@@ -444,6 +446,131 @@ def test_hotspot_kind_vocabulary_is_hotspot_specific():
         validate_landmarks([lm(kind="creek")], BBOX)
 
 
+# ------------------------------------------- limits mirrored from viewer/src/overlay/parse.ts
+
+
+@pytest.mark.parametrize("validate,make", [(validate_landmarks, lm), (validate_hotspots, hs)])
+class TestViewerParserLimits:
+    def test_name_length_limit(self, validate, make):
+        validate([make(name="x" * 120)], BBOX)
+        with pytest.raises(ValueError, match="the-id.*name"):
+            validate([make(id="the-id", name="x" * 121)], BBOX)
+
+    def test_name_length_counts_utf16_units_like_javascript(self, validate, make):
+        # U+1F332 is one Python character but two UTF-16 units (JS string length).
+        validate([make(name="\U0001F332" * 60)], BBOX)
+        with pytest.raises(ValueError, match="the-id.*name"):
+            validate([make(id="the-id", name="\U0001F332" * 61)], BBOX)
+
+    def test_per_section_count_limit(self, validate, make):
+        def many(n):
+            return [make(id=f"p{i}") for i in range(n)]
+
+        validate(many(5000), BBOX)
+        with pytest.raises(ValueError, match="5001.*5000|5000.*5001"):
+            validate(many(5001), BBOX)
+
+    def test_non_finite_coordinates_rejected(self, validate, make):
+        for bad in (float("inf"), float("-inf")):
+            with pytest.raises(ValueError, match="the-id"):
+                validate([make(id="the-id", lat=bad)], BBOX)
+
+
+def test_hotspot_description_length_counts_utf16_units():
+    validate_hotspots([hs(description="\U0001F332" * 200)], BBOX)  # 400 units
+    with pytest.raises(ValueError, match="the-id.*description"):
+        validate_hotspots([hs(id="the-id", description="\U0001F332" * 201)], BBOX)  # 402 units
+
+
+def test_hotspot_source_count_limit():
+    one = {"title": "T", "url": "https://x.org/a"}
+    validate_hotspots([hs(sources=[one] * 20)], BBOX)
+    with pytest.raises(ValueError, match="the-id.*sources.*20|the-id.*20.*sources"):
+        validate_hotspots([hs(id="the-id", sources=[one] * 21)], BBOX)
+
+
+@pytest.mark.parametrize("url", [
+    "https://", "http://", "https:///path", "https://exa mple.org", "https://x.org/a b",
+    "https://x.org:99999/", "https://x.org:abc/", "http://[::1", "https://user@/x",
+    "https://x.org\n/", "javascript:alert(1)", "//x.org/a", "https:x", "   ",
+])
+def test_hotspot_source_url_must_be_parseable_like_new_url(url):
+    with pytest.raises(ValueError, match="the-id.*sources"):
+        validate_hotspots([hs(id="the-id", sources=[{"title": "T", "url": url}])], BBOX)
+
+
+@pytest.mark.parametrize("url", [
+    "https://x.org", "http://x.org/a?b=1#c", "https://x.org:8080/p", "http://[::1]:3000/",
+    "https://sub.example.co.uk/a%20b", "  https://x.org/trimmed  ",
+])
+def test_hotspot_source_url_accepts_what_new_url_accepts(url):
+    validate_hotspots([hs(sources=[{"title": "T", "url": url}])], BBOX)
+
+
+def _street(name="Market St", lines=None, kind="primary"):
+    return {"name": name, "kind": kind, "lines": lines if lines is not None else [[0.0, 0.0, 1.0, 1.0]]}
+
+
+def test_validate_streets_accepts_good_output():
+    validate_streets([_street(), _street(name="A St", kind="local")])
+    validate_streets([])
+
+
+def test_validate_streets_limits():
+    validate_streets([_street(name=f"s{i}") for i in range(6000)])
+    with pytest.raises(ValueError, match="6001.*6000|6000.*6001"):
+        validate_streets([_street(name=f"s{i}") for i in range(6001)])
+    # 400_000 points in total is the viewer's cap
+    validate_streets([_street(lines=[[0.0, 0.0] * 400_000])])
+    with pytest.raises(ValueError, match="400000"):
+        validate_streets([_street(lines=[[0.0, 0.0] * 400_001])])
+    validate_streets([_street(name="x" * 120)])
+    with pytest.raises(ValueError, match="street #0.*name"):
+        validate_streets([_street(name="x" * 121)])
+
+
+@pytest.mark.parametrize("bad", [
+    _street(kind="alley"), _street(name=" "), _street(lines=[[0.0, 0.0, 1.0]]),
+    _street(lines=[[0.0, 0.0]]), _street(lines=[[0.0, 0.0, float("nan"), 1.0]]),
+    _street(lines="x"),
+])
+def test_validate_streets_rejects_malformed(bad):
+    with pytest.raises(ValueError, match="street #0"):
+        validate_streets([bad])
+
+
+# ------------------------------------------------------ ids unique across both kinds
+
+
+def test_validate_unique_ids_passes_for_distinct_ids():
+    validate_unique_ids([lm(id="a"), lm(id="b")], [hs(id="c"), hs(id="d")])
+    validate_unique_ids([], [])
+
+
+def test_validate_unique_ids_rejects_an_id_used_by_both_kinds():
+    with pytest.raises(ValueError, match="id 'shared' is used by both a landmark and a hotspot"):
+        validate_unique_ids([lm(id="a"), lm(id="shared")], [hs(id="shared")])
+
+
+def test_build_overlay_rejects_shared_ids_and_writes_nothing(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    kwargs["landmarks_path"].write_text(json.dumps([lm(id="shared", name="A")]))
+    kwargs["hotspots_path"].write_text(json.dumps([hs(id="shared")]))
+    before = (kwargs["out_dir"] / "meta.json").read_text()
+    with pytest.raises(ValueError, match="shared.*both a landmark and a hotspot"):
+        build_overlay(**kwargs)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()
+    assert (kwargs["out_dir"] / "meta.json").read_text() == before
+
+
+def test_build_overlay_with_distinct_ids_succeeds(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    kwargs["landmarks_path"].write_text(json.dumps([lm(id="one", name="A")]))
+    kwargs["hotspots_path"].write_text(json.dumps([hs(id="two")]))
+    build_overlay(**kwargs)
+    assert (kwargs["out_dir"] / "overlay.json").exists()
+
+
 # --------------------------------------------------------------------- build_overlay e2e
 
 
@@ -579,7 +706,8 @@ def test_data_files_in_the_repo_are_valid():
     hotspots = json.loads((root / "data/overlay/hotspots.json").read_text())
     validate_landmarks(landmarks, region.bbox)
     validate_hotspots(hotspots, region.bbox)
-    assert 20 <= len(landmarks) <= 40
+    validate_unique_ids(landmarks, hotspots)
+    assert len(landmarks) == 37
     assert 8 <= len(hotspots) <= 12
 
 
