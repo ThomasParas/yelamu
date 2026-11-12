@@ -1,0 +1,175 @@
+[
+  {
+    "id": "yerba-buena-cove",
+    "name": "Yerba Buena Cove",
+    "kind": "bay",
+    "lon": -122.3975,
+    "lat": 37.7955,
+    "description": "A tidal cove on the bay shore between Clarks Point and Rincon Point; its beach lay back near today's Montgomery Street until Gold Rush filling put downtown over it.",
+    "sources": [
+      {
+        "title": "Yerba Buena Cove (Wikipedia)",
+        "url": "https://en.wikipedia.org/wiki/Yerba_Buena_Cove"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "mission-bay",
+    "name": "Mission Bay and Mission Creek marsh",
+    "kind": "marsh",
+    "lon": -122.3985,
+    "lat": 37.7705,
+    "description": "An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th.",
+    "sources": [
+      {
+        "title": "Natural History of Mission Bay, Chris Carlsson (FoundSF)",
+        "url": "https://www.foundsf.org/Natural_History_of_Mission_Bay"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "soma-fens",
+    "name": "South of Market fens",
+    "kind": "marsh",
+    "lon": -122.404,
+    "lat": 37.7835,
+    "description": "Rare peat-soil fens lay in low ground between dune ridges and along tidal marsh edges in today's SoMa; an 1896 botanist called one an Arctic oasis in California.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "mountain-lake",
+    "name": "Mountain Lake",
+    "kind": "lake",
+    "lon": -122.4711,
+    "lat": 37.7887,
+    "description": "A dune-dammed headwater lake: drainage pooled behind sand mounds, making habitat for California red-legged frogs and San Francisco garter snakes.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "washerwomans-lagoon",
+    "name": "Washerwoman's Lagoon",
+    "kind": "lagoon",
+    "lon": -122.4283,
+    "lat": 37.8004,
+    "description": "A freshwater lagoon held back by dunes and beaches, in what is now the Marina District, below Russian Hill and toward the Presidio.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      },
+      {
+        "title": "Washerwoman's Lagoon (FoundSF)",
+        "url": "https://www.foundsf.org/WASHERWOMAN%27S_LAGOON"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "laguna-honda",
+    "name": "Laguna Honda",
+    "kind": "lake",
+    "lon": -122.461,
+    "lat": 37.7505,
+    "description": "A natural lake before it was dammed and enlarged for the city's water supply; a second natural lake, near Seventh Avenue and Lawton, was filled in early last century.",
+    "sources": [
+      {
+        "title": "Laguna Honda (FoundSF, quoting Gilliam, The Natural World of San Francisco)",
+        "url": "https://www.foundsf.org/Laguna_Honda"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "lake-merced",
+    "name": "Lake Merced",
+    "kind": "lake",
+    "lon": -122.4945,
+    "lat": 37.7268,
+    "description": "Once a lagoon fed by streams, groundwater and an ocean channel; drifting dunes cut that link, though storms and quakes reopened it, and a tail ran to Ocean Beach as late as the 1800s.",
+    "sources": [
+      {
+        "title": "San Francisco's Lake Merced: Native Wetland (Western Neighborhoods Project)",
+        "url": "https://www.outsidelands.org/lakemerced1.php"
+      },
+      {
+        "title": "Lake Merced (Wikipedia)",
+        "url": "https://en.wikipedia.org/wiki/Lake_Merced"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "lobos-creek",
+    "name": "Lobos Creek",
+    "kind": "creek",
+    "lon": -122.4838,
+    "lat": 37.7892,
+    "description": "One of the few small flowing creeks of the old peninsula, its banks lined with riparian woodland and scrub of coast live oak, willow and Pacific wax myrtle.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "western-dune-sheet",
+    "name": "Western mobile dune sheet",
+    "kind": "dune",
+    "lon": -122.493,
+    "lat": 37.7594,
+    "description": "A vast sheet of loose, shifting sand on the peninsula's west side, sparsely vegetated; Coast Survey maps show its edge moved up to a quarter mile in about twenty years.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "islais-creek",
+    "name": "Islais Creek estuary",
+    "kind": "creek",
+    "lon": -122.3925,
+    "lat": 37.7485,
+    "description": "Fresh water from uphill springs ran down the Islais Creek watershed into saltwater marshlands on the bay's east shore, before the lower creek was filled and channelized.",
+    "sources": [
+      {
+        "title": "Islais Creek (Port of San Francisco)",
+        "url": "https://www.sfport.com/islaiscreek"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "precita-creek",
+    "name": "Precita Creek",
+    "kind": "creek",
+    "lon": -122.4103,
+    "lat": 37.7473,
+    "description": "A small stream running from near Market and 24th Streets along today's Precita Avenue and Cesar Chavez Street into Islais Creek's estuarine bog.",
+    "sources": [
+      {
+        "title": "Precita Creek (Wikipedia)",
+        "url": "https://en.wikipedia.org/wiki/Precita_Creek"
+      }
+    ],
+    "confidence": "documented"
+  }
+]

@@ -1,0 +1,613 @@
+import json
+import math
+from pathlib import Path
+
+import pytest
+import shapefile
+
+from yelamu.geo import Grid, lonlat_to_utm
+from yelamu.overlay import (
+    HOTSPOT_KINDS,
+    LANDMARK_KINDS,
+    build_overlay,
+    build_streets,
+    kind_for_mtfcc,
+    lonlat_to_world,
+    promote_long_streets,
+    read_tiger_roads,
+    validate_hotspots,
+    validate_landmarks,
+    world_xz,
+)
+
+BBOX = (-122.45, 37.75, -122.40, 37.80)
+CELL = 10.0
+LAT = 37.775  # inside BBOX
+LON0 = -122.43
+
+
+@pytest.fixture(scope="module")
+def grid() -> Grid:
+    return Grid.from_lonlat_bbox(*BBOX, cell=CELL)
+
+
+# --------------------------------------------------------------------- world coordinates
+
+
+def test_world_xz_matches_the_viewer_vertex_formula(grid):
+    # viewer/src/terrainMesh.ts: x = (sx - (width-1)/2) * cell, z = (sy - (height-1)/2) * cell
+    # for the cell-centre indices sx (column) and sy (row, 0 = north).
+    for sx, sy in [(0, 0), (grid.width - 1, grid.height - 1), (7, 3), (grid.width // 2, 11)]:
+        easting = grid.west + (sx + 0.5) * grid.cell
+        northing = grid.north - (sy + 0.5) * grid.cell
+        x, z = world_xz(grid, easting, northing)
+        assert x == pytest.approx((sx - (grid.width - 1) / 2) * grid.cell, abs=1e-6)
+        assert z == pytest.approx((sy - (grid.height - 1) / 2) * grid.cell, abs=1e-6)
+
+
+def test_centre_of_the_grid_is_the_origin(grid):
+    centre_e = (grid.west + grid.east) / 2
+    centre_n = (grid.north + grid.south) / 2
+    x, z = world_xz(grid, centre_e, centre_n)
+    assert (x, z) == (pytest.approx(0.0, abs=1e-9), pytest.approx(0.0, abs=1e-9))
+
+
+def test_east_is_plus_x_and_south_is_plus_z(grid):
+    x0, z0 = world_xz(grid, grid.west + 100, grid.south + 100)
+    x1, z1 = world_xz(grid, grid.west + 200, grid.south + 50)
+    assert x1 - x0 == pytest.approx(100)  # further east -> larger x
+    assert z1 - z0 == pytest.approx(50)  # further south -> larger z
+
+
+def test_lonlat_to_world_agrees_with_utm_route(grid):
+    lon, lat = -122.42, 37.77
+    e, n = lonlat_to_utm(lon, lat)
+    assert lonlat_to_world(grid, lon, lat) == pytest.approx(world_xz(grid, e, n))
+    # The bbox corners land on the grid edges (the grid snaps outwards, so inside it).
+    x, z = lonlat_to_world(grid, BBOX[0], BBOX[3])
+    half_w, half_h = grid.width * grid.cell / 2, grid.height * grid.cell / 2
+    assert -half_w - 1 <= x <= half_w and -half_h <= z <= half_h
+
+
+# --------------------------------------------------------------------------- MTFCC kinds
+
+
+@pytest.mark.parametrize(
+    "code,kind",
+    [("S1100", "primary"), ("S1200", "secondary"), ("S1400", "local"),
+     ("S1630", None), ("S1500", None), ("S1710", None), ("S1730", None),
+     ("S1740", None), ("S1750", None), ("S1780", None), ("S1820", None),
+     ("", None), (None, None), ("junk", None)],
+)
+def test_kind_for_mtfcc(code, kind):
+    assert kind_for_mtfcc(code) == kind
+
+
+# ----------------------------------------------------------------------- TIGER reading
+
+
+def write_roads(path: Path, rows: list[tuple[str | None, str, list[list[tuple[float, float]]]]]):
+    """rows: (FULLNAME, MTFCC, parts); each part is a list of (lon, lat)."""
+    w = shapefile.Writer(str(path), shapeType=shapefile.POLYLINE)
+    w.field("LINEARID", "C", 22)
+    w.field("FULLNAME", "C", 100)
+    w.field("RTTYP", "C", 1)
+    w.field("MTFCC", "C", 5)
+    for i, (name, mtfcc, parts) in enumerate(rows):
+        w.line(parts)
+        w.record(str(i), name, "M", mtfcc)
+    w.close()
+
+
+def line(lon_a, lon_b, lat=LAT, n=2):
+    """A west-east line of n points at constant latitude."""
+    return [(lon_a + (lon_b - lon_a) * i / (n - 1), lat) for i in range(n)]
+
+
+@pytest.fixture
+def tiger(tmp_path) -> Path:
+    path = tmp_path / "roads"
+    write_roads(path, [
+        ("Market St", "S1100", [line(LON0, LON0 + 0.01, n=3)]),          # collinear mid point
+        ("Valencia St", "S1200", [line(LON0, LON0 + 0.004, lat=LAT + 0.004)]),
+        ("Elm St", "S1400", [line(LON0, LON0 + 0.003, lat=LAT - 0.004)]),
+        ("Elm St", "S1400", [line(LON0 + 0.004, LON0 + 0.007, lat=LAT - 0.004)]),  # same name
+        ("Alley Way", "S1400", [line(LON0, LON0 + 0.003, lat=LAT - 0.006)]),
+        ("", "S1400", [line(LON0, LON0 + 0.003, lat=LAT - 0.007)]),       # no name
+        ("Hwy 1 On Rmp", "S1630", [line(LON0, LON0 + 0.003, lat=LAT - 0.009)]),  # ramp
+        ("Service Rd", "S1740", [line(LON0, LON0 + 0.003, lat=LAT - 0.010)]),    # dropped kind
+        ("Far Away Rd", "S1400", [line(-121.0, -120.99, lat=36.0)]),     # outside the grid
+        ("Two Part Ave", "S1200", [line(LON0, LON0 + 0.002, lat=LAT + 0.001),
+                                   line(LON0 + 0.003, LON0 + 0.005, lat=LAT + 0.001)]),
+        ("Edge Rd", "S1400", [[(BBOX[2] - 0.0005, LAT), (BBOX[2] + 0.02, LAT)]]),  # crosses east edge
+    ])
+    return path.with_suffix(".shp")
+
+
+def test_read_tiger_roads_filters_kinds_and_names(tiger):
+    roads = read_tiger_roads(tiger)
+    names = [r["name"] for r in roads]
+    assert "Alley Way" in names  # S1400 local is kept
+    assert not any(n in names for n in ("Hwy 1 On Rmp", "Service Rd"))  # dropped MTFCC
+    assert all(r["name"] and r["name"].strip() == r["name"] for r in roads)  # no empty names
+    by_name = {r["name"]: r for r in roads if r["name"] != "Elm St"}
+    assert by_name["Market St"]["kind"] == "primary"
+    assert by_name["Valencia St"]["kind"] == "secondary"
+    assert by_name["Alley Way"]["kind"] == "local"
+    # coords are lon/lat polylines
+    market = by_name["Market St"]["coords"]
+    assert len(market) == 1 and len(market[0]) == 3
+    lon, lat = market[0][0]
+    assert (lon, lat) == pytest.approx((LON0, LAT))
+
+
+def test_read_tiger_roads_keeps_every_part_of_a_multipart_feature(tiger):
+    roads = {r["name"]: r for r in read_tiger_roads(tiger)}
+    assert len(roads["Two Part Ave"]["coords"]) == 2
+
+
+def test_read_tiger_roads_missing_file_has_clear_message(tmp_path):
+    with pytest.raises(FileNotFoundError, match="roads"):
+        read_tiger_roads(tmp_path / "roads.shp")
+
+
+# ----------------------------------------------------------------------- build_streets
+
+
+def test_build_streets_kinds_names_and_order(tiger, grid):
+    streets = build_streets(read_tiger_roads(tiger), grid)
+    assert [(s["kind"], s["name"]) for s in streets] == [
+        ("primary", "Market St"),
+        ("secondary", "Two Part Ave"),
+        ("secondary", "Valencia St"),
+        ("local", "Alley Way"),
+        ("local", "Edge Rd"),
+        ("local", "Elm St"),
+    ]
+    for s in streets:
+        assert set(s) == {"name", "kind", "lines"}
+        for ln in s["lines"]:
+            assert len(ln) % 2 == 0 and len(ln) >= 4
+
+
+def test_build_streets_merges_same_name_and_kind(tiger, grid):
+    streets = {(s["name"], s["kind"]): s for s in build_streets(read_tiger_roads(tiger), grid)}
+    assert len(streets[("Elm St", "local")]["lines"]) == 2  # two features -> one entry
+    assert len(streets[("Two Part Ave", "secondary")]["lines"]) == 2  # two parts -> two lines
+
+
+def test_build_streets_simplifies_collinear_points(tiger, grid):
+    streets = {s["name"]: s for s in build_streets(read_tiger_roads(tiger), grid)}
+    (market,) = streets["Market St"]["lines"]
+    assert len(market) == 4  # the collinear middle vertex was removed: 2 points = 4 numbers
+    unsimplified = build_streets(read_tiger_roads(tiger), grid, tolerance_m=0.0)
+    (m0,) = [s for s in unsimplified if s["name"] == "Market St"][0]["lines"]
+    assert len(m0) == 6
+
+
+def test_build_streets_clips_lines_wholly_outside_but_keeps_crossing_ones(tiger, grid):
+    names = {s["name"] for s in build_streets(read_tiger_roads(tiger), grid)}
+    assert "Far Away Rd" not in names
+    streets = {s["name"]: s for s in build_streets(read_tiger_roads(tiger), grid)}
+    (edge,) = streets["Edge Rd"]["lines"]
+    # Geometry is not cut: the far end is still beyond the east edge of the grid.
+    assert max(edge[0::2]) > grid.width * grid.cell / 2
+
+
+def test_build_streets_world_coordinates_and_rounding(tiger, grid):
+    streets = {s["name"]: s for s in build_streets(read_tiger_roads(tiger), grid)}
+    (ln,) = streets["Valencia St"]["lines"]
+    x0, z0 = lonlat_to_world(grid, LON0, LAT + 0.004)
+    assert (ln[0], ln[1]) == pytest.approx((x0, z0), abs=0.06)
+    for v in ln:
+        assert round(v, 1) == v  # rounded to 0.1 m
+    assert math.isclose(ln[2] - ln[0], 0.004 * 111320 * math.cos(math.radians(LAT)), rel_tol=0.01)
+
+
+def test_build_streets_kinds_filter(tiger, grid):
+    streets = build_streets(read_tiger_roads(tiger), grid, kinds=("primary",))
+    assert {s["kind"] for s in streets} == {"primary"}
+
+
+def test_build_streets_drops_degenerate_lines(grid):
+    roads = [
+        {"name": "Dot St", "kind": "local", "coords": [[(LON0, LAT), (LON0, LAT)]]},
+        {"name": "Tiny St", "kind": "local", "coords": [[(LON0, LAT), (LON0 + 1e-7, LAT)]]},
+        {"name": "Short St", "kind": "local", "coords": [[(LON0, LAT)]]},
+        {"name": "Good St", "kind": "local", "coords": [[(LON0, LAT), (LON0 + 0.002, LAT)]]},
+    ]
+    names = [s["name"] for s in build_streets(roads, grid)]
+    assert names == ["Good St"]
+
+
+def test_build_streets_is_deterministic_and_input_order_independent(tiger, grid):
+    roads = read_tiger_roads(tiger)
+    a = build_streets(roads, grid)
+    b = build_streets(list(reversed(roads)), grid)
+    assert a == b
+    assert json.dumps(a) == json.dumps(build_streets(roads, grid))
+
+
+# ------------------------------------------------------------------ promote_long_streets
+
+
+def st(name, kind, *lines):
+    return {"name": name, "kind": kind, "lines": [list(map(float, ln)) for ln in lines]}
+
+
+def hline(length, z=0.0, x0=0.0):
+    """A flat polyline running `length` metres east, with a mid vertex."""
+    return [x0, z, x0 + length / 2, z, x0 + length, z]
+
+
+def kinds_by_name(streets):
+    return {s["name"]: s["kind"] for s in streets}
+
+
+def test_promote_threshold_boundary_is_inclusive():
+    streets = [st("Exact", "local", hline(6000)), st("Under", "local", hline(5999.9)),
+               st("Over", "local", hline(6000.1))]
+    assert kinds_by_name(promote_long_streets(streets)) == {
+        "Exact": "secondary", "Under": "local", "Over": "secondary"}
+
+
+def test_promote_sums_all_lines_of_a_street():
+    streets = [st("Split", "local", hline(2000), hline(2000, z=50), hline(2000, z=100)),
+               st("Short", "local", hline(2000), hline(2000, z=50))]
+    assert kinds_by_name(promote_long_streets(streets)) == {"Split": "secondary", "Short": "local"}
+
+
+def test_promote_measures_diagonal_polylines_in_metres():
+    # 3-4-5 triangles: two segments of 5 km each -> 10 km
+    streets = [st("Diag", "local", [0, 0, 3000, 4000, 6000, 8000])]
+    assert kinds_by_name(promote_long_streets(streets, min_length_m=9999)) == {"Diag": "secondary"}
+    assert kinds_by_name(promote_long_streets(streets, min_length_m=10001)) == {"Diag": "local"}
+
+
+def test_promote_leaves_primary_and_secondary_alone():
+    streets = [st("Huge Primary", "primary", hline(50000)), st("Tiny Primary", "primary", hline(10)),
+               st("Sec", "secondary", hline(10)), st("Long Sec", "secondary", hline(50000))]
+    out = promote_long_streets(streets)
+    assert kinds_by_name(out) == {"Huge Primary": "primary", "Tiny Primary": "primary",
+                                  "Sec": "secondary", "Long Sec": "secondary"}
+
+
+def test_promote_returns_new_list_without_mutating_input():
+    streets = [st("Long", "local", hline(7000))]
+    before = json.dumps(streets)
+    out = promote_long_streets(streets)
+    assert json.dumps(streets) == before and streets[0]["kind"] == "local"
+    assert out is not streets and out[0] is not streets[0]
+    assert out[0]["lines"] == streets[0]["lines"] and set(out[0]) == {"name", "kind", "lines"}
+    out[0]["lines"][0][0] = 99.0  # the copy does not alias the input's lines
+    assert streets[0]["lines"][0][0] == 0.0
+
+
+def test_promote_ordering_after_promotion():
+    streets = [
+        st("Zed Local", "local", hline(10)), st("Alpha Local", "local", hline(7000)),
+        st("Mid Sec", "secondary", hline(10)), st("Aaa Sec", "secondary", hline(10)),
+        st("Beta Local", "local", hline(6500)), st("Prime", "primary", hline(10)),
+    ]
+    out = promote_long_streets(streets)
+    assert [(s["kind"], s["name"]) for s in out] == [
+        ("primary", "Prime"),
+        ("secondary", "Aaa Sec"), ("secondary", "Alpha Local"), ("secondary", "Beta Local"),
+        ("secondary", "Mid Sec"),
+        ("local", "Zed Local"),
+    ]
+
+
+def test_promote_sums_duplicate_local_entries_and_merges_into_existing_secondary():
+    streets = [st("Same", "local", hline(3000)), st("Same", "local", hline(3000, z=9)),
+               st("Mixed", "secondary", hline(10, z=5)), st("Mixed", "local", hline(7000))]
+    out = promote_long_streets(streets)
+    assert [(s["kind"], s["name"], len(s["lines"])) for s in out] == [
+        ("secondary", "Mixed", 2), ("secondary", "Same", 2)]
+    assert out[0]["lines"] == sorted(out[0]["lines"])
+
+
+@pytest.mark.parametrize("disabled", [0, 0.0, -1.0])
+def test_promote_disabled_returns_an_equal_copy(disabled):
+    streets = [st("Long", "local", hline(90000)), st("P", "primary", hline(1))]
+    out = promote_long_streets(streets, min_length_m=disabled)
+    assert out == streets and out is not streets and out[0] is not streets[0]
+
+
+def test_promote_empty_and_is_deterministic():
+    assert promote_long_streets([]) == []
+    streets = [st("B", "local", hline(7000)), st("A", "local", hline(8000)), st("C", "local", hline(1))]
+    a = promote_long_streets(streets)
+    b = promote_long_streets(list(reversed(streets)))
+    assert a == b
+    assert json.dumps(a) == json.dumps(promote_long_streets(streets))
+
+
+# ------------------------------------------------------------------------- validation
+
+
+def lm(**over):
+    item = {"id": "ferry-building", "name": "Ferry Building", "kind": "building",
+            "lon": -122.42, "lat": 37.77}
+    item.update(over)
+    return item
+
+
+def hs(**over):
+    item = {
+        "id": "yerba-buena-cove", "name": "Yerba Buena Cove", "kind": "bay",
+        "lon": -122.42, "lat": 37.77,
+        "description": "A sheltered tidal cove on the northeast shore of the peninsula.",
+        "sources": [{"title": "Hidden Nature SF", "url": "https://hidden-nature.org/x"}],
+        "confidence": "documented",
+    }
+    item.update(over)
+    return item
+
+
+def test_valid_items_pass():
+    validate_landmarks([lm(), lm(id="coit-tower", name="Coit Tower")], BBOX)
+    validate_hotspots([hs(), hs(id="other")], BBOX)
+
+
+def test_kind_vocabularies():
+    assert set(LANDMARK_KINDS) == {"park", "bridge", "hill", "building", "neighborhood",
+                                   "beach", "water", "fort", "other"}
+    assert set(HOTSPOT_KINDS) == {"creek", "lagoon", "marsh", "dune", "hill", "shoreline",
+                                  "bay", "lake", "valley", "other"}
+
+
+@pytest.mark.parametrize("validate,make", [(validate_landmarks, lm), (validate_hotspots, hs)])
+class TestCommonRules:
+    def test_missing_field(self, validate, make):
+        for key in ("id", "name", "kind", "lon", "lat"):
+            item = make(id="the-id")
+            del item[key]
+            with pytest.raises(ValueError, match=key):
+                validate([item], BBOX)
+
+    def test_blank_fields(self, validate, make):
+        with pytest.raises(ValueError, match="the-id"):
+            validate([make(id="the-id", name="   ")], BBOX)
+        with pytest.raises(ValueError, match="id"):
+            validate([make(id="")], BBOX)
+
+    def test_bad_kind_names_item(self, validate, make):
+        with pytest.raises(ValueError, match="the-id.*kind"):
+            validate([make(id="the-id", kind="spaceport")], BBOX)
+
+    def test_duplicate_id(self, validate, make):
+        with pytest.raises(ValueError, match="dup-id.*duplicate|duplicate.*dup-id"):
+            validate([make(id="dup-id"), make(id="dup-id")], BBOX)
+
+    @pytest.mark.parametrize("lon,lat", [(-122.5, 37.77), (-122.35, 37.77),
+                                         (-122.42, 37.7), (-122.42, 37.9)])
+    def test_outside_bbox(self, validate, make, lon, lat):
+        with pytest.raises(ValueError, match="the-id.*(bbox|outside)"):
+            validate([make(id="the-id", lon=lon, lat=lat)], BBOX)
+
+    @pytest.mark.parametrize("bad_id", ["Upper", "has space", "-leading", "under_score", "é"])
+    def test_id_pattern(self, validate, make, bad_id):
+        with pytest.raises(ValueError, match="id"):
+            validate([make(id=bad_id)], BBOX)
+
+    @pytest.mark.parametrize("bad", ["-122.4", None, True, float("nan")])
+    def test_non_numeric_coordinates(self, validate, make, bad):
+        with pytest.raises(ValueError, match="the-id"):
+            validate([make(id="the-id", lon=bad)], BBOX)
+
+    def test_not_an_object_or_list(self, validate, make):
+        with pytest.raises(ValueError):
+            validate(["nope"], BBOX)
+        with pytest.raises(ValueError):
+            validate({"id": "x"}, BBOX)
+
+
+def test_hotspot_description_length():
+    with pytest.raises(ValueError, match="the-id.*description"):
+        validate_hotspots([hs(id="the-id", description="too short")], BBOX)
+    with pytest.raises(ValueError, match="the-id.*description"):
+        validate_hotspots([hs(id="the-id", description="x" * 401)], BBOX)
+    validate_hotspots([hs(description="x" * 20)], BBOX)
+    validate_hotspots([hs(description="x" * 400)], BBOX)
+    with pytest.raises(ValueError, match="the-id.*description"):
+        validate_hotspots([hs(id="the-id", description=None)], BBOX)
+
+
+@pytest.mark.parametrize("sources", [
+    [], None, "https://x.org", [{"title": "T"}], [{"url": "https://x.org"}],
+    [{"title": " ", "url": "https://x.org"}], [{"title": "T", "url": "ftp://x.org"}],
+    [{"title": "T", "url": "x.org/page"}], [{"title": "T", "url": "https://"}],
+    ["https://x.org"],
+])
+def test_hotspot_bad_sources(sources):
+    with pytest.raises(ValueError, match="the-id.*sources"):
+        validate_hotspots([hs(id="the-id", sources=sources)], BBOX)
+
+
+def test_hotspot_accepts_http_and_multiple_sources():
+    validate_hotspots([hs(sources=[{"title": "A", "url": "http://a.org"},
+                                   {"title": "B", "url": "https://b.org/c?d=1"}])], BBOX)
+
+
+def test_hotspot_confidence():
+    with pytest.raises(ValueError, match="the-id.*confidence"):
+        validate_hotspots([hs(id="the-id", confidence="certain")], BBOX)
+    for c in ("documented", "inferred", "illustrative"):
+        validate_hotspots([hs(confidence=c)], BBOX)
+
+
+def test_hotspot_kind_vocabulary_is_hotspot_specific():
+    with pytest.raises(ValueError, match="kind"):
+        validate_hotspots([hs(kind="building")], BBOX)  # a landmark kind
+    with pytest.raises(ValueError, match="kind"):
+        validate_landmarks([lm(kind="creek")], BBOX)
+
+
+# --------------------------------------------------------------------- build_overlay e2e
+
+
+def write_inputs(tmp_path: Path, grid: Grid, with_meta: bool = True):
+    tiger = tmp_path / "tiger" / "roads"
+    tiger.parent.mkdir()
+    write_roads(tiger, [
+        ("B St", "S1200", [line(LON0, LON0 + 0.004)]),
+        ("A St", "S1100", [line(LON0, LON0 + 0.004, lat=LAT + 0.002)]),
+    ])
+    landmarks = tmp_path / "landmarks.json"
+    landmarks.write_text(json.dumps([lm(id="z-place", name="Z"), lm(id="a-place", name="A")]))
+    hotspots = tmp_path / "hotspots.json"
+    hotspots.write_text(json.dumps([hs()]))
+    out = tmp_path / "out"
+    out.mkdir()
+    meta = {"width": grid.width, "height": grid.height, "cell_m": grid.cell,
+            "west": grid.west, "south": grid.south, "east": grid.east, "north": grid.north,
+            "heights_file": "heightmap.u16", "layers": [{"id": "terrain"}]}
+    if with_meta:
+        (out / "meta.json").write_text(json.dumps(meta, indent=2))
+    return dict(bbox=BBOX, cell=CELL, out_dir=out, tiger_path=tiger.with_suffix(".shp"),
+                landmarks_path=landmarks, hotspots_path=hotspots), meta
+
+
+def test_build_overlay_writes_file_and_updates_meta(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    overlay = build_overlay(**kwargs)
+
+    out = kwargs["out_dir"]
+    text = (out / "overlay.json").read_text()
+    assert ": " not in text and ", " not in text  # compact separators
+    assert json.loads(text) == overlay
+    assert list(overlay) == ["version", "streets", "landmarks", "hotspots", "processing"]
+    assert overlay["processing"] == {"tolerance_m": 6.0, "promote_m": 6000.0}
+    assert overlay["version"] == 1
+    assert [(s["kind"], s["name"]) for s in overlay["streets"]] == [
+        ("primary", "A St"), ("secondary", "B St")]
+    assert [m["id"] for m in overlay["landmarks"]] == ["a-place", "z-place"]  # sorted by id
+    m = overlay["landmarks"][0]
+    assert set(m) == {"id", "name", "kind", "x", "z", "lon", "lat"}
+    x, z = lonlat_to_world(grid, m["lon"], m["lat"])
+    assert (m["x"], m["z"]) == (round(x, 1), round(z, 1))
+    h = overlay["hotspots"][0]
+    assert set(h) == {"id", "name", "kind", "x", "z", "lon", "lat", "description",
+                      "sources", "confidence"}
+    assert h["sources"] == [{"title": "Hidden Nature SF", "url": "https://hidden-nature.org/x"}]
+
+    new_meta = json.loads((out / "meta.json").read_text())
+    assert new_meta.pop("overlay_file") == "overlay.json"
+    assert new_meta == meta  # every other key untouched
+
+
+def write_long_road_inputs(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    tiger = tmp_path / "tiger2" / "roads"
+    tiger.parent.mkdir()
+    # 0.04 deg of longitude at lat 37.775 is about 3.5 km; two such features share a name.
+    write_roads(tiger, [
+        ("Long Blvd", "S1400", [line(LON0 - 0.02, LON0 + 0.02, lat=LAT - 0.001)]),
+        ("Long Blvd", "S1400", [line(LON0 - 0.02, LON0 + 0.02, lat=LAT - 0.002)]),
+        ("Short St", "S1400", [line(LON0, LON0 + 0.004, lat=LAT + 0.001)]),
+        ("A St", "S1100", [line(LON0, LON0 + 0.004, lat=LAT + 0.002)]),
+    ])
+    kwargs["tiger_path"] = tiger.with_suffix(".shp")
+    return kwargs
+
+
+def test_build_overlay_promotes_long_local_roads_and_records_processing(tmp_path, grid):
+    kwargs = write_long_road_inputs(tmp_path, grid)
+    overlay = build_overlay(**kwargs, promote_m=5000.0)
+    assert [(s["kind"], s["name"]) for s in overlay["streets"]] == [
+        ("primary", "A St"), ("secondary", "Long Blvd"), ("local", "Short St")]
+    assert len(overlay["streets"][1]["lines"]) == 2
+    assert overlay["processing"] == {"tolerance_m": 6.0, "promote_m": 5000.0}
+    assert list(overlay)[-1] == "processing"
+    assert json.loads((kwargs["out_dir"] / "overlay.json").read_text()) == overlay
+
+
+def test_build_overlay_promote_default_and_disabled(tmp_path, grid):
+    kwargs = write_long_road_inputs(tmp_path, grid)
+    default = build_overlay(**kwargs)  # 6000 m: ~7 km of Long Blvd is promoted
+    assert {s["name"]: s["kind"] for s in default["streets"]}["Long Blvd"] == "secondary"
+    assert default["processing"]["promote_m"] == 6000.0
+    off = build_overlay(**kwargs, promote_m=0)
+    assert {s["name"]: s["kind"] for s in off["streets"]}["Long Blvd"] == "local"
+    assert off["processing"] == {"tolerance_m": 6.0, "promote_m": 0.0}
+    tol = build_overlay(**kwargs, tolerance_m=2.5, promote_m=0)
+    assert tol["processing"] == {"tolerance_m": 2.5, "promote_m": 0.0}
+
+
+def test_build_overlay_is_idempotent(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    build_overlay(**kwargs)
+    first = ((kwargs["out_dir"] / "overlay.json").read_bytes(),
+             (kwargs["out_dir"] / "meta.json").read_bytes())
+    build_overlay(**kwargs)
+    second = ((kwargs["out_dir"] / "overlay.json").read_bytes(),
+              (kwargs["out_dir"] / "meta.json").read_bytes())
+    assert first == second
+
+
+def test_build_overlay_missing_meta_is_a_clear_error(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid, with_meta=False)
+    with pytest.raises(FileNotFoundError, match="meta.json"):
+        build_overlay(**kwargs)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()  # nothing half-written
+
+
+def test_build_overlay_rejects_meta_from_a_different_grid(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    meta["west"] += 500.0
+    (kwargs["out_dir"] / "meta.json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="west"):
+        build_overlay(**kwargs)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()
+
+
+def test_build_overlay_propagates_validation_errors(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    kwargs["landmarks_path"].write_text(json.dumps([lm(id="bad-one", kind="nope")]))
+    with pytest.raises(ValueError, match="bad-one"):
+        build_overlay(**kwargs)
+
+
+def test_data_files_in_the_repo_are_valid():
+    """The curated landmark/hotspot files must pass validation against the real region."""
+    from yelamu.region import load_region
+
+    root = Path(__file__).resolve().parent.parent
+    region = load_region(root / "regions" / "full-city.json")
+    landmarks = json.loads((root / "data/overlay/landmarks.json").read_text())
+    hotspots = json.loads((root / "data/overlay/hotspots.json").read_text())
+    validate_landmarks(landmarks, region.bbox)
+    validate_hotspots(hotspots, region.bbox)
+    assert 20 <= len(landmarks) <= 40
+    assert 8 <= len(hotspots) <= 12
+
+
+# ------------------------------------------------------------------------------- CLI
+
+
+def test_cli_main_builds_and_reports_errors(tmp_path, grid, capsys):
+    from yelamu.overlay import main
+
+    kwargs, _ = write_inputs(tmp_path, grid)
+    (tmp_path / "regions").mkdir()
+    region = tmp_path / "regions" / "r.json"
+    region.write_text(json.dumps({"name": "t", "bbox": list(BBOX), "cell_m": CELL,
+                                  "dem": "data/raw/dem.tif", "out": "elsewhere"}))
+    argv = ["--region", str(region), "--tiger", str(kwargs["tiger_path"]),
+            "--landmarks", str(kwargs["landmarks_path"]),
+            "--hotspots", str(kwargs["hotspots_path"]), "--out", str(kwargs["out_dir"])]
+    assert main(argv) == 0
+    assert "2 streets" in capsys.readouterr().out
+    assert json.loads((kwargs["out_dir"] / "overlay.json").read_text())["processing"]["promote_m"] == 6000.0
+    assert main(argv + ["--promote-m", "0"]) == 0
+    capsys.readouterr()
+    assert json.loads((kwargs["out_dir"] / "overlay.json").read_text())["processing"]["promote_m"] == 0.0
+    assert main(argv + ["--promote-m", "1500.5"]) == 0
+    capsys.readouterr()
+    assert json.loads((kwargs["out_dir"] / "overlay.json").read_text())["processing"]["promote_m"] == 1500.5
+    assert json.loads((kwargs["out_dir"] / "meta.json").read_text())["overlay_file"] == "overlay.json"
+
+    # Without --out the region's own `out` ("elsewhere", no meta.json) is used -> clear error.
+    assert main(argv[:-2]) == 1
+    assert "meta.json" in capsys.readouterr().err

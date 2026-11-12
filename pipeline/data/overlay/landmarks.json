@@ -1,0 +1,268 @@
+[
+ {
+  "id": "ferry-building",
+  "name": "Ferry Building",
+  "kind": "building",
+  "lon": -122.3937,
+  "lat": 37.7955
+ },
+ {
+  "id": "coit-tower",
+  "name": "Coit Tower",
+  "kind": "building",
+  "lon": -122.4058,
+  "lat": 37.8024
+ },
+ {
+  "id": "golden-gate-bridge",
+  "name": "Golden Gate Bridge (south end)",
+  "kind": "bridge",
+  "lon": -122.4757,
+  "lat": 37.8087
+ },
+ {
+  "id": "fort-point",
+  "name": "Fort Point",
+  "kind": "fort",
+  "lon": -122.477,
+  "lat": 37.8106
+ },
+ {
+  "id": "alcatraz",
+  "name": "Alcatraz Island",
+  "kind": "other",
+  "lon": -122.423,
+  "lat": 37.8267
+ },
+ {
+  "id": "twin-peaks",
+  "name": "Twin Peaks",
+  "kind": "hill",
+  "lon": -122.4477,
+  "lat": 37.7544
+ },
+ {
+  "id": "mount-davidson",
+  "name": "Mount Davidson",
+  "kind": "hill",
+  "lon": -122.4547,
+  "lat": 37.7383
+ },
+ {
+  "id": "sutro-tower",
+  "name": "Sutro Tower",
+  "kind": "building",
+  "lon": -122.4528,
+  "lat": 37.7552
+ },
+ {
+  "id": "mission-dolores",
+  "name": "Mission Dolores",
+  "kind": "building",
+  "lon": -122.4268,
+  "lat": 37.7644
+ },
+ {
+  "id": "presidio-main-post",
+  "name": "Presidio Main Post",
+  "kind": "fort",
+  "lon": -122.4608,
+  "lat": 37.7983
+ },
+ {
+  "id": "conservatory-of-flowers",
+  "name": "Conservatory of Flowers",
+  "kind": "building",
+  "lon": -122.4601,
+  "lat": 37.7724
+ },
+ {
+  "id": "ocean-beach",
+  "name": "Ocean Beach (Judah St)",
+  "kind": "beach",
+  "lon": -122.5098,
+  "lat": 37.7601
+ },
+ {
+  "id": "lands-end",
+  "name": "Lands End",
+  "kind": "park",
+  "lon": -122.5108,
+  "lat": 37.7853
+ },
+ {
+  "id": "lake-merced",
+  "name": "Lake Merced",
+  "kind": "water",
+  "lon": -122.493,
+  "lat": 37.7268
+ },
+ {
+  "id": "bernal-heights",
+  "name": "Bernal Heights summit",
+  "kind": "hill",
+  "lon": -122.4151,
+  "lat": 37.7438
+ },
+ {
+  "id": "nob-hill",
+  "name": "Nob Hill",
+  "kind": "hill",
+  "lon": -122.413,
+  "lat": 37.792
+ },
+ {
+  "id": "russian-hill",
+  "name": "Russian Hill",
+  "kind": "hill",
+  "lon": -122.419,
+  "lat": 37.801
+ },
+ {
+  "id": "telegraph-hill",
+  "name": "Telegraph Hill",
+  "kind": "hill",
+  "lon": -122.4045,
+  "lat": 37.8015
+ },
+ {
+  "id": "oracle-park",
+  "name": "Oracle Park",
+  "kind": "building",
+  "lon": -122.3893,
+  "lat": 37.7786
+ },
+ {
+  "id": "chase-center",
+  "name": "Chase Center",
+  "kind": "building",
+  "lon": -122.3877,
+  "lat": 37.768
+ },
+ {
+  "id": "candlestick-point",
+  "name": "Candlestick Point",
+  "kind": "park",
+  "lon": -122.3863,
+  "lat": 37.7137
+ },
+ {
+  "id": "pier-39",
+  "name": "Pier 39",
+  "kind": "other",
+  "lon": -122.4098,
+  "lat": 37.8087
+ },
+ {
+  "id": "palace-of-fine-arts",
+  "name": "Palace of Fine Arts",
+  "kind": "building",
+  "lon": -122.4484,
+  "lat": 37.8029
+ },
+ {
+  "id": "city-hall",
+  "name": "City Hall",
+  "kind": "building",
+  "lon": -122.4193,
+  "lat": 37.7793
+ },
+ {
+  "id": "crissy-field",
+  "name": "Crissy Field",
+  "kind": "park",
+  "lon": -122.465,
+  "lat": 37.8037
+ },
+ {
+  "id": "baker-beach",
+  "name": "Baker Beach",
+  "kind": "beach",
+  "lon": -122.484,
+  "lat": 37.7933
+ },
+ {
+  "id": "stern-grove",
+  "name": "Stern Grove",
+  "kind": "park",
+  "lon": -122.4758,
+  "lat": 37.7366
+ },
+ {
+  "id": "mountain-lake",
+  "name": "Mountain Lake Park",
+  "kind": "park",
+  "lon": -122.4716,
+  "lat": 37.7871
+ },
+ {
+  "id": "glen-canyon-park",
+  "name": "Glen Canyon Park",
+  "kind": "park",
+  "lon": -122.4421,
+  "lat": 37.7389
+ },
+ {
+  "id": "dolores-park",
+  "name": "Dolores Park",
+  "kind": "park",
+  "lon": -122.4269,
+  "lat": 37.7596
+ },
+ {
+  "id": "fort-mason",
+  "name": "Fort Mason",
+  "kind": "fort",
+  "lon": -122.4305,
+  "lat": 37.8063
+ },
+ {
+  "id": "buena-vista-park",
+  "name": "Buena Vista Park",
+  "kind": "hill",
+  "lon": -122.4403,
+  "lat": 37.7686
+ },
+ {
+  "id": "corona-heights",
+  "name": "Corona Heights",
+  "kind": "hill",
+  "lon": -122.4386,
+  "lat": 37.765
+ },
+ {
+  "id": "potrero-hill",
+  "name": "Potrero Hill",
+  "kind": "hill",
+  "lon": -122.3995,
+  "lat": 37.7572
+ },
+ {
+  "id": "cliff-house",
+  "name": "Cliff House",
+  "kind": "building",
+  "lon": -122.5139,
+  "lat": 37.7785
+ },
+ {
+  "id": "alamo-square",
+  "name": "Alamo Square",
+  "kind": "park",
+  "lon": -122.4347,
+  "lat": 37.7764
+ },
+ {
+  "id": "fort-funston",
+  "name": "Fort Funston",
+  "kind": "park",
+  "lon": -122.5033,
+  "lat": 37.7156
+ },
+ {
+  "id": "yerba-buena-island",
+  "name": "Yerba Buena Island",
+  "kind": "other",
+  "lon": -122.363,
+  "lat": 37.8095
+ }
+]
