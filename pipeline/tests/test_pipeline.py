@@ -516,3 +516,17 @@ def test_default_shore_slope_ramps_fill_next_to_the_bay(tmp_path):
     off = _read_heights(tmp_path / "off",
                         json.loads((tmp_path / "off" / "meta.json").read_text()))
     assert abs(off[probe] - 8.0) < 0.01  # old behaviour: a wall at the shore
+
+
+_EMPTY_FC = {"type": "FeatureCollection", "features": []}
+
+
+def test_load_polygons_allow_empty(tmp_path):
+    path = tmp_path / "empty.geojson"
+    path.write_text(json.dumps(_EMPTY_FC))
+    assert load_polygons(path, allow_empty=True) == []
+    with pytest.raises(ValueError, match="empty.geojson"):
+        load_polygons(path)
+    # Unusable content (only lines) is also empty under allow_empty.
+    _write_geojson(tmp_path / "l.geojson", [_feature({"type": "LineString", "coordinates": _LINE})])
+    assert load_polygons(tmp_path / "l.geojson", allow_empty=True) == []

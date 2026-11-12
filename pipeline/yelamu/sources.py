@@ -59,23 +59,31 @@ def _polygonal_parts(geom: BaseGeometry | None) -> list[BaseGeometry]:
     return []  # Point, LineString, LinearRing
 
 
-def load_polygons(path: Path) -> list[BaseGeometry]:
+def geometry_to_utm_polygons(raw: dict | None) -> list[BaseGeometry]:
+    """GeoJSON geometry (lon/lat) -> repaired UTM Polygons; non-polygonal parts dropped."""
+    if not raw:
+        return []
+    polygons: list[BaseGeometry] = []
+    for part in _polygonal_parts(shape(raw)):
+        for poly in _polygonal_parts(shapely.make_valid(part)):
+            polygons.append(_to_utm(poly))
+    return polygons
+
+
+def load_polygons(path: Path, allow_empty: bool = False) -> list[BaseGeometry]:
     """Read GeoJSON in lon/lat (EPSG:4326); return valid UTM polygons.
 
     Features with no geometry are skipped. Only polygonal parts are kept: points and
     lines (also inside collections) are dropped so they can never reach the water mask.
-    Raises ValueError if no polygon geometry is found at all.
+    Raises ValueError if no polygon geometry is found at all, unless `allow_empty` is
+    True, in which case [] is returned (for optional, initially empty files).
     """
     data = json.loads(Path(path).read_text())
     features = data["features"] if data.get("type") == "FeatureCollection" else [data]
     geoms: list[BaseGeometry] = []
     for feature in features:
         raw = feature.get("geometry") if feature.get("type") == "Feature" else feature
-        if not raw:
-            continue
-        for part in _polygonal_parts(shape(raw)):
-            for poly in _polygonal_parts(shapely.make_valid(part)):
-                geoms.append(_to_utm(poly))
-    if not geoms:
+        geoms.extend(geometry_to_utm_polygons(raw))
+    if not geoms and not allow_empty:
         raise ValueError(f"{path}: no usable polygon geometry was found")
     return geoms
