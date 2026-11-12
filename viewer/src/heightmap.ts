@@ -9,6 +9,16 @@ export interface LayerInfo {
   attribution: string;
 }
 
+/** One row of `meta.hand_sources`: hand-drawn or sculpted features and where they come from. */
+export interface HandSource {
+  /** Pipeline layer: "hand_water", "landforms" or "ponds" (others are shown humanised). */
+  layer: string;
+  source: string;
+  confidence: Confidence;
+  /** How many polygons / landforms / ponds the layer contributed. */
+  count: number;
+}
+
 export interface HeightmapMeta {
   width: number;
   height: number;
@@ -24,6 +34,10 @@ export interface HeightmapMeta {
   habitat_classes?: HabitatClass[];
   /** File name of the overlay (streets, landmarks, hotspots) next to the heightmap. */
   overlay_file?: string;
+  /** File name of the freshwater ponds (flat water surfaces) next to the heightmap. */
+  ponds_file?: string;
+  /** Hand-drawn and sculpted provenance, shown on the Sources panel (see handSourceRows). */
+  hand_sources?: HandSource[];
   /** Pipeline parameters, shown on the Sources panel (see provenanceData.ts). */
   processing?: Record<string, unknown>;
 }
