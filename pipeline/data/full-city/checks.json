@@ -6,6 +6,8 @@
   {"name": "Islais Creek marsh, west of the 1857 bay (NOAA 1852)", "lon": -122.4040, "lat": 37.7440, "min_m": 0.4, "max_m": 0.6, "expect_water": true},
   {"name": "Islais Cove open water (NOAA 1852)", "lon": -122.3850, "lat": 37.7460, "expect_water": true},
   {"name": "South Basin open water (NOAA 1852)", "lon": -122.3810, "lat": 37.7170, "expect_water": true},
+  {"name": "Treasure Island centre is shoal (1936-37 fill)", "lon": -122.3710, "lat": 37.8230, "expect_water": true},
+  {"name": "Yerba Buena Island stays land", "lon": -122.3625, "lat": 37.8085, "expect_water": false},
   {"name": "Potrero Hill stays land", "lon": -122.4005, "lat": 37.7605, "expect_water": false},
   {"name": "Hunters Point ridge stays land", "lon": -122.3780, "lat": 37.7290, "expect_water": false},
   {"name": "Ocean Beach dunes stay land (NOAA ocean shore not imported)", "lon": -122.5085, "lat": 37.7600, "expect_water": false}

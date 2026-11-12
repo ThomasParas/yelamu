@@ -39,9 +39,9 @@ Before tracing, always look at the panel that shows the sheet blended with the c
 
 ## Area 2: Treasure Island and the Yerba Buena shoals
 
-The island is 1930s fill. In 1769 there was a shoal north of Yerba Buena Island. Trace the shoal edge as bay only if your sheet shows deep water on both sides; leave the shallows as bay (the map has no tidal-flat class). Same files, same rules.
+The island is 1930s fill. **Done 2026-11-12:** `scripts/trace_treasure_island.py` draws the fill (166 ha, the modern 3DEP DEM land north of lat 37.8153) as open bay in `hand_bay.geojson`, `confidence: inferred`, source "US Navy BRAC PMO: Treasure Island is 1936-37 fill on the Yerba Buena shoals". Yerba Buena Island is natural and untouched. The shoal's real depth is not mapped (the bay floor there is the map's default).
 
-- Check: the island is gone in the compare image, Yerba Buena Island is still land, and nothing else moved.
+What was tried: sheet T-00687 (1857, `T00687.jpg`, 7.0 MB, NGS) is the peninsula-only sheet; Alcatraz is an inset and neither island is on it. The 1882 vectors (CA37C05) and the 1884 vectors (CA37C12) were downloaded and draw nothing at the islands (CA37C05's boundary stops at lon -122.366; CA37C12 is on the Oakland side). The T-00352 (1852) index footprint reaches Yerba Buena Island but its scan was not found under `T-Sheet Raster Images`. To trace the shoal from a sheet you would still need a scan that shows it.
 
 ## Area 3: ponds
 
