@@ -196,8 +196,8 @@ def test_full_city_region_values():
     assert region.bbox == (-122.53, 37.70, -122.33, 37.84)
     assert region.cell_m == 10.0
     assert region.out == PIPELINE.parent / "viewer" / "public" / "assets" / "real-city"
-    assert [p.name for p in region.hand_bay] == ["hand_bay.geojson"]
-    assert [p.name for p in region.hand_marsh] == ["hand_marsh.geojson"]
+    assert [p.name for p in region.hand_bay] == ["hand_bay.geojson", "hand_bay_noaa.geojson"]
+    assert [p.name for p in region.hand_marsh] == ["hand_marsh.geojson", "hand_marsh_noaa.geojson"]
     assert [p.name for p in region.hand_ponds] == ["hand_ponds.geojson"]
     assert region.pond_classes == [
         "Dune-dammed pond or lake", "Dune-dammed headwater lake",

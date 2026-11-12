@@ -6,8 +6,8 @@
   "habitats": "data/raw/sf_habitats.geojson",
   "bay": "data/raw/bay.geojson",
   "marsh": "data/raw/marsh.geojson",
-  "hand_bay": ["data/full-city/hand/hand_bay.geojson"],
-  "hand_marsh": ["data/full-city/hand/hand_marsh.geojson"],
+  "hand_bay": ["data/full-city/hand/hand_bay.geojson", "data/full-city/hand/hand_bay_noaa.geojson"],
+  "hand_marsh": ["data/full-city/hand/hand_marsh.geojson", "data/full-city/hand/hand_marsh_noaa.geojson"],
   "hand_ponds": ["data/full-city/hand/hand_ponds.geojson"],
   "pond_classes": [
     "Dune-dammed pond or lake",

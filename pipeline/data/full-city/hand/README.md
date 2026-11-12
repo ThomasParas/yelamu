@@ -20,3 +20,52 @@ read by `regions/full-city.json`. The full workflow, area by area, is in
   Sources panel under "Hand-drawn and sculpted".
 - Only trace from sources you may use. Never copy data from a source whose terms forbid it.
 - Check a file before building: `uv run python scripts/check_polygons.py FILE --region regions/full-city.json`.
+
+## NOAA 1850s shoreline (generated files)
+
+`hand_bay_noaa.geojson` and `hand_marsh_noaa.geojson` are **generated**: do not edit them by
+hand. `regions/full-city.json` lists each after your own hand file; the build unions all the
+files of a list, so overlaps between them are fine. Both may be empty
+(`{"type": "FeatureCollection", "features": []}`), which adds nothing.
+
+They come from the NOAA Shoreline Data Rescue Project vectors of the 1850s Coast Survey
+sheets (`data/raw/noaa/extracted/<project>/historicl1` and `projbnd`).
+`scripts/import_noaa.py` closes each project's lines into numbered candidate areas, and
+your seeds in `noaa_seeds.json` say which areas are bay, marsh or land. Land is not written,
+and unseeded areas are left unchanged. Every written feature has `confidence: inferred` (or
+lower, if a seed says so), a `source` naming the project, sheet, year and seed, and
+`area_id`, `area_m2` and `seed`.
+
+Regenerate (from `pipeline/`):
+
+    uv run python scripts/import_noaa.py --projects CA37A02 CA37B02B CA37B07 CA37B08 \
+        --seeds data/full-city/hand/noaa_seeds.json
+
+To list the candidate areas only (no seeds; nothing is written), leave out `--seeds`. To
+see them, add `--preview preview.png` (needs Pillow: run with `uv run --with pillow python`).
+`--bbox W S E N` crops the preview, and `--preview-assets ../viewer/public/assets/real-city`
+draws the current build underneath. The report prints, for every area, its id, hectares, an
+inside point to copy into a seed, its sheet and its year. Ids are stable for the same lines and
+settings, but change when closures or settings change: seeds are points, not ids, so they
+keep working.
+
+`noaa_seeds.json` is an object:
+
+- `seeds`: a list of `{id, project, lon, lat, class, source, confidence, note?}`.
+  - `id` is lower-case letters, digits and `-`, unique in the file.
+  - `project` is the NOAA project whose area the seed classes (seeds never class another
+    project's areas).
+  - `class` is `bay`, `marsh` or `land`.
+  - `source` (at most 200 characters) is why you read it so.
+  - `confidence` is one of the levels above.
+  - `note` is for doubts.
+
+  A seed must lie inside one area. Two seeds of different classes in one area are an error.
+- `closures` (optional): a list of `{id, project, coordinates: [[lon, lat], ...], source,
+  note?}`. These are straight lines you draw where the NOAA lines do not separate two places,
+  e.g. across the Golden Gate (to keep the ocean shore out) or a ring around Yerba Buena and
+  Treasure Islands (not in the vectors). They split that project's areas and are never
+  written themselves.
+- `note` (optional): free text.
+
+Any seed or input error exits with status 1 and writes nothing.

@@ -1,0 +1,71 @@
+{
+  "note": "Seeds and closure lines for scripts/import_noaa.py. Proposed by the import prototype on 2026-11-11 from the preview; every entry with a note needs the owner's confirmation.",
+  "seeds": [
+    {
+      "id": "a02-open-bay-east",
+      "project": "CA37A02",
+      "lon": -122.37,
+      "lat": 37.76,
+      "class": "bay",
+      "source": "NOAA CA37A02 T-00352 (1852): open water east of the mean high water line off Potrero Point",
+      "confidence": "inferred"
+    },
+    {
+      "id": "a02-islais-marsh",
+      "project": "CA37A02",
+      "lon": -122.4003,
+      "lat": 37.7436,
+      "class": "marsh",
+      "source": "NOAA CA37A02 T-00352 (1852): Islais estuary inside the mean high water line, west of the mouth; T-00687 (1857) shows tidal channels there",
+      "confidence": "inferred",
+      "note": "UNCERTAIN: the 1852 sheet only draws the outer shore of the estuary; marsh (not open water) is read from the 1857 channels and the known Islais marsh. Owner to confirm marsh vs bay."
+    },
+    {
+      "id": "a02-peninsula-land",
+      "project": "CA37A02",
+      "lon": -122.4477,
+      "lat": 37.7544,
+      "class": "land",
+      "source": "NOAA CA37A02 T-00352 (1852): the peninsula inland of the mean high water line (Twin Peaks)",
+      "confidence": "inferred"
+    },
+    {
+      "id": "b08-open-bay-east",
+      "project": "CA37B08",
+      "lon": -122.372,
+      "lat": 37.765,
+      "class": "bay",
+      "source": "NOAA CA37B08 T-00687 (1857): open water east of the mean high water line off Potrero Point",
+      "confidence": "inferred",
+      "note": "UNCERTAIN (scope): this 1857 area overlaps the 1852 one almost entirely; it adds the tidal channels of Islais Creek. Drop it if the 1852 survey alone should decide."
+    }
+  ],
+  "closures": [
+    {
+      "id": "a02-islais-mouth",
+      "project": "CA37A02",
+      "coordinates": [[-122.39422, 37.74805], [-122.39295, 37.73934]],
+      "source": "Closure proposed by the importer (unconfirmed): straight line across the Islais estuary at the east end of the 1857 channel network (T-00687), so the estuary is an area of its own",
+      "note": "UNCERTAIN: placement chosen by the import prototype from the preview."
+    },
+    {
+      "id": "a02-golden-gate",
+      "project": "CA37A02",
+      "coordinates": [[-122.4772, 37.8100], [-122.4787, 37.8262], [-122.4815, 37.8270]],
+      "source": "Closure proposed by the importer (unconfirmed): Fort Point to Lime Point across the Golden Gate, so the ocean coast (outside this import's scope) stays a separate, unseeded area",
+      "note": "Scope choice: without it the 1852 Pacific shore would move Ocean Beach up to ~100 m inland. Owner to confirm."
+    },
+    {
+      "id": "a02-ybi-ti-ring",
+      "project": "CA37A02",
+      "coordinates": [[-122.3825, 37.8010], [-122.3555, 37.8010], [-122.3555, 37.8345], [-122.3825, 37.8345], [-122.3825, 37.8010]],
+      "source": "Closure proposed by the importer (unconfirmed): ring in open water around Yerba Buena and Treasure Islands, which the NOAA vectors do not draw (out of scope); the inside is left unseeded and unchanged"
+    },
+    {
+      "id": "b08-ybi-ti-ring",
+      "project": "CA37B08",
+      "coordinates": [[-122.3825, 37.8010], [-122.3555, 37.8010], [-122.3555, 37.8345], [-122.3825, 37.8345], [-122.3825, 37.8010]],
+      "source": "Closure proposed by the importer (unconfirmed): ring in open water around Yerba Buena and Treasure Islands, which the NOAA vectors do not draw (out of scope); the inside is left unseeded and unchanged"
+    }
+  ]
+}

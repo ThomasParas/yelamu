@@ -115,11 +115,12 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert main([str(good), "--region", str(tmp_path / "nope.json")]) == 1
 
 
-def test_the_shipped_empty_hand_files_pass():
+def test_the_shipped_hand_files_pass():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     files = sorted((root / "data/full-city/hand").glob("*.geojson"))
-    assert {f.name for f in files} == {"hand_bay.geojson", "hand_marsh.geojson", "hand_ponds.geojson"}
+    assert {f.name for f in files} == {"hand_bay.geojson", "hand_marsh.geojson", "hand_ponds.geojson",
+                                       "hand_bay_noaa.geojson", "hand_marsh_noaa.geojson"}
     assert main([*map(str, files), "--region", str(root / "regions/full-city.json")]) == 0
 
 
