@@ -82,6 +82,7 @@ class PondSpec:
     name: str | None = None
     id_hint: str | None = None
     level_m: float | None = None
+    where: str | None = None  # '<file>: feature N (name)' for error messages (hand ponds)
 
 
 @dataclass(frozen=True, eq=False)
@@ -162,7 +163,7 @@ def hand_pond_specs(features: Sequence[Feature], path: Any) -> list[PondSpec]:
             specs.append(PondSpec(
                 geometry=poly, origin="hand", source=feature.source or "",
                 confidence=feature.confidence or "illustrative",
-                name=name,
+                name=name, where=where,
                 id_hint=raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else None,
                 level_m=None if level is None else float(level)))
     return specs
@@ -297,6 +298,16 @@ def build_ponds(
                     f"only {n} cell(s) are left after the ponds that rank above it, fewer "
                     f"than {min_cells}")
                 continue
+            part = _drop_collapsed_holes(part, grid, pid, log)
+            if part is None:
+                label = spec.where or f"pond '{pid}'"
+                msg = (f"{label}: the polygon collapses to fewer than 3 points when rounded "
+                       "to 0.1 m (is it a sliver?)")
+                if spec.origin == "hand":
+                    raise ValueError(msg)
+                log(f"Dropped pond '{pid}': the polygon would collapse to fewer than 3 points "
+                    "when rounded to 0.1 m")
+                continue
             claimed |= own
             pieces.append((part, own))
         if not pieces:
@@ -317,6 +328,25 @@ def build_ponds(
                 confidence=spec.confidence, origin=spec.origin, class_name=spec.class_name,
                 geometry=part, mask=own))
     return sorted(ponds, key=lambda p: p.id)
+
+
+def _drop_collapsed_holes(
+    poly: Polygon, grid: Grid, pid: str, log: Callable[[str], None]
+) -> Polygon | None:
+    """`poly` without the holes that collapse when rounded to 0.1 m for export (noted via
+    `log`), or None when its outer ring collapses."""
+    outer, good, dropped = _rings_flat(poly, grid)
+    if len(outer) < 6:
+        return None
+    if not dropped:
+        return poly
+    log(f"Pond '{pid}': left out {dropped} hole(s) that collapse to fewer than 3 points "
+        "when rounded to 0.1 m")
+    cx = (grid.west + grid.east) / 2.0
+    cz = (grid.north + grid.south) / 2.0
+    keep = [ring for ring in poly.interiors
+            if len(_ring_flat([(x - cx, cz - y) for x, y in ring.coords])) >= 6]
+    return Polygon(poly.exterior, keep)
 
 
 # ----------------------------------------------------------------------- terrain
@@ -433,22 +463,42 @@ def stamp_ponds_on_habitat(
 # -------------------------------------------------------------------- export
 
 
-def _ring_flat(coords: Sequence[tuple[float, float]], grid: Grid) -> list[float]:
+def _world_polygon(geom: Polygon, grid: Grid) -> Polygon:
+    """The polygon in the viewer's world metres (x east, z south, origin at the grid centre),
+    outer ring counter-clockwise in (x, z)."""
     cx = (grid.west + grid.east) / 2.0
     cz = (grid.north + grid.south) / 2.0
+    world = Polygon(
+        [(x - cx, cz - y) for x, y in geom.exterior.coords],
+        [[(x - cx, cz - y) for x, y in ring.coords] for ring in geom.interiors],
+    )
+    return orient(world, 1.0)
+
+
+def _ring_flat(coords: Sequence[tuple[float, float]]) -> list[float]:
+    """[x0, z0, x1, z1, ...] of a closed ring of world coordinates, rounded to 0.1 m, with
+    repeated points and the closing duplicate removed. Fewer than 3 points (6 values)
+    means the ring collapsed when rounded."""
     flat: list[float] = []
     prev: tuple[float, float] | None = None
-    pts = list(coords)[:-1]  # drop the closing duplicate
-    for x, y in pts:
-        pt = (round(x - cx, 1) + 0.0, round(cz - y, 1) + 0.0)
+    for x, z in list(coords)[:-1]:  # drop the closing duplicate
+        pt = (round(x, 1) + 0.0, round(z, 1) + 0.0)
         if pt != prev:
             flat.extend(pt)
             prev = pt
     if len(flat) >= 4 and (flat[0], flat[1]) == (flat[-2], flat[-1]):
         del flat[-2:]
-    if len(flat) < 6:
-        raise ValueError("a pond ring collapsed to fewer than 3 points after rounding")
     return flat
+
+
+def _rings_flat(geom: Polygon, grid: Grid) -> tuple[list[float], list[list[float]], int]:
+    """(outer, holes, n_collapsed_holes) of the polygon rounded for export. `outer` has fewer
+    than 6 values when the outer ring collapsed; collapsed holes are left out."""
+    world = _world_polygon(geom, grid)
+    outer = _ring_flat(world.exterior.coords)
+    holes = [_ring_flat(ring.coords) for ring in world.interiors]
+    good = [h for h in holes if len(h) >= 6]
+    return outer, good, len(holes) - len(good)
 
 
 def _check_exportable(p: Pond) -> None:
@@ -469,13 +519,18 @@ def _check_exportable(p: Pond) -> None:
         raise bad(f"source is longer than {MAX_SOURCE_CHARS} characters")
 
 
-def ponds_document(ponds: Sequence[Pond], grid: Grid, processing: dict) -> dict:
+def ponds_document(
+    ponds: Sequence[Pond], grid: Grid, processing: dict, log: Callable[[str], None] = print
+) -> dict:
     """The ponds.json dict: rings in viewer world metres (x east, z south, origin at the
     grid centre, as overlay.json), rounded to 0.1 m, ponds sorted by id.
 
     Each ring is a flat [x0, z0, x1, z1, ...] list WITHOUT repeating the first point.
     rings[0] is the outer ring and any further rings are holes. In the (x, z) plane the
     outer ring is counter-clockwise (so it looks clockwise on a north-up map, z being south).
+    A hole that collapses to fewer than 3 points when rounded is left out with a note via
+    `log`; an outer ring that collapses is a ValueError (build_ponds already screens these).
+    ValueError too for anything the viewer's parser would reject (see the limits above).
     """
     if len(ponds) > MAX_PONDS:
         raise ValueError(f"{len(ponds)} ponds, more than the {MAX_PONDS} the viewer accepts")
@@ -483,16 +538,14 @@ def ponds_document(ponds: Sequence[Pond], grid: Grid, processing: dict) -> dict:
     n_points = 0
     for p in sorted(ponds, key=lambda p: p.id):
         _check_exportable(p)
-        cx = (grid.west + grid.east) / 2.0
-        cz = (grid.north + grid.south) / 2.0
-        world = Polygon(
-            [(x - cx, cz - y) for x, y in p.geometry.exterior.coords],
-            [[(x - cx, cz - y) for x, y in ring.coords] for ring in p.geometry.interiors],
-        )
-        world = orient(world, 1.0)
-        rings = [_ring_flat([(x + cx, cz - z) for x, z in world.exterior.coords], grid)]
-        for ring in world.interiors:
-            rings.append(_ring_flat([(x + cx, cz - z) for x, z in ring.coords], grid))
+        outer, holes, dropped = _rings_flat(p.geometry, grid)
+        if len(outer) < 6:
+            raise ValueError(f"pond '{p.id}': the outer ring collapsed to fewer than 3 points "
+                             "after rounding to 0.1 m")
+        if dropped:
+            log(f"Pond '{p.id}': left out {dropped} hole(s) that collapse to fewer than 3 "
+                "points when rounded to 0.1 m")
+        rings = [outer, *holes]
         if any(abs(v) > MAX_COORD_M for r in rings for v in r):
             raise ValueError(f"pond '{p.id}': a coordinate is more than {MAX_COORD_M:g} m from "
                              "the grid centre, which the viewer rejects")

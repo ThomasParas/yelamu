@@ -707,3 +707,64 @@ def test_a_sfei_class_name_that_would_overflow_the_source_limit_is_an_error():
          "geometry": _ll_square(-122.5, 37.7, -122.4, 37.8)}]}
     with pytest.raises(ValueError, match="300"):
         sfei_pond_specs(coll, ["X" * 300])
+
+
+# ------------------------------------------------ rings that collapse when rounded to 0.1 m
+
+CX, CZ = 500200.0, 4180200.0  # the grid centre: world (0, 0)
+
+
+def _with_hole(side):
+    outer = box(CX - 100, CZ - 100, CX + 100, CZ + 100)
+    hole = box(CX + 30 - side / 2, CZ - 30 - side / 2, CX + 30 + side / 2, CZ - 30 + side / 2)
+    return outer.difference(hole)
+
+
+def test_a_hole_that_collapses_when_rounded_is_dropped_with_a_note_not_an_abort():
+    notes = []
+    (p,) = build_ponds([spec(_with_hole(0.04), name="Holey", level=5.0)], flat(), GRID,
+                       log=notes.append)
+    assert len(p.geometry.interiors) == 0 and any("hole" in n for n in notes)
+    out = []
+    doc = ponds_document([p], GRID, {}, log=out.append)
+    assert len(doc["ponds"][0]["rings"]) == 1
+
+
+def test_a_proper_hole_is_kept():
+    notes = []
+    (p,) = build_ponds([spec(_with_hole(20), name="Holey", level=5.0)], flat(), GRID,
+                       log=notes.append)
+    assert len(p.geometry.interiors) == 1 and not notes
+    assert len(ponds_document([p], GRID, {})["ponds"][0]["rings"]) == 2
+
+
+def test_ponds_document_drops_a_collapsed_hole_even_for_a_hand_built_pond():
+    (p,) = build_ponds([spec(square(100, 100, 100), name="A", level=5.0)], flat(), GRID,
+                       log=lambda m: None)
+    import dataclasses
+    holey = dataclasses.replace(p, geometry=_with_hole(0.04))
+    notes = []
+    doc = ponds_document([holey], GRID, {}, log=notes.append)
+    assert len(doc["ponds"][0]["rings"]) == 1 and any("hole" in n for n in notes)
+
+
+def _sliver():
+    # 40 m long and 0.02 m wide along a row of cell centres: 4 cells, but the outer ring
+    # is a line once rounded to 0.1 m.
+    y = 4180005.0
+    return Polygon([(500005, y - 0.01), (500045, y - 0.01), (500045, y + 0.01), (500005, y + 0.01)])
+
+
+def test_a_hand_pond_whose_outer_ring_collapses_is_an_error_naming_the_feature():
+    s = spec(_sliver(), name="Sliver", level=5.0)
+    import dataclasses
+    s = dataclasses.replace(s, where="hp.geojson: feature 3 ('Sliver')")
+    with pytest.raises(ValueError, match=r"hp\.geojson: feature 3"):
+        build_ponds([s], flat(), GRID, log=lambda m: None)
+
+
+def test_an_sfei_pond_whose_outer_ring_collapses_is_dropped_with_a_note():
+    notes = []
+    out = build_ponds([spec(_sliver(), origin="sfei", class_name="Other pond or lake", level=5.0)],
+                      flat(), GRID, log=notes.append)
+    assert out == [] and notes and "collapse" in notes[0]
