@@ -79,3 +79,50 @@ describe("keyAction guards", () => {
     expect(keyAction({ key: "e", target: null })).toEqual({ type: "rotate", dir: 1 });
   });
 });
+
+describe("keyAction ignores keys inside side panels, dialogs and interactive links", () => {
+  const inPanel = { tagName: "DIV", closest: (sel: string) => (sel === ".panel, dialog" ? {} : null) };
+  const plain = { tagName: "DIV", closest: () => null };
+
+  it("asks closest() for a side panel or dialog ancestor", () => {
+    const asked: string[] = [];
+    keyAction({ key: "q", target: { tagName: "DIV", closest: (s) => (asked.push(s), null) } });
+    expect(asked).toEqual([".panel, dialog"]);
+  });
+
+  it("arrows, +/-, Q/E, H, / and ? are not ours inside a panel or dialog", () => {
+    for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "+", "=", "-", "_", "q", "e", "h", "/", "?"]) {
+      expect(keyAction({ key, target: inPanel })).toBeNull();
+    }
+  });
+
+  it("the same keys are handled for a target outside any panel", () => {
+    expect(keyAction({ key: "ArrowLeft", target: plain })).toEqual({ type: "pan", dx: -1, dy: 0 });
+    expect(keyAction({ key: "q", target: plain })).toEqual({ type: "rotate", dir: -1 });
+    expect(keyAction({ key: "h", target: plain })).toEqual({ type: "reset" });
+    expect(keyAction({ key: "?", target: plain })).toEqual({ type: "help" });
+  });
+
+  it("Escape is handled everywhere", () => {
+    expect(keyAction({ key: "Escape", target: inPanel })).toEqual({ type: "escape" });
+    expect(keyAction({ key: "Escape", target: { tagName: "A" } })).toEqual({ type: "escape" });
+    expect(keyAction({ key: "Escape", target: { tagName: "SUMMARY" } })).toEqual({ type: "escape" });
+  });
+
+  it("links, selects and summaries keep their own keys", () => {
+    for (const tagName of ["A", "a", "SELECT", "SUMMARY"]) {
+      expect(keyAction({ key: "ArrowDown", target: { tagName } })).toBeNull();
+      expect(keyAction({ key: "e", target: { tagName } })).toBeNull();
+    }
+  });
+
+  it("top-bar buttons stay allowed, and a target without closest() is fine", () => {
+    expect(keyAction({ key: "ArrowRight", target: { tagName: "BUTTON", closest: () => null } })).toEqual({
+      type: "pan",
+      dx: 1,
+      dy: 0,
+    });
+    expect(keyAction({ key: "ArrowRight", target: { tagName: "BUTTON" } })).toEqual({ type: "pan", dx: 1, dy: 0 });
+  });
+});
+

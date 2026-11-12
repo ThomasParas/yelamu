@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { createIsoCamera, fitViewSize } from "./camera";
 import { switchZoomFor } from "./chunks";
 import type { AppContext } from "./appContext";
-import { decodeState, type AppState } from "./appState";
+import { decodeState, encodeState, type AppState } from "./appState";
 import { attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, paletteToLinear, shadeByDepth } from "./habitat";
 import { loadHabitat, loadHeightmap } from "./heightmap";
@@ -163,12 +163,14 @@ async function start() {
   const quality = new QualityController();
   const frameTimes: number[] = [];
   let lastFrame = 0;
-  const trackFrame = (now: number) => {
+  const trackFrame = (now: number, buildingChunks: boolean) => {
     // Rendering is on demand, so skip the idle gaps between interactions (>= 500 ms).
     if (lastFrame && now - lastFrame < 500) {
       frameTimes.push(now - lastFrame);
       if (frameTimes.length > 60) frameTimes.shift();
-      quality.record(now - lastFrame);
+      // The burst of full-resolution chunk builds after a zoom-in is not steady-state
+      // cost, so those frames do not count towards the quality level.
+      if (!buildingChunks) quality.record(now - lastFrame);
     }
     lastFrame = now;
   };
@@ -223,7 +225,7 @@ async function start() {
           console.error("frame callback failed and was removed", err);
         }
       }
-      trackFrame(now);
+      trackFrame(now, pending);
       updateOverlay();
       if (pending) requestRender();
     });
@@ -256,17 +258,15 @@ async function start() {
     layers: layers.hashValue(),
     place: place.get(),
   });
-  const hashSync = createHashSync({
-    getState: appState,
-    write: (encoded) => {
-      try {
-        // Keep the path and the ?data= / ?debug query; only the fragment changes.
-        history.replaceState(history.state, "", `${location.pathname}${location.search}#${encoded}`);
-      } catch {
-        // replaceState can throw in sandboxed frames; the URL just stays as it is.
-      }
-    },
-  });
+  const writeHash = (encoded: string) => {
+    try {
+      // Keep the path and the ?data= / ?debug query; only the fragment changes.
+      history.replaceState(history.state, "", `${location.pathname}${location.search}#${encoded}`);
+    } catch {
+      // replaceState can throw in sandboxed frames; the URL just stays as it is.
+    }
+  };
+  const hashSync = createHashSync({ getState: appState, write: writeHash });
   rig.onChange(() => {
     requestRender();
     hashSync.schedule();
@@ -281,6 +281,10 @@ async function start() {
     if (next.layers) layers.replace(next.layers);
     place.set(next.place);
     hashSync.markCurrent();
+    // Whatever the app rejected or clamped (an unknown place, an out-of-range zoom) must not
+    // linger in the address bar: rewrite the fragment from the state that was actually applied.
+    const applied = encodeState(appState());
+    if (location.hash !== `#${applied}`) writeHash(applied);
   });
 
   attachPointerControls(canvas, camera, rig);

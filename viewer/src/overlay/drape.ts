@@ -3,10 +3,19 @@ import * as THREE from "three";
 export type HeightAt = (x: number, z: number) => number;
 
 /**
+ * At most this many points are inserted into any one segment. Real streets are metres to
+ * a few kilometres long (a 3 km segment at a 10 m step needs 300), but the overlay file is
+ * untrusted: without a cap one segment of a few hundred kilometres would allocate
+ * billions of points. Beyond the cap the segment is simply sampled more coarsely.
+ */
+export const MAX_INSERTED_PER_SEGMENT = 2000;
+
+/**
  * Subdivide a flat [x0, z0, x1, z1, ...] polyline so that consecutive points are at most
  * `stepM` apart horizontally, and read each point's height from `heightAt`. Returns a
  * flat [x, y, z, ...] array (original vertices are kept exactly). A trailing unpaired
- * value is ignored; fewer than one point gives [].
+ * value is ignored; fewer than one point gives []. A segment gets at most
+ * MAX_INSERTED_PER_SEGMENT inserted points (coarser than `stepM` beyond that).
  */
 export function drapePolyline(points: number[], heightAt: HeightAt, stepM: number): number[] {
   if (!(stepM > 0) || !Number.isFinite(stepM)) throw new RangeError(`stepM must be > 0, got ${stepM}`);
@@ -19,7 +28,8 @@ export function drapePolyline(points: number[], heightAt: HeightAt, stepM: numbe
   for (let i = 1; i < n; i++) {
     const x = points[2 * i];
     const z = points[2 * i + 1];
-    const parts = Math.max(1, Math.ceil(Math.hypot(x - px, z - pz) / stepM - 1e-9));
+    const wanted = Math.max(1, Math.ceil(Math.hypot(x - px, z - pz) / stepM - 1e-9));
+    const parts = Math.min(wanted, MAX_INSERTED_PER_SEGMENT + 1);
     for (let k = 1; k < parts; k++) {
       const t = k / parts;
       const sx = px + (x - px) * t;

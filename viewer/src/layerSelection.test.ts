@@ -99,3 +99,69 @@ describe("LayerSelection defaults (unset vs empty)", () => {
     expect(l.register("Bad Id", true)).toBe(false);
   });
 });
+
+describe("LayerSelection defaults are per layer", () => {
+  it("toggling another layer first does not cancel a later layer's default-on", () => {
+    const l = new LayerSelection(undefined);
+    const seen: string[][] = [];
+    l.onChange((ids) => seen.push(ids));
+    l.set("vegetation", true); // the visitor acts before the overlay module has registered
+    expect(seen).toEqual([["vegetation"]]);
+    expect(l.register("landmarks", true)).toBe(true);
+    expect(l.has("landmarks")).toBe(true);
+    // The list changed while touched, so listeners (the URL hash) hear about it.
+    expect(seen).toEqual([["vegetation"], ["landmarks", "vegetation"]]);
+    expect(l.hashValue()).toEqual(["landmarks", "vegetation"]);
+    expect(l.register("hotspots", true)).toBe(true);
+    expect(seen).toHaveLength(3);
+    expect(l.register("streets", false)).toBe(false);
+    expect(seen).toHaveLength(3);
+  });
+
+  it("a layer the visitor decided is not overridden by its default", () => {
+    const l = new LayerSelection(undefined);
+    l.set("landmarks", true);
+    l.set("landmarks", false); // explicitly off
+    expect(l.register("landmarks", true)).toBe(false);
+    expect(l.has("landmarks")).toBe(false);
+    const m = new LayerSelection(undefined);
+    m.set("streets", true);
+    expect(m.register("streets", false)).toBe(true);
+  });
+
+  it("register() twice keeps the first decision", () => {
+    const l = new LayerSelection(undefined);
+    expect(l.register("landmarks", true)).toBe(true);
+    l.set("landmarks", false);
+    expect(l.register("landmarks", true)).toBe(false);
+  });
+
+  it("a hash-provided list wins for every id, including an empty one", () => {
+    const l = new LayerSelection(["streets"]);
+    let n = 0;
+    l.onChange(() => n++);
+    expect(l.register("landmarks", true)).toBe(false);
+    expect(l.register("hotspots", true)).toBe(false);
+    expect(l.list()).toEqual(["streets"]);
+    const none = new LayerSelection([]);
+    expect(none.register("landmarks", true)).toBe(false);
+    expect(none.list()).toEqual([]);
+    expect(n).toBe(0);
+  });
+
+  it("replace() with a list decides every id (a hand-edited hash is the whole truth)", () => {
+    const l = new LayerSelection(undefined);
+    l.replace(["streets"]);
+    expect(l.register("landmarks", true)).toBe(false);
+  });
+
+  it("stays silent while nothing was touched", () => {
+    const l = new LayerSelection(undefined);
+    let n = 0;
+    l.onChange(() => n++);
+    l.register("landmarks", true);
+    l.register("hotspots", true);
+    expect(n).toBe(0);
+    expect(l.hashValue()).toBeUndefined();
+  });
+});

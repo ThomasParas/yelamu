@@ -15,7 +15,11 @@ export interface QualityOptions {
   windowSize?: number;
   /** Degrade when the 90th percentile gap stays above this (ms). Default 25 (~40 fps). */
   degradeAboveMs?: number;
-  /** Upgrade when the 90th percentile gap stays below this (ms). Default 14 (~70 fps). */
+  /**
+   * Upgrade when the 90th percentile gap stays below this (ms). Default 18 (~55 fps): a
+   * 60 Hz display never delivers frames closer than 16.7 ms, so anything lower could not be
+   * met there. It stays well under degradeAboveMs, leaving a 18..25 ms hysteresis band.
+   */
   upgradeBelowMs?: number;
   /** How long the slow condition must hold continuously. Default 1500 ms. */
   degradeAfterMs?: number;
@@ -56,7 +60,7 @@ export class QualityController {
       now: options.now ?? (() => performance.now()),
       windowSize: options.windowSize ?? 60,
       degradeAboveMs: options.degradeAboveMs ?? 25,
-      upgradeBelowMs: options.upgradeBelowMs ?? 14,
+      upgradeBelowMs: options.upgradeBelowMs ?? 18,
       degradeAfterMs: options.degradeAfterMs ?? 1500,
       upgradeAfterMs: options.upgradeAfterMs ?? 8000,
       minDwellMs: options.minDwellMs ?? 5000,

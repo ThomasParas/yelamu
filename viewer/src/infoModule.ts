@@ -22,7 +22,10 @@ export const infoModule: AppModule = (ctx) => {
   };
   shell.addAction("legend", "Legend", () => openOnly(legend, [sources]));
   shell.addAction("sources", "Sources", () => openOnly(sources, [legend]));
-  shell.addAction("about", "About", () => about.open());
+  const openAbout = () => about.open();
+  shell.addAction("about", "About", openAbout);
+  // The "?" key opens the same dialog as the About button.
+  ctx.handlers.help = openAbout;
 
   about.openIfFirstVisit();
 };

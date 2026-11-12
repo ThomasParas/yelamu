@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_COORD_M,
   MAX_STREETS,
   MAX_STREET_POINTS,
   loadOverlay,
@@ -159,12 +160,21 @@ describe("parseOverlay: ids", () => {
     }
   });
 
-  it("rejects duplicates within a section but allows the same id across sections", () => {
+  it("rejects duplicates within a section", () => {
     expect(() => parseOverlay(doc({ landmarks: [landmark(), landmark({ name: "Again" })] }))).toThrow(
       /landmarks\[1\]: duplicate id "twin-peaks"/,
     );
     expect(() => parseOverlay(doc({ hotspots: [hotspot(), hotspot()] }))).toThrow(/hotspots\[1\]: duplicate id/);
-    expect(() => parseOverlay(doc({ landmarks: [landmark({ id: "same" })], hotspots: [hotspot({ id: "same" })] }))).not.toThrow();
+  });
+
+  it("requires ids to be unique across landmarks and hotspots (places are keyed by id)", () => {
+    expect(() => parseOverlay(doc({ landmarks: [landmark({ id: "same" })], hotspots: [hotspot({ id: "same" })] }))).toThrow(
+      /hotspots\[0\]: duplicate id "same".*landmarks\[0\]/,
+    );
+    expect(() =>
+      parseOverlay(doc({ landmarks: [landmark({ id: "a" }), landmark({ id: "b" })], hotspots: [hotspot({ id: "c" }), hotspot({ id: "b" })] })),
+    ).toThrow(/hotspots\[1\]: duplicate id "b"/);
+    expect(() => parseOverlay(doc({ landmarks: [landmark({ id: "x" })], hotspots: [hotspot({ id: "y" })] }))).not.toThrow();
   });
 
   it("includes the id in later errors", () => {
@@ -174,6 +184,42 @@ describe("parseOverlay: ids", () => {
       expect(() => parseOverlay(doc({ landmarks: [landmark({ [f]: "1" })] }))).toThrow(new RegExp(`${f} must be a finite`));
       expect(() => parseOverlay(doc({ hotspots: [hotspot({ [f]: Infinity })] }))).toThrow(new RegExp(`${f} must be a finite`));
     }
+  });
+});
+
+describe("parseOverlay: coordinate range", () => {
+  it("limits are +-1e6 metres, inclusive", () => {
+    expect(MAX_COORD_M).toBe(1e6);
+    const edge = doc({
+      streets: [street({ lines: [[-MAX_COORD_M, MAX_COORD_M, 0, 0]] })],
+      landmarks: [landmark({ x: MAX_COORD_M, z: -MAX_COORD_M })],
+      hotspots: [hotspot({ x: -MAX_COORD_M, z: MAX_COORD_M })],
+    });
+    expect(() => parseOverlay(edge)).not.toThrow();
+  });
+
+  it("rejects a street coordinate beyond the limit, naming the street and line", () => {
+    for (const bad of [MAX_COORD_M + 1, -MAX_COORD_M - 1, 1e300]) {
+      expect(() => parseOverlay(doc({ streets: [street(), street({ lines: [[0, 0, 1, 1], [0, 0, bad, 1]] })] }))).toThrow(
+        /streets\[1\].*line 1.*value 2.*1e6|streets\[1\].*line 1.*value 2.*out of range/,
+      );
+      expect(() => parseOverlay(doc({ streets: [street({ lines: [[0, bad, 1, 1]] })] }))).toThrow(/streets\[0\].*value 1/);
+    }
+  });
+
+  it("rejects a landmark or hotspot x/z beyond the limit, naming the id", () => {
+    for (const f of ["x", "z"]) {
+      expect(() => parseOverlay(doc({ landmarks: [landmark({ [f]: 2e6 })] }))).toThrow(
+        new RegExp(`landmarks\\[0\\] \\(twin-peaks\\): ${f} .*1e6`),
+      );
+      expect(() => parseOverlay(doc({ hotspots: [hotspot({ [f]: -2e6 })] }))).toThrow(
+        new RegExp(`hotspots\\[0\\] \\(mission-creek\\): ${f} .*1e6`),
+      );
+    }
+  });
+
+  it("does not limit lon/lat this way (they are degrees)", () => {
+    expect(() => parseOverlay(doc({ landmarks: [landmark({ lon: -122.44, lat: 37.75 })] }))).not.toThrow();
   });
 });
 

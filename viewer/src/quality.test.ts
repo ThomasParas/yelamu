@@ -109,7 +109,31 @@ describe("QualityController", () => {
 
   it("does not upgrade while frames are only mediocre (between the thresholds)", () => {
     const { q, feed } = make({ initial: 1 });
-    feed(20, 2000); // p90 = 20 ms: neither slow (>25) nor fast (<14)
+    feed(20, 2000); // p90 = 20 ms: neither slow (>25) nor fast (<18)
+    expect(q.level()).toBe(1);
+  });
+
+  it("60 Hz frames (16.7 ms) count as fast: they upgrade after the sustain period and dwell", () => {
+    const { q, feed } = make({ initial: 0 });
+    feed(16.7, 300); // ~5 s: below upgradeAfterMs (8 s)
+    expect(q.level()).toBe(0);
+    feed(16.7, 300); // ~10 s in total
+    expect(q.level()).toBe(1);
+    feed(16.7, 600); // another ~10 s
+    expect(q.level()).toBe(2);
+  });
+
+  it("20 ms frames neither upgrade nor degrade (the hysteresis band is 18..25 ms)", () => {
+    for (const initial of [0, 1, 2] as const) {
+      const { q, feed } = make({ initial });
+      feed(20, 3000);
+      expect(q.level()).toBe(initial);
+    }
+  });
+
+  it("26 ms frames degrade", () => {
+    const { q, feed } = make();
+    feed(26, 200);
     expect(q.level()).toBe(1);
   });
 
@@ -208,7 +232,7 @@ describe("QualityController", () => {
     expect(q.options).toMatchObject({
       windowSize: 60,
       degradeAboveMs: 25,
-      upgradeBelowMs: 14,
+      upgradeBelowMs: 18,
       degradeAfterMs: 1500,
       upgradeAfterMs: 8000,
       minDwellMs: 5000,

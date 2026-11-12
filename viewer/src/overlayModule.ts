@@ -124,10 +124,10 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   panel.onClose(() => {
     if (place.get() && hotspots.has(place.get()!)) place.set(undefined);
   });
-  // A place in the URL (shared link): validate it now that the overlay is known.
-  const initial = place.get();
-  if (initial && !hotspots.has(initial) && !landmarks.has(initial)) place.set(undefined);
-  else applyPlace(place.get());
+  // Only places in this overlay can be selected: this also drops an unknown id from a shared
+  // link now, and from a hand-edited hash later (the listeners hear about the clearing).
+  place.restrictTo((id) => hotspots.has(id) || landmarks.has(id));
+  applyPlace(place.get());
 
   // Esc: close a panel first; otherwise drop a selected landmark.
   const defaultEscape = ctx.handlers.escape;

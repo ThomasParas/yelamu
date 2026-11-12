@@ -17,6 +17,12 @@ export const MAX_STREET_POINTS = 400_000;
 export const MAX_PLACES = 5000;
 export const MAX_NAME_CHARS = 120;
 export const MAX_SOURCES = 20;
+/**
+ * World coordinates (metres from the terrain centre) must stay within this. The real city
+ * is ~20 km across; the cap keeps a hostile value from producing absurd geometry (e.g. a
+ * street segment the drape step would subdivide into billions of points).
+ */
+export const MAX_COORD_M = 1e6;
 export const DESCRIPTION_MIN = 20;
 export const DESCRIPTION_MAX = 400;
 
@@ -33,6 +39,13 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function finite(v: unknown, where: string, field: string): number {
   if (typeof v !== "number" || !Number.isFinite(v)) fail(where, `${field} must be a finite number`);
   return v;
+}
+
+/** A finite world coordinate (x or z) within +-MAX_COORD_M metres. */
+function worldCoord(v: unknown, where: string, field: string): number {
+  const n = finite(v, where, field);
+  if (Math.abs(n) > MAX_COORD_M) fail(where, `${field} must be within ±1e6 metres of the origin, got ${n}`);
+  return n;
 }
 
 function name(v: unknown, where: string): string {
@@ -55,12 +68,14 @@ function section(raw: Record<string, unknown>, key: string, max: number): unknow
   return v;
 }
 
-function placeId(v: unknown, where: string, seen: Set<string>): string {
+/** Ids must be unique across landmarks AND hotspots: the viewer keys places by id alone. */
+function placeId(v: unknown, where: string, seen: Map<string, string>): string {
   if (typeof v !== "string" || !ID.test(v)) {
     fail(where, `id ${JSON.stringify(v)} must match ${ID.source}`);
   }
-  if (seen.has(v)) fail(where, `duplicate id "${v}"`);
-  seen.add(v);
+  const first = seen.get(v);
+  if (first !== undefined) fail(where, `duplicate id "${v}" (already used by ${first})`);
+  seen.set(v, where);
   return v;
 }
 
@@ -89,6 +104,9 @@ function parseStreets(raw: Record<string, unknown>): Street[] {
         if (typeof n !== "number" || !Number.isFinite(n)) {
           fail(lw, `value ${k} is not a finite number`);
         }
+        if (Math.abs(n) > MAX_COORD_M) {
+          fail(lw, `value ${k} is out of range (must be within ±1e6 metres), got ${n}`);
+        }
         out[k] = n;
       }
       return out;
@@ -97,9 +115,8 @@ function parseStreets(raw: Record<string, unknown>): Street[] {
   });
 }
 
-function parseLandmarks(raw: Record<string, unknown>): Landmark[] {
+function parseLandmarks(raw: Record<string, unknown>, seen: Map<string, string>): Landmark[] {
   const list = section(raw, "landmarks", MAX_PLACES);
-  const seen = new Set<string>();
   return list.map((l, i) => {
     const where = `landmarks[${i}]`;
     if (!isRecord(l)) fail(where, "must be an object");
@@ -109,8 +126,8 @@ function parseLandmarks(raw: Record<string, unknown>): Landmark[] {
       id,
       name: name(l.name, label),
       kind: oneOf(l.kind, LANDMARK_KINDS, label, "kind"),
-      x: finite(l.x, label, "x"),
-      z: finite(l.z, label, "z"),
+      x: worldCoord(l.x, label, "x"),
+      z: worldCoord(l.z, label, "z"),
       lon: finite(l.lon, label, "lon"),
       lat: finite(l.lat, label, "lat"),
     };
@@ -138,9 +155,8 @@ function parseSources(v: unknown, label: string): HotspotSource[] {
   });
 }
 
-function parseHotspots(raw: Record<string, unknown>): Hotspot[] {
+function parseHotspots(raw: Record<string, unknown>, seen: Map<string, string>): Hotspot[] {
   const list = section(raw, "hotspots", MAX_PLACES);
-  const seen = new Set<string>();
   return list.map((h, i) => {
     const where = `hotspots[${i}]`;
     if (!isRecord(h)) fail(where, "must be an object");
@@ -159,8 +175,8 @@ function parseHotspots(raw: Record<string, unknown>): Hotspot[] {
       id,
       name: name(h.name, label),
       kind: oneOf(h.kind, HOTSPOT_KINDS, label, "kind"),
-      x: finite(h.x, label, "x"),
-      z: finite(h.z, label, "z"),
+      x: worldCoord(h.x, label, "x"),
+      z: worldCoord(h.z, label, "z"),
       lon: finite(h.lon, label, "lon"),
       lat: finite(h.lat, label, "lat"),
       description,
@@ -179,11 +195,12 @@ export function parseOverlay(raw: unknown): Overlay {
   if (raw.version !== 1) {
     throw new Error(`overlay: unsupported version ${JSON.stringify(raw.version)} (expected 1)`);
   }
+  const ids = new Map<string, string>();
   return {
     version: 1,
     streets: parseStreets(raw),
-    landmarks: parseLandmarks(raw),
-    hotspots: parseHotspots(raw),
+    landmarks: parseLandmarks(raw, ids),
+    hotspots: parseHotspots(raw, ids),
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSegmentGeometry, drapePolyline } from "./drape";
+import { buildSegmentGeometry, drapePolyline, MAX_INSERTED_PER_SEGMENT } from "./drape";
 
 const flat = () => 0;
 const ramp = (x: number) => x / 10; // height grows 1 m per 10 m east
@@ -21,6 +21,28 @@ describe("drapePolyline", () => {
   it("an exact multiple of the step does not add an extra point", () => {
     expect(drapePolyline([0, 0, 100, 0], flat, 50).length / 3).toBe(3);
     expect(drapePolyline([0, 0, 100, 0], flat, 100).length / 3).toBe(2);
+  });
+
+  it("caps the points inserted into one segment, so an extreme segment stays bounded", () => {
+    expect(MAX_INSERTED_PER_SEGMENT).toBe(2000);
+    // 1e6 m at a 1 m step would be a million points; the cap allows 2000 inserted + 2 ends.
+    const out = drapePolyline([0, 0, 1e6, 0], flat, 1);
+    expect(out.length / 3).toBe(MAX_INSERTED_PER_SEGMENT + 2);
+    const xs = out.filter((_, i) => i % 3 === 0);
+    expect(xs[0]).toBe(0);
+    expect(xs[xs.length - 1]).toBe(1e6); // the original endpoint is kept exactly
+    for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1]); // evenly spread
+    // The cap applies per segment: two extreme segments give two capped runs.
+    expect(drapePolyline([0, 0, 1e6, 0, 2e6, 0], flat, 1).length / 3).toBe(2 * MAX_INSERTED_PER_SEGMENT + 3);
+    // Even an infinite segment cannot run away.
+    expect(drapePolyline([0, 0, Infinity, 0], flat, 1).length / 3).toBe(MAX_INSERTED_PER_SEGMENT + 2);
+  });
+
+  it("does not change segments that need no more than the cap", () => {
+    // 2001 parts -> exactly 2000 inserted points: still uniform at the requested step.
+    const out = drapePolyline([0, 0, 2001, 0], flat, 1);
+    expect(out.length / 3).toBe(2002);
+    expect(out[3]).toBe(1);
   });
 
   it("measures the step horizontally on diagonals", () => {

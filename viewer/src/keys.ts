@@ -17,26 +17,36 @@ export interface KeyEventLike {
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
-  target?: { tagName?: string; isContentEditable?: boolean } | null;
+  target?: {
+    tagName?: string;
+    isContentEditable?: boolean;
+    /** An HTMLElement's closest(); used to spot side panels and dialogs. */
+    closest?: (selector: string) => unknown;
+  } | null;
 }
 
-const TEXT_ENTRY = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+/** Elements that use letters, arrows or +/- themselves (a link is also activated by Enter). */
+const OWN_KEYS = new Set(["INPUT", "TEXTAREA", "SELECT", "A", "SUMMARY"]);
+/** Where focus belongs to the panel's own content, not to the map. */
+const PANEL_SELECTOR = ".panel, dialog";
 
-function isTextEntry(target: KeyEventLike["target"]): boolean {
+function ownsKeys(target: KeyEventLike["target"]): boolean {
   if (!target) return false;
   if (target.isContentEditable) return true;
-  return typeof target.tagName === "string" && TEXT_ENTRY.has(target.tagName.toUpperCase());
+  if (typeof target.tagName === "string" && OWN_KEYS.has(target.tagName.toUpperCase())) return true;
+  return Boolean(target.closest?.(PANEL_SELECTOR));
 }
 
 /**
  * The action for a keydown, or null when the key is not ours: a ctrl/meta/alt chord (so
- * browser shortcuts keep working) or any key typed into a text field (except Escape).
+ * browser shortcuts keep working), or a key pressed in a text field, select, link, summary,
+ * side panel or dialog, which keep their own keys (Escape is always ours).
  */
 export function keyAction(e: KeyEventLike): KeyAction | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   const escape = e.key === "Escape" || e.key === "Esc";
   if (escape) return { type: "escape" };
-  if (isTextEntry(e.target)) return null;
+  if (ownsKeys(e.target)) return null;
 
   switch (e.key) {
     case "ArrowLeft":
