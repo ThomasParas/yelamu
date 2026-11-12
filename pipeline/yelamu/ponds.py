@@ -36,6 +36,7 @@ from yelamu.geo import Grid
 from yelamu.habitat import ID_HAND_POND, _class_name
 from yelamu.provenance import hand_source_rows, layer_source_summary, lowest_confidence
 from yelamu.sources import Feature, _polygonal_parts, feature_label, geometry_to_utm_polygons
+from yelamu.terrain import WATER_LEVEL_M
 from yelamu.water import water_mask
 
 PONDS_VERSION = 1
@@ -223,7 +224,8 @@ def build_ponds(
     own). Polygons covering fewer than `min_cells` cell centres are dropped with a note via
     `log`. The level is level_m if given, else the median of the non-NaN raw DEM under the
     polygon, rounded to 0.01 m; with neither (all NaN) a hand pond raises ValueError and an
-    SFEI pond is dropped with a note. Where ponds overlap, a hand pond wins over an SFEI one
+    SFEI pond is dropped with a note. A level under WATER_LEVEL_M (0.6 m, the sea plane) or
+    outside the viewer's range likewise raises for a hand pond and drops an SFEI one. Where ponds overlap, a hand pond wins over an SFEI one
     and otherwise the pond with the earlier id wins: the loser's geometry has the winners'
     geometry subtracted (it may gain a hole or split into several ponds, ids suffixed -2, -3),
     and a remainder that is empty or under `min_cells` cells is dropped. So every pond's
@@ -269,9 +271,12 @@ def build_ponds(
             level = float(np.median(values))
         level = round(level, 2)
         problem = _level_range_problem(level)
+        if problem is None and level < WATER_LEVEL_M:
+            problem = (f"pond level must be at least {WATER_LEVEL_M:g} m or it is under the sea "
+                       f"plane (got {level:g} m)")
         if problem:
             if spec.origin == "hand":
-                raise ValueError(f"pond '{pid}': {problem}")
+                raise ValueError(f"{spec.where or f'pond {pid!r}'}: {problem}")
             log(f"Dropped pond '{pid}': {problem}")
             continue
         resolved.append((pid, spec, mask, level))

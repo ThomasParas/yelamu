@@ -768,3 +768,31 @@ def test_an_sfei_pond_whose_outer_ring_collapses_is_dropped_with_a_note():
     out = build_ponds([spec(_sliver(), origin="sfei", class_name="Other pond or lake", level=5.0)],
                       flat(), GRID, log=notes.append)
     assert out == [] and notes and "collapse" in notes[0]
+
+
+# --------------------------------------------- a level under the sea plane is not a pond
+
+
+def test_hand_pond_level_under_the_sea_plane_is_an_error_naming_the_feature():
+    import dataclasses
+    s = dataclasses.replace(spec(square(100, 100, 100), name="Low", level=0.59),
+                            where="hp.geojson: feature 2 ('Low')")
+    with pytest.raises(ValueError, match=r"hp\.geojson: feature 2.*at least 0\.6 m.*sea plane"):
+        build_ponds([s], flat(), GRID, log=lambda m: None)
+    # the DEM median counts too
+    with pytest.raises(ValueError, match="at least 0.6 m or it is under the sea plane"):
+        build_ponds([spec(square(100, 100, 100), name="Low")], flat(0.2), GRID,
+                    log=lambda m: None)
+
+
+def test_sfei_pond_level_under_the_sea_plane_is_dropped_with_a_note():
+    notes = []
+    out = build_ponds([spec(square(100, 100, 100), origin="sfei", class_name="Other pond or lake")],
+                      flat(0.2), GRID, log=notes.append)
+    assert out == [] and "sea plane" in notes[0]
+
+
+def test_a_level_of_exactly_the_sea_plane_is_allowed():
+    (p,) = build_ponds([spec(square(100, 100, 100), name="Edge", level=0.6)], flat(), GRID,
+                       log=lambda m: None)
+    assert p.level_m == 0.6
