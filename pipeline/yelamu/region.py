@@ -22,7 +22,7 @@ _OPTIONAL_FLOATS = ("smooth_m", "shelf_m", "shore_slope", "open_water_max_m",
 _NON_NEGATIVE = ("pond_bank_slope", "pond_bank_m", "pond_max_depth_m")
 _POSITIVE = ("pond_shelf_m",)
 _OPTIONAL_INTS = ("shore_open_cells",)
-_OPTIONAL_STRING_LISTS = ("pond_classes",)
+_OPTIONAL_STRING_LISTS = ("pond_classes", "marsh_classes")
 _KNOWN = (*_REQUIRED, *_OPTIONAL_PATHS, *_OPTIONAL_PATH_LISTS, *_OPTIONAL_FLOATS,
           *_OPTIONAL_INTS, *_OPTIONAL_STRING_LISTS)
 
@@ -51,6 +51,9 @@ class Region:
     # Ponds: HabitatCla values (SFEI) that are freshwater ponds; None = the built-in
     # default list (yelamu.ponds.DEFAULT_POND_CLASSES), [] = no SFEI ponds.
     pond_classes: list[str] | None = None
+    # SFEI HabitatCla values drawn as tidal marsh (marsh level) in addition to the marsh file;
+    # None or [] = none.
+    marsh_classes: list[str] | None = None
     pond_max_depth_m: float | None = None  # >= 0; 0 gives a bed at the water level
     pond_shelf_m: float | None = None  # > 0
     pond_bank_slope: float | None = None  # >= 0; 0 disables bank grading

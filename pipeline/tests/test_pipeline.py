@@ -485,7 +485,7 @@ def test_meta_records_processing_parameters(tmp_path):
     assert meta["processing"] == {
         "smooth_m": 20.0, "shelf_m": 90.0, "shore_open_cells": 3,
         "open_water_max_m": 0.25, "coverage": False, "shore_slope": 0.30,
-        "pond_classes": list(DEFAULT_POND_CLASSES), "pond_max_depth_m": 2.0,
+        "pond_classes": list(DEFAULT_POND_CLASSES), "marsh_classes": [], "pond_max_depth_m": 2.0,
         "pond_shelf_m": 20.0, "pond_bank_slope": 0.35, "pond_bank_m": 200.0,
     }
     assert "layers" in meta and "water_level_m" in meta
@@ -973,6 +973,30 @@ def test_pond_classes_flag_selects_classes_and_empty_means_none(tmp_path):
     _, out2, meta2, _ = _pond_run(tmp_path, "--pond-classes", "Dune-dammed pond or lake",
                                   out_name="out2")
     assert meta2["ponds_file"] == "ponds.json"
+
+
+def test_marsh_classes_flag_turns_an_sfei_class_into_marsh_at_the_marsh_level(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 7.0)
+    habitats = _pond_habitats(tmp_path, cls="Tidal coastal lagoon")
+    base = ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), *_FLAT,
+            "--habitats", str(habitats)]
+    centre = _pixel(grid, -122.395, 37.775)
+    # Without the flag the lagoon keeps the modern ground (it is not a pond class either).
+    assert main([*base, "--out", str(tmp_path / "off")]) == 0
+    meta_off = json.loads((tmp_path / "off" / "meta.json").read_text())
+    assert abs(_read_heights(tmp_path / "off", meta_off)[centre] - 7.0) < 0.01
+    assert meta_off["processing"]["marsh_classes"] == []
+    # With it the cells are marsh (just below the sea plane) and keep the SFEI habitat class.
+    assert main([*base, "--marsh-classes", "Tidal coastal lagoon",
+                 "--out", str(tmp_path / "on")]) == 0
+    out = tmp_path / "on"
+    meta = json.loads((out / "meta.json").read_text())
+    assert abs(_read_heights(out, meta)[centre] - 0.5) < 0.01
+    ids = {e["name"]: e["id"] for e in meta["habitat_classes"]}
+    assert _habitat(out, meta)[centre] == ids["Tidal coastal lagoon"]
+    assert meta["processing"]["marsh_classes"] == ["Tidal coastal lagoon"]
+    assert abs(_read_heights(out, meta)[_pixel(grid, -122.415, 37.76)] - 7.0) < 0.01
 
 
 def test_rebuild_without_ponds_removes_a_stale_ponds_file(tmp_path):

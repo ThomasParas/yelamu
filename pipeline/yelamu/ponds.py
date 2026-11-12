@@ -129,6 +129,15 @@ def sfei_pond_specs(
     return specs
 
 
+def sfei_class_polygons(collection: dict, classes: Iterable[str],
+                        field_name: str = "HabitatCla") -> list[Polygon]:
+    """Every UTM polygon of an SFEI feature whose class is in `classes` (for marsh classes)."""
+    wanted = set(classes)
+    return [poly for feature in collection.get("features", [])
+            if _class_name(feature, field_name) in wanted
+            for poly in geometry_to_utm_polygons(feature.get("geometry"))]
+
+
 def _level_range_problem(level: float) -> str | None:
     if not math.isfinite(level) or not MIN_LEVEL_M <= level <= MAX_LEVEL_M:
         return (f"water level {level:g} m is outside the range {MIN_LEVEL_M:g}..{MAX_LEVEL_M:g} m "

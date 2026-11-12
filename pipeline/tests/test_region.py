@@ -206,6 +206,15 @@ def test_full_city_region_values():
     assert tuple(region.pond_classes) == DEFAULT_POND_CLASSES
 
 
+def test_marsh_classes_are_a_stripped_list_of_names(tmp_path):
+    assert load_region(_write(tmp_path, MINIMAL)).marsh_classes is None
+    region = load_region(_write(tmp_path, {**MINIMAL, "marsh_classes": [" Tidal coastal lagoon "]}))
+    assert region.marsh_classes == ["Tidal coastal lagoon"]
+    for bad in ("Fen", [1], ["Fen", " "]):
+        with pytest.raises(ValueError, match="marsh_classes"):
+            load_region(_write(tmp_path, {**MINIMAL, "marsh_classes": bad}, "m.json"))
+
+
 def test_bank_slope_zero_is_allowed(tmp_path):
     r = load_region(_write(tmp_path, {**MINIMAL, "pond_bank_slope": 0, "pond_bank_m": 0}))
     assert r.pond_bank_slope == 0.0 and r.pond_bank_m == 0.0

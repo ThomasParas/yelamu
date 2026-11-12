@@ -31,6 +31,7 @@ from yelamu.ponds import (
     pond_mask,
     pond_provenance_rows,
     ponds_document,
+    sfei_class_polygons,
     sfei_pond_specs,
     stamp_ponds_on_habitat,
 )
@@ -68,6 +69,7 @@ def build(
     hand_marsh_paths: Sequence[Path] = (),
     hand_pond_paths: Sequence[Path] = (),
     pond_classes: Sequence[str] = DEFAULT_POND_CLASSES,
+    marsh_classes: Sequence[str] = (),
     pond_max_depth_m: float = DEFAULT_MAX_DEPTH_M,
     pond_shelf_m: float = DEFAULT_SHELF_M,
     pond_bank_slope: float = DEFAULT_BANK_SLOPE,
@@ -115,6 +117,8 @@ def build(
     # Ponds: SFEI polygons of the pond classes plus the hand-drawn ones. Hand ponds count
     # as mapped area for the gap rule, like the other hand-drawn water.
     habitat_collection = json.loads(Path(habitats_path).read_text()) if habitats_path else None
+    if habitat_collection is not None and marsh_classes:
+        marsh = marsh | water_mask(sfei_class_polygons(habitat_collection, marsh_classes), grid)
     pond_specs = list(hand_pond_specs_all)
     if habitat_collection is not None:
         pond_specs += sfei_pond_specs(habitat_collection, pond_classes)
@@ -219,6 +223,7 @@ def build(
         "open_water_max_m": open_water_max_m,
         "coverage": coverage_src is not None,
         "pond_classes": list(pond_classes),
+        "marsh_classes": list(marsh_classes),
         "pond_max_depth_m": pond_max_depth_m,
         "pond_shelf_m": pond_shelf_m,
         "pond_bank_slope": pond_bank_slope,
@@ -269,6 +274,8 @@ def _region_defaults(region: Region) -> dict:
     }
     if region.pond_classes is not None:
         defaults["pond_classes"] = list(region.pond_classes)
+    if region.marsh_classes is not None:
+        defaults["marsh_classes"] = list(region.marsh_classes)
     for key in ("smooth_m", "shelf_m", "shore_slope", "shore_open_cells", "open_water_max_m",
                 "pond_max_depth_m", "pond_shelf_m", "pond_bank_slope", "pond_bank_m"):
         if getattr(region, key) is not None:
@@ -306,6 +313,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    metavar="CLASS",
                    help="SFEI HabitatCla values that are freshwater ponds (default: the four "
                         "pond/lake/lagoon classes; 'Tidal coastal lagoon' is not included)")
+    p.add_argument("--marsh-classes", nargs="+", default=[], metavar="CLASS",
+                   help="SFEI HabitatCla values drawn as tidal marsh at the marsh level, in "
+                        "addition to --marsh (default: none)")
     p.add_argument("--pond-max-depth-m", type=float, default=DEFAULT_MAX_DEPTH_M,
                    help="depth (m) of a pond bed below its water level (0 or more), reached over "
                         "--pond-shelf-m from the shore")
@@ -368,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         args.smooth_m, args.shelf_m, args.shore_open_cells, args.shore_slope,
         args.habitats, args.hand_bay, args.hand_marsh,
         hand_pond_paths=args.hand_ponds, pond_classes=args.pond_classes,
+        marsh_classes=args.marsh_classes,
         pond_max_depth_m=args.pond_max_depth_m, pond_shelf_m=args.pond_shelf_m,
         pond_bank_slope=args.pond_bank_slope, pond_bank_m=args.pond_bank_m,
     )
