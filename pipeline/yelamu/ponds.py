@@ -2,7 +2,8 @@
 
 A pond is one polygon plus a water level. Sources:
 
-  * SFEI habitat polygons whose HabitatCla is in `pond_classes` (documented);
+  * SFEI habitat polygons whose HabitatCla is in `pond_classes` (extent documented, level
+    from the modern DEM, so the pond is "inferred");
   * `hand_ponds` GeoJSON files (provenance required; optional feature properties
     `level_m` (number), `name` and `id`).
 
@@ -102,17 +103,27 @@ class Pond:
 def sfei_pond_specs(
     collection: dict, pond_classes: Iterable[str], field_name: str = "HabitatCla"
 ) -> list[PondSpec]:
-    """Every polygon of an SFEI feature whose class is in `pond_classes` (documented)."""
+    """Every polygon of an SFEI feature whose class is in `pond_classes`.
+
+    The EXTENT of the pond is documented by SFEI, but its water LEVEL is the median of the
+    modern DEM (SFEI gives none), so the pond as a whole is only "inferred".
+    """
     wanted = set(pond_classes)
     specs: list[PondSpec] = []
     for feature in collection.get("features", []):
         cls = _class_name(feature, field_name)
         if cls is None or cls not in wanted:
             continue
+        source = (f"SFEI Hidden Nature SF habitat class '{cls}' (extent); "
+                  "water level from the modern DEM")
+        if len(source) > MAX_SOURCE_CHARS:
+            raise ValueError(f"habitat class {cls[:40]!r}... is too long: the pond source text "
+                             f"would be {len(source)} characters, over the {MAX_SOURCE_CHARS} "
+                             "the viewer accepts")
         for poly in geometry_to_utm_polygons(feature.get("geometry")):
             specs.append(PondSpec(
-                geometry=poly, origin="sfei", class_name=cls, confidence="documented",
-                source=f"SFEI Hidden Nature SF habitat class '{cls}'"))
+                geometry=poly, origin="sfei", class_name=cls, confidence="inferred",
+                source=source))
     return specs
 
 
@@ -501,8 +512,13 @@ def ponds_document(ponds: Sequence[Pond], grid: Grid, processing: dict) -> dict:
 
 
 def pond_provenance_rows(ponds: Sequence[Pond]) -> list[dict]:
-    """meta hand_sources rows (layer "ponds"): one per distinct (source, confidence)."""
-    return hand_source_rows("ponds", [(p.source, p.confidence) for p in ponds])
+    """meta hand_sources rows (layer "ponds"): one per distinct (source, confidence).
+
+    Only HAND-DRAWN ponds are listed: hand_sources feeds the Sources panel's "Hand-drawn and
+    sculpted" section, and an SFEI pond (traced by SFEI, not by this project) is not that.
+    SFEI ponds are covered by the "ponds" layer in meta.json instead.
+    """
+    return hand_source_rows("ponds", [(p.source, p.confidence) for p in ponds if p.origin == "hand"])
 
 
 def pond_layer(ponds: Sequence[Pond]) -> Layer | None:

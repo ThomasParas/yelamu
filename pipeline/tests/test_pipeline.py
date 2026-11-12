@@ -939,8 +939,10 @@ def test_sfei_pond_is_carved_exported_and_recorded(tmp_path, capsys):
     (pond,) = doc["ponds"]
     assert pond["id"] == "dune-dammed-pond-or-lake-1" and pond["name"] is None
     assert pond["level_m"] == 7.0  # median of the flat 7 m DEM
-    assert pond["confidence"] == "documented"
-    assert pond["source"] == "SFEI Hidden Nature SF habitat class 'Dune-dammed pond or lake'"
+    # The extent is documented, the level is the modern DEM's: so the pond is only inferred.
+    assert pond["confidence"] == "inferred"
+    assert pond["source"] == ("SFEI Hidden Nature SF habitat class 'Dune-dammed pond or lake' "
+                              "(extent); water level from the modern DEM")
     assert len(pond["rings"]) == 1 and len(pond["rings"][0]) >= 8
     assert doc["processing"]["max_depth_m"] == 2.0 and doc["processing"]["shelf_m"] == 20.0
     # World metres: the pond sits inside the grid, west of centre (x<0)? check the extent.
@@ -959,10 +961,9 @@ def test_sfei_pond_is_carved_exported_and_recorded(tmp_path, capsys):
     assert raster[_pixel(grid, -122.395, 37.775)] == ids["Dune-dammed pond or lake"]
     # Provenance: layer + hand_sources row.
     layer = next(l for l in meta["layers"] if l["id"] == "ponds")
-    assert layer["confidence"] == "documented" and layer["attribution"] == "SFEI; this project"
-    assert meta["hand_sources"] == [{
-        "layer": "ponds", "confidence": "documented", "count": 1,
-        "source": "SFEI Hidden Nature SF habitat class 'Dune-dammed pond or lake'"}]
+    assert layer["confidence"] == "inferred" and layer["attribution"] == "SFEI; this project"
+    assert "water level from the modern DEM" in layer["source"]
+    assert "hand_sources" not in meta  # an SFEI pond is not hand-drawn
     assert meta["processing"]["pond_classes"][0] == "Dune-dammed pond or lake"
 
 
@@ -998,7 +999,7 @@ def test_hand_pond_with_level_name_and_provenance(tmp_path):
     layer = next(l for l in meta["layers"] if l["id"] == "ponds")
     assert layer["confidence"] == "illustrative"  # the lowest of documented + illustrative
     rows = {(r["source"], r["confidence"]): r["count"] for r in meta["hand_sources"]}
-    assert rows[("Sanborn 1887", "illustrative")] == 1
+    assert rows == {("Sanborn 1887", "illustrative"): 1}  # the SFEI pond is not "hand-drawn"
     assert all(r["layer"] == "ponds" for r in meta["hand_sources"])
     assert [r["source"] for r in meta["hand_sources"]] == sorted(r["source"] for r in meta["hand_sources"])
 

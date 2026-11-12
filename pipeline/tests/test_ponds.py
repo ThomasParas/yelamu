@@ -83,8 +83,11 @@ def test_sfei_pond_specs_select_classes_and_explode_multipolygons():
     specs = sfei_pond_specs(coll, DEFAULT_POND_CLASSES)
     assert [s.class_name for s in specs] == ["Dune-dammed pond or lake"] * 2 + ["Other pond or lake"]
     for s in specs:
-        assert s.origin == "sfei" and s.confidence == "documented" and s.level_m is None
-        assert s.source == f"SFEI Hidden Nature SF habitat class '{s.class_name}'"
+        # the extent is documented, the level comes from the modern DEM: only inferred
+        assert s.origin == "sfei" and s.confidence == "inferred" and s.level_m is None
+        assert s.source == (f"SFEI Hidden Nature SF habitat class '{s.class_name}' (extent); "
+                            "water level from the modern DEM")
+        assert len(s.source) <= 300
         assert s.geometry.geom_type == "Polygon" and s.geometry.is_valid
         assert s.geometry.bounds[0] > 500000  # UTM metres, not degrees
     assert sfei_pond_specs(coll, []) == []
@@ -320,11 +323,11 @@ def test_provenance_rows_and_layer():
         spec(square(250, 200, 60), name="H2", source="Sheet A", confidence="inferred"),
     ], flat(), GRID, log=lambda m: None)
     rows = pond_provenance_rows(ponds)
+    # Only hand-drawn ponds are "hand-drawn and sculpted" sources; the SFEI one is not listed.
     assert rows == [
-        {"layer": "ponds", "source": "SFEI Hidden Nature SF habitat class 'Other pond or lake'",
-         "confidence": "documented", "count": 1},
         {"layer": "ponds", "source": "Sheet A", "confidence": "inferred", "count": 2},
     ]
+    assert pond_provenance_rows([p for p in ponds if p.origin == "sfei"]) == []
     layer = pond_layer(ponds)
     assert layer.id == "ponds" and layer.confidence == "inferred"  # the lowest
     assert "3 freshwater ponds" in layer.source and "Sheet A" in layer.source and len(layer.source) <= 300
@@ -696,3 +699,11 @@ def test_an_embankment_reaches_the_shore_at_the_water_level_then_falls_at_the_ba
     assert out[24, 9] == pytest.approx(30.0, abs=1e-4)
     assert out[24, 8] == pytest.approx(30.0 - 0.35 * 10.0, abs=1e-4)
     assert out[24, 7] == pytest.approx(30.0 - 0.35 * 20.0, abs=1e-4)
+
+
+def test_a_sfei_class_name_that_would_overflow_the_source_limit_is_an_error():
+    coll = {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"HabitatCla": "X" * 300},
+         "geometry": _ll_square(-122.5, 37.7, -122.4, 37.8)}]}
+    with pytest.raises(ValueError, match="300"):
+        sfei_pond_specs(coll, ["X" * 300])
