@@ -14,7 +14,7 @@ from yelamu.export import dequantize_heights
 from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
 from yelamu.noaa import (
     MAN_MADE, MARSH_EDGE, MEAN_HIGH_WATER, USER_ADDED, WHARF, Area, Line, Seed, area_ordinal,
-    areas_to_features, classify, close_linework, cross_project_overlaps,
+    areas_to_features, classify, close_linework, cross_project_overlaps, land_conflicts,
     feature_collection_text, load_seed_file, load_seeds, lonlat_geom_to_utm, normalise_sheet,
     select_lines, source_text, survey_year, utm_geom_to_lonlat)
 from yelamu.provenance import MAX_SOURCE_CHARS
@@ -343,6 +343,27 @@ def test_cross_project_overlaps():
                                              _seed("b", 2000, 1500, "bay", project="CA37B08")])
     ((a, b, m2),) = cross_project_overlaps(result.classified)
     assert (a, b) == ("CA37A02-2", "CA37B08-2") and m2 == pytest.approx(1800 * 3000)
+
+
+def test_land_conflicts_report_water_over_another_projects_land():
+    b08 = close_linework([_line([(1200, -100), (1200, 3100)], project="CA37B08")], FRAME,
+                         project="CA37B08").areas
+    a02 = _split_areas()
+    # A02 west (x < 1000) is land; B08's west area (x < 1200) is water and covers all of it.
+    result = classify(a02 + b08, [_seed("w", 2500, 1500, "bay"),
+                                  _seed("land", 500, 1500, "land"),
+                                  _seed("b", 1000, 1500, "bay", project="CA37B08")])
+    ((water, land, m2),) = land_conflicts(result.classified)
+    assert (water, land) == ("CA37B08-1", "CA37A02-1") and m2 > 0
+    # same project, or no land seed: nothing to report
+    assert land_conflicts(classify(a02, [_seed("w", 2500, 1500, "bay"),
+                                         _seed("land", 500, 1500, "land")]).classified) == []
+
+
+def test_an_area_without_a_survey_sheet_cannot_carry_a_source():
+    area = close_linework([], FRAME, project="CA37A02").areas[0]
+    with pytest.raises(ValueError, match="no survey sheet"):
+        source_text(area, "s")
 
 
 # ------------------------------------------------------- build round trip ---

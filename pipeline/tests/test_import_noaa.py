@@ -138,3 +138,20 @@ def test_preview_is_written(tmp_path):
     assert _run(tmp_path, "--preview", str(tmp_path / "p.png"), "--bbox", *map(str, FRAME),
                 seeds=seeds) == 0
     assert (tmp_path / "p.png").stat().st_size > 0
+
+
+def test_failed_preview_writes_no_hand_files(tmp_path, capsys, monkeypatch):
+    seeds = [_seed("bay", -122.38, 37.78, "bay")]
+    # a bad crop is refused before anything is written
+    assert _run(tmp_path, "--preview", str(tmp_path / "p.png"), "--bbox", "-122.3", "37.7",
+                "-122.4", "37.8", seeds=seeds) == 1
+    assert "error:" in capsys.readouterr().err
+    assert not (tmp_path / "hand").exists()
+
+    # a missing Pillow is reported with the fix, and still writes nothing
+    def no_pillow(*args, **kwargs):
+        raise ImportError("No module named 'PIL'")
+    monkeypatch.setattr(import_noaa, "_preview", no_pillow)
+    assert _run(tmp_path, "--preview", str(tmp_path / "p.png"), seeds=seeds) == 1
+    assert "--with pillow" in capsys.readouterr().err
+    assert not (tmp_path / "hand").exists()

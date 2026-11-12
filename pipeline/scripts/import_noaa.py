@@ -10,7 +10,7 @@ hectares, centroid and an inside point in lon/lat, sheet and year. With --seeds 
 classes the areas and writes `hand_bay_noaa.geojson` and `hand_marsh_noaa.geojson` into
 --out-dir (always both, possibly empty; deterministic bytes), and prints the counts,
 hectares per class and project, the unseeded areas and the overlap between projects.
-Exit code 1 on any seed or input error (nothing is written then).
+Exit code 1 on any seed or input error, or a failed preview (no hand file is written then).
 
 Relative paths are resolved against the pipeline directory, so this runs from anywhere.
 Pillow is only needed for --preview.
@@ -43,6 +43,7 @@ from yelamu.noaa import (
     close_linework,
     cross_project_overlaps,
     feature_collection_text,
+    land_conflicts,
     load_seed_file,
     read_project,
     select_lines,
@@ -77,12 +78,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--line-classes", type=int, nargs="+", default=sorted(DEFAULT_LINE_CLASSES),
                    metavar="CODE", help="NOAA FEATURE codes that close areas (default: all)")
     p.add_argument("--out-dir", type=_path, default=_path("data/full-city/hand"))
-    p.add_argument("--preview", type=Path, help="write a preview PNG (needs Pillow)")
+    p.add_argument("--preview", type=_path, help="write a preview PNG (needs Pillow)")
     p.add_argument("--bbox", type=float, nargs=4, metavar=("W", "S", "E", "N"),
                    help="lon/lat crop of the preview (default: all project boundaries)")
     p.add_argument("--preview-assets", type=_path,
                    help="built asset folder drawn under the preview (pale land / water)")
-    p.add_argument("--report", type=Path, help="also write the report to this text file")
+    p.add_argument("--report", type=_path, help="also write the report to this text file")
     args = p.parse_args(argv)
     for name in ("snap_m", "min_area_m2", "frame_reach_m", "closure_reach_m", "join_ends_m"):
         if getattr(args, name) < 0:
@@ -142,6 +143,10 @@ def run(args: argparse.Namespace) -> int:
     for area in sorted(areas, key=lambda a: area_ordinal(a.id)):
         report.append(f"  {area_row(area)}  [{classes.get(area.id, 'unseeded')}]")
 
+    if args.preview:
+        _preview(args, projects, closures, areas, classes, seed_file)
+        report.append(f"wrote preview {args.preview}")
+
     if result is not None:
         features = areas_to_features(result.classified)
         args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -164,10 +169,14 @@ def run(args: argparse.Namespace) -> int:
                       f"{len(overlaps)} pairs (allowed: the build unions the files)")
         for a, b, m2 in overlaps:
             report.append(f"  {a} x {b}: {m2 / 1e4:.1f} ha")
+        conflicts = land_conflicts(result.classified)
+        if conflicts:
+            report.append(f"WARNING: water over a land-seeded area of another project: "
+                          f"{sum(o[2] for o in conflicts) / 1e4:.1f} ha in {len(conflicts)} pairs "
+                          "(the build lets water win)")
+            for a, b, m2 in conflicts:
+                report.append(f"  {a} over {b}: {m2 / 1e4:.1f} ha")
 
-    if args.preview:
-        _preview(args, projects, closures, areas, classes, seed_file)
-        report.append(f"wrote preview {args.preview}")
     text = "\n".join(report) + "\n"
     print(text, end="")
     if args.report:
@@ -199,6 +208,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         return run(args)
+    except ImportError as exc:
+        print(f"error: {exc} (the preview needs Pillow: run with `uv run --with pillow`)", file=sys.stderr)
+        return 1
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

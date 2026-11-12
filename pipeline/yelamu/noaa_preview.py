@@ -188,7 +188,7 @@ def render(
     grid: Grid | None = None,
 ) -> tuple[int, int]:
     """Draw the preview PNG (needs Pillow). `classes` maps area id -> bay / marsh / land."""
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
 
     def font(size: int):
         try:
@@ -204,31 +204,47 @@ def render(
     def coords(seq) -> list[tuple[float, float]]:
         return [view.px(x, y) for x, y in seq]
 
+    def area_mask(area: Area, value: int):
+        """((x0, y0), L mask) of one area (holes cut out) on its own small canvas, or None."""
+        ext = coords(area.geometry.exterior.coords)
+        xs, ys = zip(*ext)
+        x0, y0 = max(0, int(min(xs)) - 1), max(0, int(min(ys)) - 1)
+        x1, y1 = min(w, int(max(xs)) + 2), min(h, int(max(ys)) + 2)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        mask = Image.new("L", (x1 - x0, y1 - y0), 0)
+        mdraw = ImageDraw.Draw(mask)
+        mdraw.polygon([(x - x0, y - y0) for x, y in ext], fill=value)
+        for hole in area.geometry.interiors:
+            mdraw.polygon([(x - x0, y - y0) for x, y in coords(hole.coords)], fill=0)
+        return (x0, y0), mask
+
+    # Each area is drawn on its own mask and composited, so a hole in one area never erases
+    # another area that sits inside it (an island), whatever the drawing order.
     base = Image.fromarray(background(view, codes, grid)).convert("RGBA")
     fills = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    fdraw = ImageDraw.Draw(fills)
     hatch_area = Image.new("L", (w, h), 0)
-    hdraw = ImageDraw.Draw(hatch_area)
     visible = [a for a in sorted(areas, key=lambda a: area_ordinal(a.id))
                if a.geometry.intersects(clip)]
     for area in visible:
         cls = classes.get(area.id)
         if cls in CLASS_FILL:
-            target, fill, empty = fdraw, CLASS_FILL[cls], (0, 0, 0, 0)
+            rgb, value = CLASS_FILL[cls][:3], CLASS_FILL[cls][3]
         elif cls is None:
-            target, fill, empty = hdraw, 255, 0
+            rgb, value = unseeded_tint(area.id), UNSEEDED_ALPHA
         else:
             continue  # land: outline only
-        target.polygon(coords(area.geometry.exterior.coords), fill=fill)
-        for hole in area.geometry.interiors:
-            target.polygon(coords(hole.coords), fill=empty)
+        placed = area_mask(area, value)
+        if placed is None:
+            continue
+        (x0, y0), mask = placed
+        layer = Image.new("RGBA", mask.size, rgb + (255,))
+        layer.putalpha(mask)
+        fills.alpha_composite(layer, dest=(x0, y0))
         if cls is None:
-            tint = Image.new("L", (w, h), 0)
-            tdraw = ImageDraw.Draw(tint)
-            tdraw.polygon(coords(area.geometry.exterior.coords), fill=UNSEEDED_ALPHA)
-            for hole in area.geometry.interiors:
-                tdraw.polygon(coords(hole.coords), fill=0)
-            fills.paste(unseeded_tint(area.id) + (UNSEEDED_ALPHA,), mask=tint)
+            box_ = (x0, y0, x0 + mask.size[0], y0 + mask.size[1])
+            solid = mask.point(lambda v: 255 if v else 0)
+            hatch_area.paste(ImageChops.lighter(hatch_area.crop(box_), solid), box_)
     alpha = np.where((np.asarray(hatch_area) > 0) & hatch_mask(h, w), HATCH_RGBA[3], 0)
     hatch_layer = Image.new("RGBA", (w, h), HATCH_RGBA)
     hatch_layer.putalpha(Image.fromarray(alpha.astype(np.uint8)))

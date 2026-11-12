@@ -13,12 +13,12 @@
     {
       "id": "a02-islais-marsh",
       "project": "CA37A02",
-      "lon": -122.4003,
-      "lat": 37.7436,
+      "lon": -122.404,
+      "lat": 37.744,
       "class": "marsh",
       "source": "NOAA CA37A02 T-00352 (1852): Islais estuary inside the mean high water line, west of the mouth; T-00687 (1857) shows tidal channels there",
       "confidence": "inferred",
-      "note": "UNCERTAIN: the 1852 sheet only draws the outer shore of the estuary; marsh (not open water) is read from the 1857 channels and the known Islais marsh. Owner to confirm marsh vs bay."
+      "note": "UNCERTAIN: the 1852 sheet only draws the outer shore of the estuary; marsh (not open water) is read from the 1857 channels and the known Islais marsh. The seed sits west of the 1857 bay area, which covers the eastern 29.9 ha of this marsh and wins there. Owner to confirm marsh vs bay."
     },
     {
       "id": "a02-peninsula-land",

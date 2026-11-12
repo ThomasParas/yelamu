@@ -766,6 +766,9 @@ def source_text(area: Area, seed_id: str, max_chars: int = MAX_SOURCE_CHARS) -> 
     area classed by seed <seed id>". When too long the leading text is shortened (first the
     project name, then cut with '...'); the seed id is never cut.
     """
+    if not area.sheet or not area.year:
+        raise ValueError(f"area {area.id} has no survey sheet (no selected line bounds it), "
+                         "so it cannot carry a source")
     tail = f"; area classed by seed {seed_id}"
     for prefix in (SOURCE_PREFIX, SHORT_SOURCE_PREFIX):
         head = f"{prefix}, {area.project}, sheet {area.sheet} ({area.year}), {area.line_kind}"
@@ -860,6 +863,28 @@ def cross_project_overlaps(classified: Sequence[Classified]) -> list[tuple[str, 
         if m2 > 0:
             out.append((items[i].area.id, items[j].area.id, round(m2, 1)))
     return out
+
+
+def land_conflicts(classified: Sequence[Classified]) -> list[tuple[str, str, float]]:
+    """(written area id, land-seeded area id, overlap m2) for bay / marsh areas that cover part
+    of a land-seeded area of ANOTHER project, sorted. The build lets water win, so these hectares
+    become water although a seed says land: the owner should look at them."""
+    water = sorted((c for c in classified if c.cls in EXPORTED_CLASSES),
+                   key=lambda c: area_ordinal(c.area.id))
+    land = sorted((c for c in classified if c.cls == "land"), key=lambda c: area_ordinal(c.area.id))
+    if not water or not land:
+        return []
+    geoms = [c.area.geometry for c in land]
+    tree = shapely.STRtree(geoms)
+    out = []
+    for w in water:
+        for j in sorted(int(j) for j in tree.query(w.area.geometry, predicate="intersects")):
+            if land[j].area.project == w.area.project:
+                continue
+            m2 = w.area.geometry.intersection(geoms[j]).area
+            if m2 > 0:
+                out.append((w.area.id, land[j].area.id, round(m2, 1)))
+    return sorted(out, key=lambda o: (area_ordinal(o[0]), area_ordinal(o[1])))
 
 
 def area_row(area: Area) -> str:

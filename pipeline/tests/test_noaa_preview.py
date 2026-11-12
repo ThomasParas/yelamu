@@ -106,3 +106,31 @@ def test_render_smoke(tmp_path):
     with Image.open(out) as image:
         assert image.size == size
         assert image.size[0] > view.width and image.size[1] > view.height
+
+
+@pytest.mark.parametrize("island_id, outer_id", [(1, 2), (3, 2)])
+def test_an_island_inside_a_hole_keeps_its_fill_in_any_drawing_order(tmp_path, island_id, outer_id):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    from yelamu.noaa_preview import MARGIN_LEFT, MARGIN_TOP
+
+    view = View(X0, Y0, X0 + 1000, Y0 + 1000, 5.0)
+    hole = box(X0 + 300, Y0 + 300, X0 + 700, Y0 + 700)
+    area = lambda i, geom: Area(f"CA37A02-{i}", "CA37A02", geom, geom.area, "T-00352", 1852,
+                                "mean high water line")
+    outer = area(outer_id, box(X0, Y0, X0 + 1000, Y0 + 1000).difference(hole))
+    island = area(island_id, hole)
+    centre = view.px(X0 + 340, Y0 + 340)  # off the area label in the middle
+
+    def pixel(areas, classes, name):
+        out = tmp_path / name
+        render(out, view, areas, classes, [], [], [], [], "t")
+        with Image.open(out) as image:
+            return image.convert("RGB").getpixel((MARGIN_LEFT + int(centre[0]),
+                                                  MARGIN_TOP + int(centre[1])))
+
+    without = pixel([outer], {outer.id: "bay"}, "a.png")
+    with_island = pixel([outer, island], {outer.id: "bay", island.id: "marsh"}, "b.png")
+    assert with_island != without  # the marsh island is drawn inside the bay's hole
+    unseeded = pixel([outer, island], {outer.id: "bay"}, "c.png")
+    assert unseeded != without  # so is an unseeded one (tint and hatch)
