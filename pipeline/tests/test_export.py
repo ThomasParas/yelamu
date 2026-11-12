@@ -62,3 +62,55 @@ def test_write_assets_rejects_non_finite_heights(tmp_path, bad):
     with pytest.raises(ValueError, match="NaN or infinite"):
         write_assets(dem, grid, [Layer("terrain", "s", "inferred", "a")], tmp_path)
     assert not (tmp_path / "heightmap.u16").exists()
+
+
+# ------------------------------------------------------------ habitat raster ---
+
+_LEGEND = [{"id": 0, "name": "Unmapped", "group": "unmapped"},
+           {"id": 4, "name": "Beach", "group": "beach"}]
+
+
+def test_write_assets_without_habitat_has_no_habitat_keys(tmp_path):
+    grid = Grid(west=500000, south=4180000, east=500020, north=4180020, cell=10)
+    meta = write_assets(np.zeros((2, 2), dtype="float32"), grid,
+                        [Layer("terrain", "s", "inferred", "a")], tmp_path)
+    assert "habitat_file" not in meta and "habitat_classes" not in meta
+    assert not (tmp_path / "habitat.u8").exists()
+
+
+def test_write_assets_round_trips_the_habitat_raster(tmp_path):
+    grid = Grid(west=500000, south=4180000, east=500040, north=4180030, cell=10)  # 4 x 3
+    dem = np.arange(12, dtype="float32").reshape(3, 4)
+    habitat = np.arange(12, dtype=np.uint8).reshape(3, 4) * 20
+
+    meta = write_assets(dem, grid, [Layer("terrain", "s", "inferred", "a")], tmp_path,
+                        habitat=habitat, habitat_classes=_LEGEND)
+
+    raw = tmp_path / "habitat.u8"
+    assert raw.stat().st_size == 4 * 3  # width * height bytes
+    assert (np.fromfile(raw, dtype=np.uint8).reshape(3, 4) == habitat).all()  # row 0 north
+    assert meta["habitat_file"] == "habitat.u8"
+    assert meta["habitat_classes"] == _LEGEND
+    assert json.loads((tmp_path / "meta.json").read_text()) == meta
+
+
+@pytest.mark.parametrize("habitat, match", [
+    (np.zeros((2, 4), dtype=np.uint8), "shape"),
+    (np.zeros((3, 4), dtype=np.int32), "uint8"),
+    (np.zeros((3, 4), dtype=np.uint16), "uint8"),
+])
+def test_write_assets_rejects_bad_habitat_raster(tmp_path, habitat, match):
+    grid = Grid(west=500000, south=4180000, east=500040, north=4180030, cell=10)
+    with pytest.raises(ValueError, match=match):
+        write_assets(np.zeros((3, 4), dtype="float32"), grid,
+                     [Layer("terrain", "s", "inferred", "a")], tmp_path,
+                     habitat=habitat, habitat_classes=_LEGEND)
+    assert not (tmp_path / "heightmap.u16").exists()  # validated before anything is written
+
+
+def test_write_assets_requires_a_legend_with_the_raster(tmp_path):
+    grid = Grid(west=500000, south=4180000, east=500020, north=4180020, cell=10)
+    with pytest.raises(ValueError, match="habitat_classes"):
+        write_assets(np.zeros((2, 2), dtype="float32"), grid,
+                     [Layer("terrain", "s", "inferred", "a")], tmp_path,
+                     habitat=np.zeros((2, 2), dtype=np.uint8))

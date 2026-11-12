@@ -54,12 +54,28 @@ def write_assets(
     layers: list[Layer],
     out_dir: Path,
     processing: dict | None = None,
+    habitat: np.ndarray | None = None,
+    habitat_classes: list[dict] | None = None,
 ) -> dict:
+    """Write heightmap.u16 and meta.json (and habitat.u8 when a habitat raster is given).
+
+    `habitat` is a (height, width) uint8 class-id raster, row 0 = north, written raw;
+    `habitat_classes` is its legend, copied into meta.json.
+    """
     if not np.isfinite(dem).all():
         raise ValueError(
             "dem contains NaN or infinite values; fill or mask missing data before "
             "writing assets (see fill_missing_land)"
         )
+    if habitat is not None:
+        if habitat.dtype != np.uint8:
+            raise ValueError(f"habitat must be a uint8 array, got {habitat.dtype}")
+        if habitat.shape != dem.shape:
+            raise ValueError(
+                f"habitat shape {habitat.shape} must equal the dem shape {dem.shape}"
+            )
+        if habitat_classes is None:
+            raise ValueError("habitat_classes (the legend) is required with a habitat raster")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -86,6 +102,10 @@ def write_assets(
         "water_level_m": WATER_LEVEL_M,
         "layers": [asdict(layer) for layer in layers],
     }
+    if habitat is not None:
+        np.ascontiguousarray(habitat).tofile(out_dir / "habitat.u8")
+        meta["habitat_file"] = "habitat.u8"
+        meta["habitat_classes"] = habitat_classes
     if processing is not None:
         meta["processing"] = processing
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
