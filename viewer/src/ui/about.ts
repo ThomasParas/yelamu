@@ -96,6 +96,7 @@ export function createAbout(): AboutDialog {
   );
   credit("U.S. Geological Survey 3D Elevation Program.");
   credit("U.S. Census Bureau TIGER/Line.");
+  credit("NOAA National Geodetic Survey, Shoreline Data Rescue Project (historical shoreline vectors, 1850s).");
   credit("three.js.");
   inner.appendChild(section("Credits", credits));
 
