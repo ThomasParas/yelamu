@@ -544,3 +544,116 @@ def test_polygon_clipped_into_pieces_by_the_grid_makes_separate_ponds():
     assert all(p.geometry.geom_type == "Polygon" for p in ponds)
     assert len({p.id for p in ponds}) == 2
     assert all(p.geometry.bounds[1] >= 4180000 - 1e-6 for p in ponds)
+
+
+# ---------------------------------------- limits shared with viewer/src/ponds/parse.ts
+
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from yelamu import ponds as ponds_module  # noqa: E402
+
+PARSE_TS = Path(__file__).resolve().parents[2] / "viewer" / "src" / "ponds" / "parse.ts"
+_CONFIDENCES = ("documented", "inferred", "illustrative")
+
+
+def _viewer_would_accept(doc):
+    """A Python port of the checks in parsePonds (viewer/src/ponds/parse.ts)."""
+    m = ponds_module
+    assert doc["version"] == 1
+    assert len(doc["ponds"]) <= m.MAX_PONDS
+    seen, points = set(), 0
+    for q in doc["ponds"]:
+        assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", q["id"]) and q["id"] not in seen
+        seen.add(q["id"])
+        assert q["name"] is None or (isinstance(q["name"], str) and len(q["name"]) <= m.MAX_NAME_CHARS)
+        assert isinstance(q["level_m"], (int, float)) and np.isfinite(q["level_m"])
+        assert m.MIN_LEVEL_M <= q["level_m"] <= m.MAX_LEVEL_M
+        assert q["source"].strip() and len(q["source"]) <= m.MAX_SOURCE_CHARS
+        assert q["confidence"] in _CONFIDENCES
+        assert q["rings"]
+        for ring in q["rings"]:
+            assert len(ring) % 2 == 0 and len(ring) >= 6
+            points += len(ring) // 2
+            assert all(np.isfinite(v) and abs(v) <= m.MAX_COORD_M for v in ring)
+    assert points <= m.MAX_POND_POINTS
+
+
+def test_pipeline_limits_match_the_viewer_parser():
+    if not PARSE_TS.exists():
+        pytest.skip("viewer sources not present")
+    text = PARSE_TS.read_text()
+
+    def const(name):
+        found = re.search(rf"export const {name} = ([-0-9_e.]+);", text)
+        assert found, name
+        return float(found.group(1).replace("_", ""))
+
+    m = ponds_module
+    assert (m.MAX_PONDS, m.MAX_POND_POINTS, m.MAX_NAME_CHARS, m.MAX_SOURCE_CHARS) == (
+        const("MAX_PONDS"), const("MAX_POND_POINTS"), const("MAX_NAME_CHARS"),
+        const("MAX_SOURCE_CHARS"))
+    assert (m.MAX_COORD_M, m.MIN_LEVEL_M, m.MAX_LEVEL_M) == (
+        const("MAX_COORD_M"), const("MIN_LEVEL_M"), const("MAX_LEVEL_M"))
+    assert re.search(r'const ID = /\^\[a-z0-9\]\[a-z0-9-\]\*\$/;', text)
+
+
+def test_the_worst_allowed_pond_satisfies_every_viewer_limit():
+    m = ponds_module
+    name = "N" * m.MAX_NAME_CHARS
+    source = "s" * 200  # the provenance limit for a hand-drawn source
+    f = _feature(square(100, 100, 100), name=name, source=source, level_m=m.MAX_LEVEL_M,
+                 confidence="illustrative")
+    specs = hand_pond_specs([f], path="p.geojson")
+    ponds = build_ponds(specs, flat(), GRID, log=lambda m_: None)
+    doc = ponds_document(ponds, GRID, {})
+    _viewer_would_accept(doc)
+    q = doc["ponds"][0]
+    assert len(q["name"]) == 120 and q["level_m"] == 1000.0 and len(q["source"]) == 200
+
+
+def test_hand_pond_name_and_level_outside_the_viewer_limits_are_errors_naming_the_feature():
+    m = ponds_module
+    long_name = _feature(square(0, 0, 100), name="N" * (m.MAX_NAME_CHARS + 1))
+    with pytest.raises(ValueError, match=r"p\.geojson.*feature 0.*name"):
+        hand_pond_specs([long_name], path="p.geojson")
+    for bad in (m.MAX_LEVEL_M + 0.5, m.MIN_LEVEL_M - 0.5, float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match=r"p\.geojson.*feature 0.*level_m"):
+            hand_pond_specs([_feature(square(0, 0, 100), level_m=bad)], path="p.geojson")
+    for ok in (m.MIN_LEVEL_M, m.MAX_LEVEL_M):
+        assert hand_pond_specs([_feature(square(0, 0, 100), level_m=ok)], path="p")[0].level_m == ok
+
+
+def test_a_sfei_pond_whose_dem_median_is_outside_the_level_range_is_dropped():
+    notes = []
+    out = build_ponds([spec(square(100, 100, 100), origin="sfei", class_name="Other pond or lake")],
+                      flat(5000.0), GRID, log=notes.append)
+    assert out == [] and "level" in notes[0]
+    with pytest.raises(ValueError, match="level"):
+        build_ponds([spec(square(100, 100, 100), name="Hand")], flat(5000.0), GRID,
+                    log=lambda m_: None)
+
+
+def test_export_refuses_more_ponds_or_ring_points_than_the_viewer_accepts(monkeypatch):
+    ponds = build_ponds([spec(square(100, 100, 100), name="A"),
+                         spec(square(250, 250, 100), name="B")], flat(), GRID, log=lambda m_: None)
+    monkeypatch.setattr(ponds_module, "MAX_PONDS", 1)
+    with pytest.raises(ValueError, match="2 ponds"):
+        ponds_document(ponds, GRID, {})
+    monkeypatch.setattr(ponds_module, "MAX_PONDS", 2000)
+    monkeypatch.setattr(ponds_module, "MAX_POND_POINTS", 7)
+    with pytest.raises(ValueError, match="ring points"):
+        ponds_document(ponds, GRID, {})
+
+
+def test_export_refuses_a_name_or_source_the_viewer_would_reject():
+    (p,) = build_ponds([spec(square(100, 100, 100), name="A")], flat(), GRID, log=lambda m_: None)
+    for bad in (replace_pond(p, name="N" * 121), replace_pond(p, source="s" * 301),
+                replace_pond(p, source="   "), replace_pond(p, level_m=1001.0)):
+        with pytest.raises(ValueError, match=p.id):
+            ponds_document([bad], GRID, {})
+
+
+def replace_pond(p, **kw):
+    import dataclasses
+    return dataclasses.replace(p, **kw)

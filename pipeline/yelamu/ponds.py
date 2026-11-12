@@ -34,11 +34,22 @@ from yelamu.export import Layer
 from yelamu.geo import Grid
 from yelamu.habitat import ID_HAND_POND, _class_name
 from yelamu.provenance import hand_source_rows, layer_source_summary, lowest_confidence
-from yelamu.sources import Feature, _polygonal_parts, geometry_to_utm_polygons
+from yelamu.sources import Feature, _polygonal_parts, feature_label, geometry_to_utm_polygons
 from yelamu.water import water_mask
 
 PONDS_VERSION = 1
 PONDS_FILE = "ponds.json"
+# Limits of the viewer's parser (viewer/src/ponds/parse.ts). KEEP THESE IN SYNC with the
+# constants there: a file the viewer rejects loads as no ponds at all. A test reads the
+# TypeScript file and fails when they drift.
+MAX_PONDS = 2000
+MAX_POND_POINTS = 400_000  # ring points in the whole file
+MAX_NAME_CHARS = 120
+MAX_SOURCE_CHARS = 300
+MAX_COORD_M = 1e6  # world coordinates, metres from the grid centre
+MIN_LEVEL_M = -100.0
+MAX_LEVEL_M = 1000.0
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 DEFAULT_POND_CLASSES: tuple[str, ...] = (
     "Dune-dammed pond or lake",
     "Dune-dammed headwater lake",
@@ -105,25 +116,42 @@ def sfei_pond_specs(
     return specs
 
 
+def _level_range_problem(level: float) -> str | None:
+    if not math.isfinite(level) or not MIN_LEVEL_M <= level <= MAX_LEVEL_M:
+        return (f"water level {level:g} m is outside the range {MIN_LEVEL_M:g}..{MAX_LEVEL_M:g} m "
+                "the viewer accepts")
+    return None
+
+
 def hand_pond_specs(features: Sequence[Feature], path: Any) -> list[PondSpec]:
-    """One spec per polygon of each hand-drawn feature (provenance already checked)."""
+    """One spec per polygon of each hand-drawn feature (provenance already checked).
+
+    ValueError, naming the file and the feature, for a level_m that is not a finite number
+    within the viewer's range (MIN_LEVEL_M..MAX_LEVEL_M) or a name longer than MAX_NAME_CHARS.
+    """
     specs: list[PondSpec] = []
     for feature in features:
         props = feature.properties
+        where = feature_label(path, feature.index, props)
         level = props.get("level_m")
         if level is not None and (
             isinstance(level, bool) or not isinstance(level, (int, float)) or not math.isfinite(level)
         ):
-            raise ValueError(
-                f"{path}: feature {feature.index}: level_m must be a number (metres), "
-                f"got {level!r}"
-            )
+            raise ValueError(f"{where}: level_m must be a number (metres), got {level!r}")
+        if level is not None:
+            problem = _level_range_problem(float(level))
+            if problem:
+                raise ValueError(f"{where}: level_m: {problem}")
+        name = feature.name
+        if name is not None and len(name) > MAX_NAME_CHARS:
+            raise ValueError(f"{where}: name is {len(name)} characters, longer than the "
+                             f"{MAX_NAME_CHARS} the viewer accepts")
         raw_id = props.get("id")
         for poly in feature.polygons:
             specs.append(PondSpec(
                 geometry=poly, origin="hand", source=feature.source or "",
                 confidence=feature.confidence or "illustrative",
-                name=feature.name,
+                name=name,
                 id_hint=raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else None,
                 level_m=None if level is None else float(level)))
     return specs
@@ -227,7 +255,14 @@ def build_ponds(
                 log(f"Dropped {msg}")
                 continue
             level = float(np.median(values))
-        resolved.append((pid, spec, mask, round(level, 2)))
+        level = round(level, 2)
+        problem = _level_range_problem(level)
+        if problem:
+            if spec.origin == "hand":
+                raise ValueError(f"pond '{pid}': {problem}")
+            log(f"Dropped pond '{pid}': {problem}")
+            continue
+        resolved.append((pid, spec, mask, level))
 
     # One surface per cell: hand ponds first, then by id. A pond keeps only the part of its
     # polygon that no earlier pond covers (that part is what is exported AND what is carved,
@@ -401,6 +436,24 @@ def _ring_flat(coords: Sequence[tuple[float, float]], grid: Grid) -> list[float]
     return flat
 
 
+def _check_exportable(p: Pond) -> None:
+    """ValueError when the viewer's parser would reject this pond (see the limits above)."""
+    def bad(what: str) -> ValueError:
+        return ValueError(f"pond '{p.id}': {what}")
+
+    if not _ID_RE.match(p.id):
+        raise bad(f"id must match {_ID_RE.pattern}")
+    if p.name is not None and len(p.name) > MAX_NAME_CHARS:
+        raise bad(f"name is longer than {MAX_NAME_CHARS} characters")
+    problem = _level_range_problem(p.level_m)
+    if problem:
+        raise bad(problem)
+    if not p.source.strip():
+        raise bad("source must not be blank")
+    if len(p.source) > MAX_SOURCE_CHARS:
+        raise bad(f"source is longer than {MAX_SOURCE_CHARS} characters")
+
+
 def ponds_document(ponds: Sequence[Pond], grid: Grid, processing: dict) -> dict:
     """The ponds.json dict: rings in viewer world metres (x east, z south, origin at the
     grid centre, as overlay.json), rounded to 0.1 m, ponds sorted by id.
@@ -409,8 +462,12 @@ def ponds_document(ponds: Sequence[Pond], grid: Grid, processing: dict) -> dict:
     rings[0] is the outer ring and any further rings are holes. In the (x, z) plane the
     outer ring is counter-clockwise (so it looks clockwise on a north-up map, z being south).
     """
+    if len(ponds) > MAX_PONDS:
+        raise ValueError(f"{len(ponds)} ponds, more than the {MAX_PONDS} the viewer accepts")
     out = []
+    n_points = 0
     for p in sorted(ponds, key=lambda p: p.id):
+        _check_exportable(p)
         cx = (grid.west + grid.east) / 2.0
         cz = (grid.north + grid.south) / 2.0
         world = Polygon(
@@ -421,6 +478,13 @@ def ponds_document(ponds: Sequence[Pond], grid: Grid, processing: dict) -> dict:
         rings = [_ring_flat([(x + cx, cz - z) for x, z in world.exterior.coords], grid)]
         for ring in world.interiors:
             rings.append(_ring_flat([(x + cx, cz - z) for x, z in ring.coords], grid))
+        if any(abs(v) > MAX_COORD_M for r in rings for v in r):
+            raise ValueError(f"pond '{p.id}': a coordinate is more than {MAX_COORD_M:g} m from "
+                             "the grid centre, which the viewer rejects")
+        n_points += sum(len(r) // 2 for r in rings)
+        if n_points > MAX_POND_POINTS:
+            raise ValueError(f"the ponds have more than {MAX_POND_POINTS} ring points in "
+                             "total, the most the viewer accepts")
         out.append({
             "id": p.id,
             "name": p.name,

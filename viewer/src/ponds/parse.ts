@@ -2,7 +2,12 @@ import type { HeightmapMeta } from "../heightmap";
 import { CONFIDENCES } from "../overlay/types";
 import type { Pond, Ponds } from "./types";
 
-/** Protective caps: a hostile or broken file must not be able to exhaust memory. */
+/**
+ * Protective caps: a hostile or broken file must not be able to exhaust memory.
+ * KEEP IN SYNC with pipeline/yelamu/ponds.py (MAX_PONDS ... MAX_LEVEL_M and the id pattern):
+ * the pipeline refuses to write a ponds.json this parser would reject, and a pipeline test
+ * reads this file and fails when the numbers differ.
+ */
 export const MAX_PONDS = 2000;
 export const MAX_POND_POINTS = 400_000;
 export const MAX_NAME_CHARS = 120;
