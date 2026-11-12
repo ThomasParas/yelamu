@@ -1,0 +1,14 @@
+{
+  "name": "full-city",
+  "bbox": [-122.53, 37.70, -122.33, 37.84],
+  "cell_m": 10,
+  "dem": "data/raw/dem.tif",
+  "habitats": "data/raw/sf_habitats.geojson",
+  "bay": "data/raw/bay.geojson",
+  "marsh": "data/raw/marsh.geojson",
+  "hand_bay": ["data/full-city/hand/hand_bay.geojson"],
+  "hand_marsh": ["data/full-city/hand/hand_marsh.geojson"],
+  "landforms": "data/full-city/landforms.json",
+  "checks": "data/full-city/checks.json",
+  "out": "../viewer/public/assets/real-city"
+}

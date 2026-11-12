@@ -1,0 +1,6 @@
+[
+  {"name": "Twin Peaks summit", "lon": -122.4477, "lat": 37.7544, "min_m": 200},
+  {"name": "Mount Davidson summit", "lon": -122.4547, "lat": 37.7386, "min_m": 200},
+  {"name": "Pacific Ocean off Ocean Beach", "lon": -122.5200, "lat": 37.7600, "max_m": 1.0},
+  {"name": "Ferry Building (Yerba Buena Cove)", "lon": -122.3935, "lat": 37.7955, "max_m": 1.0}
+]

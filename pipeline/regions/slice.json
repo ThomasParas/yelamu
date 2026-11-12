@@ -1,0 +1,12 @@
+{
+  "name": "slice",
+  "bbox": [-122.42, 37.755, -122.37, 37.805],
+  "cell_m": 10,
+  "dem": "data/raw/dem.tif",
+  "habitats": "data/raw/sf_habitats.geojson",
+  "bay": "data/raw/bay.geojson",
+  "marsh": "data/raw/marsh.geojson",
+  "landforms": "data/slice/landforms.json",
+  "checks": "data/slice/checks.json",
+  "out": "../viewer/public/assets/real"
+}
