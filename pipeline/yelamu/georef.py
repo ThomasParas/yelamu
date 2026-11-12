@@ -13,6 +13,24 @@ for every output cell we look up where to read the scan. Terms use coordinates n
 about the GCP centroid and scaled to about +-1, which keeps order-3 fits well conditioned
 at UTM magnitudes (about 5e5 and 4e6 m).
 
+Refusals. A fit is refused (ValueError; the CLI exits 2) when the control points cannot
+pin the map down, since a polynomial through them then looks fine (small residuals) but is
+wild away from them:
+
+  * the convex hull of the points is thin: hull area / (largest distance between two
+    points)^2 is below MIN_HULL_RATIO (2%). A square gives 0.5, a legitimate 1:10 strip
+    about 0.09, points within a few metres of a line a few thousandths. (The ratio uses the
+    diameter squared, not the axis-aligned bounding box, so a diagonal line is caught too.)
+  * the normalised design matrix (terms in about +-1) has a singular-value ratio above
+    MAX_CONDITION[order] (100, 500, 2000 for orders 1, 2, 3). Random well-spread sets, at the
+    minimum number of points (the worst case), measure at most 27 / 115 / 810 over 300 draws;
+    points within 3 m of a 4 km line measure 1e3 / 2e6; a 1:10 strip at order 3 measures 2e4.
+
+The requested output extent is checked against the control points too (see
+`extrapolation_problem`): beyond the hull's bounding box grown by EXTRAPOLATION_MARGIN
+(50% of its width / height on each side) the CLI refuses orders 2 and 3, whose error grows
+fast outside the points, and only warns at order 1.
+
 Residuals. For each GCP the fitted inverse map is inverted numerically (Newton's method,
 starting at the GCP's true position) to find where the fit puts that pixel on the ground;
 the residual is the distance in metres between that point and the surveyed position.
@@ -34,11 +52,16 @@ import numpy as np
 import rasterio
 from rasterio.enums import ColorInterp
 from scipy import ndimage
+from scipy.spatial.distance import pdist
+from shapely.geometry import MultiPoint
 
 from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
 
 N_TERMS = {1: 3, 2: 6, 3: 10}
 EXTRA_POINTS = 2  # at least this many GCPs beyond the number of terms
+MIN_HULL_RATIO = 0.02  # hull area / diameter^2; see the module docs
+MAX_CONDITION = {1: 100.0, 2: 500.0, 3: 2000.0}  # singular-value ratio, normalised design matrix
+EXTRAPOLATION_MARGIN = 0.5  # of the hull bbox's width / height, on each side
 
 
 @dataclass(frozen=True)
@@ -100,15 +123,52 @@ def fit_polynomial(gcps_pixel, gcps_utm, order: int) -> PolyMap:
     scale = float(np.abs(utm - centre).max())
     if not scale > 1e-3:  # millimetres
         raise ValueError("all control points are at the same ground position")
+    hull = MultiPoint(utm).convex_hull
+    diameter = float(pdist(np.asarray(hull.exterior.coords if hull.geom_type == "Polygon"
+                                      else hull.coords)).max())
+    ratio = hull.area / diameter ** 2
+    if ratio < MIN_HULL_RATIO:
+        raise ValueError(
+            f"the control points are degenerate: they lie nearly in a line (their hull covers "
+            f"{ratio:.2%} of a square the size of their spread; at least {MIN_HULL_RATIO:.0%} "
+            "is needed). Spread them over the sheet, in both directions"
+        )
     design = _terms((utm[:, 0] - centre[0]) / scale, (utm[:, 1] - centre[1]) / scale, order)
-    coeffs, _, rank, _ = np.linalg.lstsq(design, pix, rcond=None)
+    coeffs, _, rank, sing = np.linalg.lstsq(design, pix, rcond=None)
     if rank < terms:
         raise ValueError(
             f"the control points are degenerate for an order-{order} fit (rank {rank} of "
             f"{terms}; are they in a line or clustered?): spread them over the sheet or "
             "use a lower --order"
         )
+    condition = float(sing[0] / sing[-1])
+    if condition > MAX_CONDITION[order]:
+        raise ValueError(
+            f"the control points are degenerate for an order-{order} fit (condition number "
+            f"{condition:.0f}, limit {MAX_CONDITION[order]:.0f}: too clustered or too close to a "
+            "line for this many terms): spread them over the sheet or use a lower --order"
+        )
     return PolyMap(order, coeffs, (float(centre[0]), float(centre[1])), scale)
+
+
+def extrapolation_problem(gcps_utm, grid: Grid, order: int) -> str | None:
+    """Why the output extent reaches too far beyond the control points, or None.
+
+    The limit is the bounding box of the control points grown by EXTRAPOLATION_MARGIN of its
+    width / height on every side. The message is the same for every order; the caller
+    refuses for orders 2 and 3 and only warns for order 1 (see the module docs).
+    """
+    utm = np.asarray(gcps_utm, dtype="float64")
+    (x0, y0), (x1, y1) = utm.min(axis=0), utm.max(axis=0)
+    mx, my = EXTRAPOLATION_MARGIN * (x1 - x0), EXTRAPOLATION_MARGIN * (y1 - y0)
+    if (grid.west >= x0 - mx and grid.east <= x1 + mx
+            and grid.south >= y0 - my and grid.north <= y1 + my):
+        return None
+    return (f"the output extent ({grid.east - grid.west:.0f} x {grid.north - grid.south:.0f} m) "
+            f"extends beyond the control points by more than {EXTRAPOLATION_MARGIN:.0%} of their "
+            f"spread ({x1 - x0:.0f} x {y1 - y0:.0f} m): a polynomial of order {order} is "
+            "unreliable out there. Add control points near the edges of the output area or "
+            "shrink --bbox" + (" (order 1 is only warned about)" if order == 1 else ""))
 
 
 def residuals_m(poly: PolyMap, gcps_pixel, gcps_utm, iterations: int = 50) -> np.ndarray:
@@ -319,12 +379,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = format_report(gcps, res, args.order)
     rms = rms_m(res)
     print(report)
-    if args.report:
-        args.report.write_text(report + "\n")
     if not rms <= args.max_rms_m:
         print(f"REFUSED: RMS {rms:.1f} m is above --max-rms-m {args.max_rms_m:g}: fix or drop "
               "the control point with the largest residual, or add more", file=sys.stderr)
         return 2
+    reach = extrapolation_problem(utm, grid, args.order)
+    if reach is not None:
+        if args.order >= 2:
+            print(f"REFUSED: {reach}", file=sys.stderr)
+            return 2
+        print(f"WARNING: {reach}", file=sys.stderr)
+    if args.report:  # only for a fit that was accepted
+        args.report.write_text(report + "\n")
     if args.out:
         write_geotiff(args.out, warp(scan, poly, grid), grid)
         print(f"Wrote {args.out} ({grid.width} x {grid.height} cells of {grid.cell:g} m, "

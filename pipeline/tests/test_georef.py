@@ -325,3 +325,119 @@ def test_cli_input_errors_exit_1(tmp_path, capsys):
     (tmp_path / "g.csv").write_text("a,b\n1,2\n")
     code = main([str(tmp_path / "scan.tif"), str(tmp_path / "g.csv"), "--bbox", *map(str, BBOX)])
     assert code == 1 and "header" in capsys.readouterr().err
+
+
+# ------------------------------------------- degenerate and extrapolating control points
+
+
+def _near_line(n=6, length=4000.0, jitter=3.0, seed=5, angle=0.0):
+    """n control points within `jitter` metres of a straight line `length` metres long."""
+    rng = np.random.default_rng(seed)
+    t = np.linspace(0, length, n)
+    base = np.column_stack([t * np.cos(angle), t * np.sin(angle)])
+    utm = base + rng.uniform(-jitter, jitter, (n, 2)) + [X0, Y0]
+    col, row = truth(utm[:, 0], utm[:, 1])
+    pix = np.column_stack([col, row]) + rng.normal(0, 1.0, (n, 2))  # 1 px of noise
+    return pix, utm
+
+
+@pytest.mark.parametrize("angle", [0.0, 0.6, 1.5707963])
+def test_nearly_collinear_control_points_are_refused_at_order_one(angle):
+    pix, utm = _near_line(angle=angle)
+    with pytest.raises(ValueError, match="degenerate.*line"):
+        fit_polynomial(pix, utm, 1)
+
+
+def test_collinear_points_say_what_to_do_and_names_the_numbers():
+    pix, utm = _near_line()
+    with pytest.raises(ValueError) as err:
+        fit_polynomial(pix, utm, 1)
+    assert "spread" in str(err.value) and "%" in str(err.value)
+
+
+def test_a_badly_conditioned_set_is_refused_even_when_it_is_not_a_line():
+    # Points on two tight clusters at the ends of a long diagonal: hull is thin AND the
+    # order-3 design matrix is nearly singular.
+    rng = np.random.default_rng(2)
+    a = np.array([X0, Y0]) + rng.uniform(0, 400, (6, 2))
+    b = np.array([X0 + 1600, Y0 + 1500]) + rng.uniform(0, 400, (6, 2))
+    utm = np.vstack([a, b])
+    col, row = truth(utm[:, 0], utm[:, 1])
+    with pytest.raises(ValueError, match="degenerate"):
+        fit_polynomial(np.column_stack([col, row]), utm, 3)
+
+
+@pytest.mark.parametrize("order,n", [(1, 5), (2, 8), (3, 12), (3, 20)])
+def test_well_spread_control_points_are_not_refused(order, n):
+    for seed in range(40):
+        pix, utm = make_gcps(n, seed=seed)
+        fit_polynomial(pix, utm, order)
+
+
+def test_cli_refuses_collinear_control_points_exit_2_and_writes_nothing(tmp_path, capsys):
+    pix, utm = _near_line(n=8)
+    out, report = tmp_path / "out.tif", tmp_path / "rep.txt"
+    code = _cli(tmp_path, "--order", "1", "--out", str(out), "--report", str(report),
+                gcps=(pix, utm))
+    err = capsys.readouterr().err
+    assert code == 2 and "REFUSED" in err and "degenerate" in err
+    assert not out.exists() and not report.exists()
+
+
+def _cluster_gcps(n=14, seed=4):
+    """Control points all inside the south-west quarter of the output extent."""
+    rng = np.random.default_rng(seed)
+    x = X0 + rng.uniform(50, 500, n)
+    y = Y0 + rng.uniform(50, 500, n)
+    col, row = truth(x, y)
+    return np.column_stack([col, row]), np.column_stack([x, y])
+
+
+def test_cli_refuses_order_three_extrapolation_far_beyond_the_control_points(tmp_path, capsys):
+    out = tmp_path / "out.tif"
+    code = _cli(tmp_path, "--order", "3", "--out", str(out), gcps=_cluster_gcps())
+    err = capsys.readouterr().err
+    assert code == 2 and not out.exists()
+    assert "REFUSED" in err and "extends beyond" in err and "order 3" in err
+
+
+def test_cli_refuses_order_two_extrapolation_too(tmp_path, capsys):
+    code = _cli(tmp_path, "--order", "2", gcps=_cluster_gcps())
+    assert code == 2 and "extends beyond" in capsys.readouterr().err
+
+
+def test_cli_only_warns_about_extrapolation_at_order_one(tmp_path, capsys):
+    out = tmp_path / "out.tif"
+    code = _cli(tmp_path, "--order", "1", "--out", str(out), "--max-rms-m", "1e6",
+                gcps=_cluster_gcps())
+    captured = capsys.readouterr()
+    assert code == 0 and out.exists()
+    assert "WARNING" in captured.err and "extends beyond" in captured.err
+
+
+def test_cli_modest_extrapolation_is_allowed_at_order_three(tmp_path, capsys):
+    # Control points cover the sheet except a margin of 100 m: well inside 50% of the hull.
+    assert _cli(tmp_path, "--order", "3", gcps=make_gcps(20, seed=1)) == 0
+
+
+def test_cli_does_not_write_the_report_when_the_fit_is_refused(tmp_path, capsys):
+    pix, utm = make_gcps(14)
+    pix[5] += [180, -150]
+    report = tmp_path / "rep.txt"
+    code = _cli(tmp_path, "--max-rms-m", "25", "--report", str(report), gcps=(pix, utm))
+    assert code == 2 and not report.exists()
+    assert "RMS" in capsys.readouterr().out  # the table is still printed
+
+
+def test_points_on_a_circle_are_refused_by_the_conditioning_check_at_order_two():
+    # A circle has a wide hull (passes the hull test) but x^2 + y^2 is nearly constant on it,
+    # so the order-2 terms are almost dependent.
+    rng = np.random.default_rng(0)
+    ang = np.linspace(0, 2 * np.pi, 9)[:-1]
+    utm = np.column_stack([X0 + 900 + 800 * np.cos(ang), Y0 + 800 + 800 * np.sin(ang)])
+    utm = utm + rng.uniform(-0.3, 0.3, utm.shape)
+    col, row = truth(utm[:, 0], utm[:, 1])
+    pix = np.column_stack([col, row])
+    with pytest.raises(ValueError, match="condition number"):
+        fit_polynomial(pix, utm, 2)
+    fit_polynomial(pix, utm, 1)  # an affine map is fine on a circle
