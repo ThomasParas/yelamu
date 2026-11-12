@@ -367,10 +367,14 @@ def blend_pond_banks(
     distance in metres from the nearest pond cell (measured half a cell short, so d is ~0 on
     the shoreline) and `level` that nearest pond's level_m:
 
-        h' = clip(h, level - bank_slope * d, level + bank_slope * d)
+        h' = clip(h, level - bank_slope * max(d - cell/2, 0), level + bank_slope * d)
 
     which lowers a wall into a ramp of at most bank_slope metres per metre and raises low
-    ground under a dam into an embankment. Ground already gentler than that is unchanged.
+    ground under a dam into an embankment. The lower bound starts a half cell later than the
+    upper one so the land cell next to the water is never below the water level (the
+    shore cell is at least `level`; one cell further, at least level - bank_slope * cell),
+    otherwise the water sheet would hover over the gap. Ground already gentler than that is
+    unchanged.
     Pond cells, non-land (bay / marsh / gap-filled water) cells and cells beyond bank_m are
     never touched, nor are the pond beds and level_m. bank_slope <= 0 or no ponds returns an
     unchanged copy. Call it right after carve_ponds.
@@ -388,7 +392,7 @@ def blend_pond_banks(
     d = np.maximum(edt - 0.5, 0.0) * grid.cell
     zone = np.asarray(land_mask, dtype=bool) & ~union & (d <= bank_m)
     level = level_map[ri, ci]
-    lo = level - bank_slope * d
+    lo = level - bank_slope * np.maximum(d - 0.5 * grid.cell, 0.0)  # the shore cell is AT level
     hi = level + bank_slope * d
     out[zone] = np.clip(out[zone].astype("float64"), lo[zone], hi[zone]).astype("float32")
     return out

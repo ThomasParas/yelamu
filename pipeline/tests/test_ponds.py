@@ -399,9 +399,10 @@ def test_a_dam_is_raised_into_an_embankment():
     p = _pond(100, 100, 100, 30.0)
     dem = _carved(flat(5.0), [p])  # a lake perched on 5 m ground
     out = blend_pond_banks(dem, GRID, [p], LAND_ALL, 0.35, 200)
-    assert out[24, 9] == pytest.approx(30.0 - 0.35 * 5.0, abs=1e-4)
-    assert out[24, 8] == pytest.approx(30.0 - 0.35 * 15.0, abs=1e-4)
-    # ...until the embankment meets the real ground: 25 m / 0.35 = ~71 m
+    # The shore cell is AT the water level; the embankment then falls 3.5 m per cell.
+    assert out[24, 9] == pytest.approx(30.0, abs=1e-4)
+    assert out[24, 8] == pytest.approx(30.0 - 0.35 * 10.0, abs=1e-4)
+    # ...until the embankment meets the real ground: 25 m / 0.35 = ~71 m, plus the half cell
     assert out[24, 0] == 5.0
     assert (out[~p.mask] >= dem[~p.mask]).all()  # only ever raised here
 
@@ -453,7 +454,7 @@ def test_two_ponds_nearest_wins():
     # A low cell nearer B than A is lifted to B's embankment, not A's.
     dem2 = _carved(flat(0.0), [a, b])
     out2 = blend_pond_banks(dem2, GRID, [a, b], LAND_ALL, 0.35, 400)
-    assert out2[27, 22] == pytest.approx(30.0 - 0.35 * 25.0, abs=1e-4)
+    assert out2[27, 22] == pytest.approx(30.0 - 0.35 * 20.0, abs=1e-4)
     assert out2[27, 12] == pytest.approx(0.0, abs=1e-4) or out2[27, 12] >= 5.0 - 0.35 * 25.0 - 1e-4
 
 
@@ -657,3 +658,41 @@ def test_export_refuses_a_name_or_source_the_viewer_would_reject():
 def replace_pond(p, **kw):
     import dataclasses
     return dataclasses.replace(p, **kw)
+
+
+# ------------------------------------------- the ground at the shore never sits below the water
+
+
+def _shore_cells(p):
+    from scipy import ndimage
+    ring = ndimage.binary_dilation(p.mask, structure=ndimage.generate_binary_structure(2, 1))
+    return ring & ~p.mask
+
+
+@pytest.mark.parametrize("level,ground", [(5.0, 19.0), (30.0, 5.0), (12.0, 12.0), (5.0, 100.0)])
+def test_land_beside_a_pond_is_never_lower_than_the_water(level, ground):
+    p = _pond(100, 100, 100, level)
+    out = blend_pond_banks(_carved(flat(ground), [p]), GRID, [p], LAND_ALL)
+    shore = _shore_cells(p)
+    assert shore.any() and (out[shore] >= level - 0.05).all()
+
+
+def test_land_beside_a_pond_is_never_lower_than_the_water_on_rough_ground():
+    rng = np.random.default_rng(3)
+    a = _pond(50, 100, 70, 5.0)
+    b = _pond(250, 150, 60, 30.0)
+    dem = _carved(rng.uniform(-10, 80, (GRID.height, GRID.width)).astype("float32"), [a, b])
+    out = blend_pond_banks(dem, GRID, [a, b], LAND_ALL)
+    for p in (a, b):
+        shore = _shore_cells(p) & ~a.mask & ~b.mask
+        assert (out[shore] >= p.level_m - 0.05).all()
+        # ...and the ramp up is still no steeper than the bank slope allows
+        assert (out[shore] <= p.level_m + 0.35 * 5.0 + 1e-4).all()
+
+
+def test_an_embankment_reaches_the_shore_at_the_water_level_then_falls_at_the_bank_slope():
+    p = _pond(100, 100, 100, 30.0)
+    out = blend_pond_banks(_carved(flat(5.0), [p]), GRID, [p], LAND_ALL, 0.35, 200)
+    assert out[24, 9] == pytest.approx(30.0, abs=1e-4)
+    assert out[24, 8] == pytest.approx(30.0 - 0.35 * 10.0, abs=1e-4)
+    assert out[24, 7] == pytest.approx(30.0 - 0.35 * 20.0, abs=1e-4)
