@@ -13300,6 +13300,23 @@ git commit -m "docs: Phase 3 checklist results, phone measurement protocol, and 
 
 ---
 
+## Addendum B: Changes made during execution (supersede the tasks above where they differ)
+
+Phase 3 was applied mechanically from the verified files in plan order (one commit per task), then reviewed by an independent read-only reviewer. Stage 1 was clean; Stage 2 found the issues below, fixed in commits `f59b3f2` and `f5d1e07` (pipeline 310 tests, viewer 505 tests). Where the tasks above differ, this addendum wins:
+
+1. **Place ids are unique across landmarks and hotspots** (enforced by `validate_unique_ids` in `overlay.py` and by `parseOverlay`). `landmarks.json` now has **37** entries: the `lake-merced` landmark was removed (the hotspot covers it) and `mountain-lake` was renamed `mountain-lake-park`. Wherever Tasks 1 and 2 say 38 landmarks, read 37.
+2. **Python validators mirror the viewer's limits** (5000 places, 20 sources, 120-character names, 6000 streets, 400000 points, URL validity, streets validated too).
+3. **`parseOverlay` rejects coordinates beyond 1e6 m**, and `drapePolyline` caps inserted points per segment at 2000.
+4. **Quality controller:** `upgradeBelowMs` defaults to **18** (was 14, unreachable on 60 Hz displays); `main.ts` skips `quality.record` while chunk builds are pending.
+5. **Shortcut keys are ignored** when the event target is inside `.panel` or a `dialog`, or is a link, select or summary (Escape still works).
+6. **Layer defaults are decided per layer id**, and `register()` notifies listeners when it changes a touched selection so the hash stays accurate.
+7. **Unknown `p=` place ids are dropped** (`PlaceSelection.restrictTo`) on load and on later hash edits; the `hashchange` handler rewrites the URL from the applied state.
+8. **`?` opens the About dialog.**
+
+**Still open:** the owner review of the About text and the hotspot descriptions, phone measurement, and a screen-reader and focus-ring pass (see `docs/research/phase-3-results.md`).
+
+---
+
 ## Self-Review
 
 | Spec requirement (Phase 3 design) | Task |

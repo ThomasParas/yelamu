@@ -1,6 +1,6 @@
 # Phase 3 results (the experience), 2026-11-11
 
-Executed from `docs/superpowers/plans/2026-11-11-phase-3-experience.md`: pipeline 167 to 268 tests, viewer 93 to 479 tests, one commit per task (`0221ad7` through `88d7cfc`). The files were applied mechanically in plan order from the verified scratch copies, with every red-then-green step and every stated count checked, and the typecheck and build clean at each step.
+Executed from `docs/superpowers/plans/2026-11-11-phase-3-experience.md`: pipeline 167 to 268 tests, viewer 93 to 479 tests, one commit per task (`0221ad7` through `88d7cfc`); after the independent review's fixes (below) pipeline is at **310** tests and viewer at **505**. The files were applied mechanically in plan order from the verified scratch copies, with every red-then-green step and every stated count checked, and the typecheck and build clean at each step.
 
 > **Licensing gate.** The real-city assets and everything shown below come from the SFEI habitat layer, which still has no stated license. They are gitignored (`viewer/public/assets/real*/`, `docs/research/local/`, `pipeline/data/raw/`). The license inquiry was sent; no reply is recorded.
 
@@ -20,7 +20,7 @@ If `vite` crashes with `fsevents.watch is not a function`, see Addendum A6 of th
 
 | Measurement | Plan's prototype | This run (repo build) |
 |---|---|---|
-| Overlay build | 1.1 s; 328 KB raw, 102 KB gzipped; 2,493 streets (8 / 40 / 2,445), 3,659 polylines, 13,219 points; 38 landmarks; 11 hotspots | identical; re-run byte-identical; `overlay.json` 328,243 bytes, 102,579 gzipped |
+| Overlay build | 1.1 s; 328 KB raw, 102 KB gzipped; 2,493 streets (8 / 40 / 2,445), 3,659 polylines, 13,219 points; 38 landmarks; 11 hotspots | identical at the time (37 landmarks after the review fix below); re-run byte-identical; `overlay.json` 328,243 bytes, 102,579 gzipped |
 | Cross-check script | exit 0 | exit 0 |
 | Frame time, real city, zoom 7, panning, 1.2 s windows right after a user action | 8.9 / 8.5 / 8.2 / 10.8 ms | **8.3 ms median in all four** (n about 140 per window, display-limited at 120 Hz) |
 | Triangles in those windows | 655 k to 1.0 M | 655 k (all layers off and streets/labels), 1.42 M (+ vegetation), 1.25 M (+ animated water) |
@@ -39,7 +39,7 @@ Run in a real browser on the repo build, real city unless noted.
 | 2 | Streets draped, readable | **pass** visually (dark slate lines over dunes and woodland, following the hills). Behaviour across the LOD switch was checked in the prototype, not repeated here |
 | 3 | Labels and markers | **pass** visually. The 44 px touch hit area could not be measured from script |
 | 4 | Search "mission": Mission Bay hotspot first; Enter flies there and opens its panel (Documented badge, source link); URL gains `p=mission-bay` | **pass** |
-| 5 | Panels open one at a time; Places lists all places | **pass**: Places listed 11 hotspots and 38 landmarks as 50 buttons (49 places plus the close button counted by the script; the extra is the panel's close control) |
+| 5 | Panels open one at a time; Places lists all places | **pass**: Places listed 11 hotspots and 38 landmarks (49 places plus the panel's close button = 50 buttons; 48 places after the review fix, which removed one duplicate landmark) |
 | 6 | Share links: a hash restores the view; layers in the hash | **pass** (views restored from `#x=..&z=..&k=..&r=..&l=..`; `#l=` leaves every optional layer off) |
 | 7 | Camera: rotation, reset, keyboard | **partly checked here**: rotation restored from `r=1` in the hash. Q/E, H and arrow keys were checked on the foundation prototype and not re-run on this build |
 | 8 | Vegetation | **pass**: trees in woodland patches, sparse scrub on dunes; toggles on and off |
@@ -50,6 +50,25 @@ Run in a real browser on the repo build, real city unless noted.
 | 13 | Keyboard and screen reader | **partly checked**: canvas has `role="img"` and `tabindex="0"`, a skip link exists, `lang="en"`, the live region carries status and the quality message. Visible focus rings and screen-reader output were **not** verified |
 
 No console errors in any of the above.
+
+## Independent review (read-only, stronger model) and fixes
+
+Stage 1 (compliance) was clean: every changed file byte-identical to the verified copies, the tracked file set exactly the plan's, nothing SFEI-derived or generated tracked, no third-party network requests, no innerHTML/eval anywhere, hotspot links limited to http(s) with `rel="noopener noreferrer"`.
+
+Stage 2 found real bugs that no test or browser check had caught. All were fixed in commits `f59b3f2` (pipeline and data) and `f5d1e07` (viewer), with tests:
+
+| Finding | Fix |
+|---|---|
+| Two hotspots shared ids with landmarks (`lake-merced`, `mountain-lake`), so labels were drawn twice, both highlighted, and a Places click flew to the wrong place | Ids must now be unique across landmarks and hotspots in the Python builder and the TypeScript parser; the duplicate Lake Merced landmark was removed and `mountain-lake` renamed `mountain-lake-park`. Checked in the browser: one Lake Merced element, 48 labels (37 landmarks + 11 hotspots) |
+| On 60 Hz displays the quality level could never step back up (needs frame gaps under 14 ms; the display cannot do better than 16.7 ms), and the burst of chunk builds after a zoom-in could turn effects off for the whole session | Upgrade threshold is now 18 ms (degrade stays at 25, so there is still a hysteresis band); frames while chunk builds are pending are not fed to the controller |
+| Arrow keys, Q/E, H ran while focus was inside a panel, so keyboard users could not scroll a long panel | Shortcuts are ignored inside panels and dialogs and on links, selects and summaries (Esc still works). Checked in the browser: five ArrowRights with focus in the Places panel left the map where it was; with focus on the page they pan it |
+| Toggling any layer before the overlay loaded turned its landmarks and hotspots off | Defaults are decided per layer id; a hash list still decides every id |
+| A hostile overlay with a 1e12 m segment could exhaust memory in the draping code | Coordinates beyond 1e6 m are rejected, and draping caps inserted points per segment at 2000 |
+| The Python validators were looser than the TypeScript parser, so the pipeline could emit a file the viewer rejects whole | The same limits (5000 places, 20 sources, 120-character names, 6000 streets, 400000 points, URL validity) are now enforced in Python, with a comment to keep them in sync |
+| A junk `p=` in the hash after load stayed in the address bar | Unknown place ids are dropped on load and on later hash edits. Checked in the browser |
+| `?` was swallowed but did nothing | `?` opens the About dialog (a real `?` keydown was verified; the Browser tool's key chord does not produce `key: "?"`) |
+
+Test-first caveat: the keys, layer-selection and place-selection fixes were written alongside their tests without seeing the tests fail first; the parse, drape, quality and pipeline fixes were seen red first.
 
 ## What still needs a person
 

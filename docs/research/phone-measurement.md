@@ -95,7 +95,7 @@ default to off on coarse pointers.
 | Vegetation should not start on for phones | `defaultVegetationOn(coarsePointer)` | `src/effects.ts` | off on coarse pointers |
 | Plants too big or too small | `sizeBoost` | `VegetationLayerOptions` / `DEFAULT_SIZE_BOOST` | 1.5 |
 | Water motion costs too much | `IDLE_WATER_FPS`; `WAVE_SLOPE`, `GLINT_*` | `src/effectsModule.ts`, `src/water/waterMaterial.ts` | 15 fps |
-| The controller degrades too eagerly or too late | `degradeAboveMs`, `upgradeBelowMs`, `degradeAfterMs`, `upgradeAfterMs`, `minDwellMs`, `windowSize` | `src/quality.ts` (`QualityOptions`) | 25 ms, 14 ms, 1.5 s, 8 s, 5 s, 60 |
+| The controller degrades too eagerly or too late | `degradeAboveMs`, `upgradeBelowMs`, `degradeAfterMs`, `upgradeAfterMs`, `minDwellMs`, `windowSize` | `src/quality.ts` (`QualityOptions`) | 25 ms, 18 ms (so frames at a 60 Hz display's 16.7 ms can upgrade), 1.5 s, 8 s, 5 s, 60 |
 | Several plant chunks built per frame hitch | `maxBuildsPerUpdate` (terrain) and `maxBuildsPerRefresh` (vegetation) | `src/terrainChunks.ts`, `src/vegetation/layer.ts` | 6, 3 |
 
 Change one knob at a time and rerun the scenario that failed.
