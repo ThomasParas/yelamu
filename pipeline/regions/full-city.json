@@ -8,6 +8,13 @@
   "marsh": "data/raw/marsh.geojson",
   "hand_bay": ["data/full-city/hand/hand_bay.geojson"],
   "hand_marsh": ["data/full-city/hand/hand_marsh.geojson"],
+  "hand_ponds": ["data/full-city/hand/hand_ponds.geojson"],
+  "pond_classes": [
+    "Dune-dammed pond or lake",
+    "Dune-dammed headwater lake",
+    "Barrier beach-impounded freshwater lagoon",
+    "Other pond or lake"
+  ],
   "landforms": "data/full-city/landforms.json",
   "checks": "data/full-city/checks.json",
   "out": "../viewer/public/assets/real-city"

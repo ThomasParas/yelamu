@@ -36,8 +36,10 @@ def test_minimal_region_applies_defaults_and_resolves_paths_against_pipeline_dir
     assert region.out == tmp_path / "viewer" / "out"  # '..' is collapsed
     assert region.habitats is None and region.bay is None and region.marsh is None
     assert region.landforms is None and region.checks is None
-    assert region.hand_bay == [] and region.hand_marsh == []
-    for name in ("smooth_m", "shelf_m", "shore_slope", "shore_open_cells", "open_water_max_m"):
+    assert region.hand_bay == [] and region.hand_marsh == [] and region.hand_ponds == []
+    assert region.pond_classes is None
+    for name in ("smooth_m", "shelf_m", "shore_slope", "shore_open_cells", "open_water_max_m",
+                 "pond_max_depth_m", "pond_shelf_m", "pond_bank_slope", "pond_bank_m"):
         assert getattr(region, name) is None
 
 
@@ -51,6 +53,10 @@ def test_full_region_round_trip(tmp_path):
         "landforms": "data/lf.json", "checks": "data/ck.json",
         "smooth_m": 20, "shelf_m": 90.5, "shore_slope": 0.2, "shore_open_cells": 3,
         "open_water_max_m": 0.25,
+        "hand_ponds": ["data/hand/p1.geojson", "data/hand/p2.geojson"],
+        "pond_classes": ["Other pond or lake", " Fen "],
+        "pond_max_depth_m": 3, "pond_shelf_m": 40.5,
+        "pond_bank_slope": 0.5, "pond_bank_m": 120,
     }
     region = load_region(_write(tmp_path, data))
     base = tmp_path / "pipeline"
@@ -60,6 +66,10 @@ def test_full_region_round_trip(tmp_path):
     assert region.landforms == base / "data/lf.json" and region.checks == base / "data/ck.json"
     assert (region.smooth_m, region.shelf_m, region.shore_slope) == (20, 90.5, 0.2)
     assert region.shore_open_cells == 3 and region.open_water_max_m == 0.25
+    assert region.hand_ponds == [base / "data/hand/p1.geojson", base / "data/hand/p2.geojson"]
+    assert region.pond_classes == ["Other pond or lake", "Fen"]  # stripped
+    assert (region.pond_max_depth_m, region.pond_shelf_m) == (3, 40.5)
+    assert (region.pond_bank_slope, region.pond_bank_m) == (0.5, 120)
 
 
 def test_absolute_paths_are_kept(tmp_path):
@@ -134,6 +144,10 @@ def test_bad_cell_m_is_rejected(tmp_path, cell):
 @pytest.mark.parametrize("key, value", [
     ("dem", 5), ("out", ""), ("bay", 3), ("hand_bay", "a.geojson"), ("hand_marsh", [1]),
     ("smooth_m", "x"), ("shore_open_cells", 1.5), ("shelf_m", True), ("name", ""),
+    ("hand_ponds", "a.geojson"), ("hand_ponds", [1]), ("hand_ponds", [""]),
+    ("pond_classes", "Fen"), ("pond_classes", [1]), ("pond_classes", ["Fen", " "]),
+    ("pond_max_depth_m", "deep"), ("pond_shelf_m", True),
+    ("pond_bank_slope", -0.1), ("pond_bank_slope", "x"), ("pond_bank_m", -5), ("pond_bank_m", True),
 ])
 def test_bad_value_types_are_rejected_naming_key_and_file(tmp_path, key, value):
     path = _write(tmp_path, {**MINIMAL, key: value}, "v.json")
@@ -151,8 +165,14 @@ def test_invalid_json_and_non_object_name_the_file(tmp_path):
 
 def test_null_optionals_mean_unset(tmp_path):
     region = load_region(_write(tmp_path, {**MINIMAL, "bay": None, "smooth_m": None,
-                                           "hand_bay": None}))
+                                           "hand_bay": None, "hand_ponds": None,
+                                           "pond_classes": None}))
     assert region.bay is None and region.smooth_m is None and region.hand_bay == []
+    assert region.hand_ponds == [] and region.pond_classes is None
+
+
+def test_empty_pond_classes_list_is_kept_it_means_no_sfei_ponds(tmp_path):
+    assert load_region(_write(tmp_path, {**MINIMAL, "pond_classes": []})).pond_classes == []
 
 
 # --------------------------------------------------- the shipped region files ---
@@ -165,7 +185,8 @@ def test_shipped_regions_load(name):
     assert region.dem == PIPELINE / "data" / "raw" / "dem.tif"
     for p in (region.habitats, region.bay, region.marsh):
         assert p is not None and p.exists(), p
-    for p in (region.landforms, region.checks, *region.hand_bay, *region.hand_marsh):
+    for p in (region.landforms, region.checks, *region.hand_bay, *region.hand_marsh,
+              *region.hand_ponds):
         assert p is not None and p.exists(), p
 
 
@@ -176,3 +197,14 @@ def test_full_city_region_values():
     assert region.out == PIPELINE.parent / "viewer" / "public" / "assets" / "real-city"
     assert [p.name for p in region.hand_bay] == ["hand_bay.geojson"]
     assert [p.name for p in region.hand_marsh] == ["hand_marsh.geojson"]
+    assert [p.name for p in region.hand_ponds] == ["hand_ponds.geojson"]
+    assert region.pond_classes == [
+        "Dune-dammed pond or lake", "Dune-dammed headwater lake",
+        "Barrier beach-impounded freshwater lagoon", "Other pond or lake"]
+    from yelamu.ponds import DEFAULT_POND_CLASSES
+    assert tuple(region.pond_classes) == DEFAULT_POND_CLASSES
+
+
+def test_bank_slope_zero_is_allowed(tmp_path):
+    r = load_region(_write(tmp_path, {**MINIMAL, "pond_bank_slope": 0, "pond_bank_m": 0}))
+    assert r.pond_bank_slope == 0.0 and r.pond_bank_m == 0.0

@@ -13,8 +13,10 @@ from yelamu.checks import Expectation, run_checks
 from yelamu.cli import main, parse_args
 from yelamu.export import dequantize_heights
 from yelamu.geo import UTM_CRS, Grid, lonlat_to_utm
-from yelamu.habitat import ID_HAND_BAY, ID_HAND_MARSH, ID_OPEN_BAY_INFERRED, ID_UNMAPPED
+from yelamu.habitat import (
+    ID_HAND_BAY, ID_HAND_MARSH, ID_HAND_POND, ID_OPEN_BAY_INFERRED, ID_UNMAPPED)
 from yelamu.terrain import LAND_FLOOR_M, MARSH_LEVEL_M, WATER_LEVEL_M
+from yelamu.ponds import DEFAULT_POND_CLASSES
 from yelamu.sources import load_dem, load_polygons
 from yelamu.water import water_mask
 
@@ -44,6 +46,19 @@ def _write_bay_geojson(path, lon0, lat0, lon1, lat1) -> None:
     path.write_text(json.dumps({
         "type": "FeatureCollection",
         "features": [{"type": "Feature", "properties": {},
+                      "geometry": {"type": "Polygon", "coordinates": [ring]}}],
+    }))
+
+
+_PROV = {"source": "US Coast Survey T-sheet (test)", "confidence": "inferred"}
+
+
+def _write_hand_geojson(path, lon0, lat0, lon1, lat1, **props) -> None:
+    """A one-polygon hand-drawn file WITH provenance (props override the defaults)."""
+    ring = [[lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]]
+    path.write_text(json.dumps({
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {**_PROV, **props},
                       "geometry": {"type": "Polygon", "coordinates": [ring]}}],
     }))
 
@@ -303,7 +318,7 @@ def test_landform_near_shore_cannot_alter_water_or_dig_land(tmp_path, delta_m):
     _write_bay_geojson(tmp_path / "bay.geojson", -122.40, 37.77, -122.38, 37.79)
     # Centred on the bay's eastern shore, so it overlaps both water and land.
     (tmp_path / "lf.json").write_text(json.dumps(
-        [{"lon": -122.38, "lat": 37.78, "radius_m": 600, "delta_m": delta_m}]
+        [{"lon": -122.38, "lat": 37.78, "radius_m": 600, "delta_m": delta_m, **_PROV}]
     ))
     out = tmp_path / "out"
 
@@ -400,7 +415,7 @@ def test_gap_fill_uses_the_raw_dem_not_the_stamped_one(tmp_path):
     grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"))
     # A big raise over the unmapped bay must not hide it from the gap fill.
     (tmp_path / "lf.json").write_text(json.dumps(
-        [{"lon": -122.38, "lat": 37.79, "radius_m": 400, "delta_m": 25.0}]
+        [{"lon": -122.38, "lat": 37.79, "radius_m": 400, "delta_m": 25.0, **_PROV}]
     ))
 
     assert main([*args, "--landforms", str(tmp_path / "lf.json")]) == 0
@@ -419,7 +434,7 @@ def test_empty_landforms_file_adds_no_landforms_layer(tmp_path):
     assert "landforms" not in _layer_ids(tmp_path / "e")
 
     (tmp_path / "one.json").write_text(json.dumps(
-        [{"lon": -122.39, "lat": 37.78, "radius_m": 300, "delta_m": 5.0}]
+        [{"lon": -122.39, "lat": 37.78, "radius_m": 300, "delta_m": 5.0, **_PROV}]
     ))
     main([*base, "--out", str(tmp_path / "n"), "--landforms", str(tmp_path / "one.json")])
     assert "landforms" in _layer_ids(tmp_path / "n")
@@ -470,6 +485,8 @@ def test_meta_records_processing_parameters(tmp_path):
     assert meta["processing"] == {
         "smooth_m": 20.0, "shelf_m": 90.0, "shore_open_cells": 3,
         "open_water_max_m": 0.25, "coverage": False, "shore_slope": 0.30,
+        "pond_classes": list(DEFAULT_POND_CLASSES), "pond_max_depth_m": 2.0,
+        "pond_shelf_m": 20.0, "pond_bank_slope": 0.35, "pond_bank_m": 200.0,
     }
     assert "layers" in meta and "water_level_m" in meta
 
@@ -549,18 +566,20 @@ def _hand_run(tmp_path, *extra, dem_value=5.0, name="out"):
 
 
 def test_hand_marsh_over_fill_becomes_marsh_level(tmp_path):
-    _write_bay_geojson(tmp_path / "hm.geojson", -122.40, 37.77, -122.38, 37.79)
+    _write_hand_geojson(tmp_path / "hm.geojson", -122.40, 37.77, -122.38, 37.79)
     grid, out, meta, heights = _hand_run(tmp_path, "--hand-marsh", str(tmp_path / "hm.geojson"))
     assert abs(heights[_pixel(grid, -122.39, 37.78)] - MARSH_LEVEL_M) < 0.01
     assert abs(heights[_pixel(grid, -122.415, 37.76)] - 5.0) < 0.01  # elsewhere unchanged
     assert "hand_water" in _layer_ids(out)
     layer = next(l for l in meta["layers"] if l["id"] == "hand_water")
     assert layer["confidence"] == "inferred" and layer["attribution"] == "this project"
-    assert layer["source"] == "hand-drawn from historical maps (user-authored)"
+    assert layer["source"] == "hand-drawn from 1 source: US Coast Survey T-sheet (test)"
+    assert meta["hand_sources"] == [{"layer": "hand_water", "source": _PROV["source"],
+                                     "confidence": "inferred", "count": 1}]
 
 
 def test_hand_bay_becomes_bay(tmp_path):
-    _write_bay_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.38, 37.79)
+    _write_hand_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.38, 37.79)
     grid, out, _, heights = _hand_run(tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"))
     assert abs(heights[_pixel(grid, -122.39, 37.78)] - (-3.0)) < 0.01
     assert abs(heights[_pixel(grid, -122.415, 37.76)] - 5.0) < 0.01
@@ -568,9 +587,9 @@ def test_hand_bay_becomes_bay(tmp_path):
 
 
 def test_hand_bay_wins_over_hand_marsh_and_multiple_files_are_merged(tmp_path):
-    _write_bay_geojson(tmp_path / "hb1.geojson", -122.40, 37.77, -122.39, 37.79)
-    _write_bay_geojson(tmp_path / "hb2.geojson", -122.38, 37.77, -122.375, 37.79)
-    _write_bay_geojson(tmp_path / "hm.geojson", -122.405, 37.77, -122.385, 37.79)
+    _write_hand_geojson(tmp_path / "hb1.geojson", -122.40, 37.77, -122.39, 37.79)
+    _write_hand_geojson(tmp_path / "hb2.geojson", -122.38, 37.77, -122.375, 37.79)
+    _write_hand_geojson(tmp_path / "hm.geojson", -122.405, 37.77, -122.385, 37.79)
     grid, _, _, heights = _hand_run(
         tmp_path, "--hand-bay", str(tmp_path / "hb1.geojson"), str(tmp_path / "hb2.geojson"),
         "--hand-marsh", str(tmp_path / "hm.geojson"))
@@ -593,7 +612,7 @@ def test_hand_polygons_stop_the_gap_rule(tmp_path):
     out = tmp_path / "out"
     grid, args = _gap_args(tmp_path, out, "--coverage", str(tmp_path / "cov.geojson"), *_FLAT)
     # A hand marsh in the unmapped (east) north half, where the modern DEM is 0 m.
-    _write_bay_geojson(tmp_path / "hm.geojson", -122.385, 37.785, -122.375, 37.795)
+    _write_hand_geojson(tmp_path / "hm.geojson", -122.385, 37.785, -122.375, 37.795)
 
     assert main([*args, "--hand-marsh", str(tmp_path / "hm.geojson")]) == 0
 
@@ -682,8 +701,8 @@ def test_hand_marsh_is_stamped_on_the_habitat_raster(tmp_path):
     out = tmp_path / "out"
     grid, args = _gap_args(tmp_path, out)
     hab = _habitat_collection(tmp_path)
-    _write_bay_geojson(tmp_path / "hm.geojson", -122.385, 37.785, -122.375, 37.795)
-    _write_bay_geojson(tmp_path / "hb.geojson", -122.385, 37.765, -122.375, 37.775)
+    _write_hand_geojson(tmp_path / "hm.geojson", -122.385, 37.785, -122.375, 37.795)
+    _write_hand_geojson(tmp_path / "hb.geojson", -122.385, 37.765, -122.375, 37.775)
 
     assert main([*args, "--habitats", str(hab), "--hand-marsh", str(tmp_path / "hm.geojson"),
                  "--hand-bay", str(tmp_path / "hb.geojson")]) == 0
@@ -808,3 +827,297 @@ def test_region_checks_run_and_can_fail(tmp_path):
     (pipe / "data" / "checks.json").write_text(json.dumps(
         [{"name": "needs a hill", "lon": -122.415, "lat": 37.76, "min_m": 60.0}]))
     assert main(["--region", str(path)]) == 2
+
+
+# ------------------------------------------------- provenance enforcement ---
+
+
+def test_hand_file_without_provenance_is_rejected_naming_file_and_feature(tmp_path):
+    _write_bay_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.38, 37.79)  # no properties
+    with pytest.raises(ValueError, match="hb.geojson") as exc:
+        _hand_run(tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"))
+    assert "feature 0" in str(exc.value) and "source" in str(exc.value)
+    assert not (tmp_path / "out" / "meta.json").exists()  # nothing written
+
+
+def test_cli_entry_turns_input_errors_into_one_line_and_exit_1(tmp_path, capsys):
+    from yelamu.cli import cli_entry
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 5.0)
+    _write_bay_geojson(tmp_path / "hm.geojson", -122.40, 37.77, -122.38, 37.79)
+    code = cli_entry(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+                      "--out", str(tmp_path / "o"), "--hand-marsh", str(tmp_path / "hm.geojson")])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "hm.geojson" in err and "Traceback" not in err
+
+
+def test_hand_water_layer_summarises_sources_and_takes_the_lowest_confidence(tmp_path):
+    _write_hand_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.39, 37.79,
+                        source="Sheet B", confidence="documented")
+    _write_hand_geojson(tmp_path / "hm.geojson", -122.385, 37.77, -122.38, 37.79,
+                        source="Sheet A", confidence="illustrative")
+    _, out, meta, _ = _hand_run(tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"),
+                                "--hand-marsh", str(tmp_path / "hm.geojson"))
+    layer = next(l for l in meta["layers"] if l["id"] == "hand_water")
+    assert layer["source"] == "hand-drawn from 2 sources: Sheet A; Sheet B"
+    assert layer["confidence"] == "illustrative"
+    assert meta["hand_sources"] == [
+        {"layer": "hand_water", "source": "Sheet A", "confidence": "illustrative", "count": 1},
+        {"layer": "hand_water", "source": "Sheet B", "confidence": "documented", "count": 1},
+    ]
+
+
+def test_no_hand_inputs_means_no_hand_sources_or_ponds_keys(tmp_path):
+    _, out, meta, _ = _hand_run(tmp_path)
+    assert "hand_sources" not in meta and "ponds_file" not in meta
+    assert not (out / "ponds.json").exists()
+
+
+def test_landforms_need_provenance_and_ridges_are_built(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 5.0)
+    base = ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), *_FLAT]
+    lf = tmp_path / "lf.json"
+    lf.write_text(json.dumps([{"lon": -122.39, "lat": 37.78, "radius_m": 300, "delta_m": 5.0}]))
+    with pytest.raises(ValueError, match="lf.json") as exc:
+        main([*base, "--out", str(tmp_path / "bad"), "--landforms", str(lf)])
+    assert "landforms[0]" in str(exc.value) and "source" in str(exc.value)
+
+    lf.write_text(json.dumps([
+        {"kind": "ridge", "name": "Market St ridge", "points": [[-122.40, 37.78], [-122.38, 37.78]],
+         "half_width_m": 100, "delta_m": 10.0, "source": "Ridge source", "confidence": "illustrative"},
+        {"name": "Rincon", "lon": -122.39, "lat": 37.79, "radius_m": 200, "delta_m": 3.0,
+         "source": "Bump source", "confidence": "inferred"},
+    ]))
+    out = tmp_path / "ok"
+    assert main([*base, "--out", str(out), "--landforms", str(lf)]) == 0
+    meta = json.loads((out / "meta.json").read_text())
+    heights = _read_heights(out, meta)
+    assert abs(heights[_pixel(grid, -122.39, 37.78)] - 15.0) < 0.05  # 5 + ridge 10 on the line
+    assert abs(heights[_pixel(grid, -122.39, 37.79)] - 8.0) < 0.35  # 5 + bump 3 (+ridge tail 0)
+    assert abs(heights[_pixel(grid, -122.39, 37.775)] - 5.0) < 0.5   # 556 m from the line... far
+    layer = next(l for l in meta["layers"] if l["id"] == "landforms")
+    assert layer["confidence"] == "illustrative"
+    assert layer["source"] == "hand-sculpted from 2 sources: Bump source; Ridge source"
+    assert [r["source"] for r in meta["hand_sources"]] == ["Bump source", "Ridge source"]
+    assert all(r["layer"] == "landforms" and r["count"] == 1 for r in meta["hand_sources"])
+
+
+# ---------------------------------------------------------------- ponds ---
+
+_POND_LL = (-122.40, 37.77, -122.39, 37.78)
+
+
+def _pond_habitats(tmp_path, cls="Dune-dammed pond or lake", box=_POND_LL, extra=()):
+    ring = [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]], [box[0], box[1]]]
+    feats = [{"type": "Feature", "properties": {"HabitatCla": cls},
+              "geometry": {"type": "Polygon", "coordinates": [ring]}}, *extra]
+    path = tmp_path / "habitats.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+    return path
+
+
+def _pond_run(tmp_path, *extra, dem_value=7.0, out_name="out", habitats=True):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, dem_value)
+    out = tmp_path / out_name
+    args = ["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), "--out", str(out),
+            *_FLAT]
+    if habitats:
+        args += ["--habitats", str(_pond_habitats(tmp_path))]
+    assert main([*args, *extra]) == 0
+    meta = json.loads((out / "meta.json").read_text())
+    return grid, out, meta, _read_heights(out, meta)
+
+
+def test_sfei_pond_is_carved_exported_and_recorded(tmp_path, capsys):
+    grid, out, meta, heights = _pond_run(tmp_path)
+    assert "Carved 1 ponds (1 from SFEI, 0 hand-drawn)" in capsys.readouterr().out
+    doc = json.loads((out / "ponds.json").read_text())
+    assert meta["ponds_file"] == "ponds.json" and doc["version"] == 1
+    (pond,) = doc["ponds"]
+    assert pond["id"] == "dune-dammed-pond-or-lake-1" and pond["name"] is None
+    assert pond["level_m"] == 7.0  # median of the flat 7 m DEM
+    assert pond["confidence"] == "documented"
+    assert pond["source"] == "SFEI Hidden Nature SF habitat class 'Dune-dammed pond or lake'"
+    assert len(pond["rings"]) == 1 and len(pond["rings"][0]) >= 8
+    assert doc["processing"]["max_depth_m"] == 2.0 and doc["processing"]["shelf_m"] == 20.0
+    # World metres: the pond sits inside the grid, west of centre (x<0)? check the extent.
+    xs, zs = pond["rings"][0][0::2], pond["rings"][0][1::2]
+    half_w, half_h = grid.width * 10 / 2, grid.height * 10 / 2
+    assert -half_w < min(xs) < max(xs) < half_w and -half_h < min(zs) < max(zs) < half_h
+    # Terrain: deepest inside, untouched outside, never above the water level.
+    centre = heights[_pixel(grid, -122.395, 37.775)]
+    assert abs(centre - 5.0) < 0.01  # 7 - 2 m
+    assert abs(heights[_pixel(grid, -122.415, 37.76)] - 7.0) < 0.01
+    inside = heights[_pixel(grid, -122.3999, 37.7701)]
+    assert 6.0 < inside < 7.0  # the shore edge is shallow
+    # Habitat: the pond cells keep the SFEI class.
+    raster = _habitat(out, meta)
+    ids = {e["name"]: e["id"] for e in meta["habitat_classes"]}
+    assert raster[_pixel(grid, -122.395, 37.775)] == ids["Dune-dammed pond or lake"]
+    # Provenance: layer + hand_sources row.
+    layer = next(l for l in meta["layers"] if l["id"] == "ponds")
+    assert layer["confidence"] == "documented" and layer["attribution"] == "SFEI; this project"
+    assert meta["hand_sources"] == [{
+        "layer": "ponds", "confidence": "documented", "count": 1,
+        "source": "SFEI Hidden Nature SF habitat class 'Dune-dammed pond or lake'"}]
+    assert meta["processing"]["pond_classes"][0] == "Dune-dammed pond or lake"
+
+
+def test_pond_classes_flag_selects_classes_and_empty_means_none(tmp_path):
+    _, out, meta, _ = _pond_run(tmp_path, "--pond-classes", "Other pond or lake")
+    assert "ponds_file" not in meta and not (out / "ponds.json").exists()
+    _, out2, meta2, _ = _pond_run(tmp_path, "--pond-classes", "Dune-dammed pond or lake",
+                                  out_name="out2")
+    assert meta2["ponds_file"] == "ponds.json"
+
+
+def test_rebuild_without_ponds_removes_a_stale_ponds_file(tmp_path):
+    _, out, _, _ = _pond_run(tmp_path)
+    assert (out / "ponds.json").exists()
+    _pond_run(tmp_path, "--pond-classes", "Other pond or lake")  # same out dir
+    assert not (out / "ponds.json").exists()
+
+
+def test_hand_pond_with_level_name_and_provenance(tmp_path):
+    _write_hand_geojson(tmp_path / "hp.geojson", -122.385, 37.785, -122.378, 37.79,
+                        level_m=12.5, name="Test Pond", source="Sanborn 1887", confidence="illustrative")
+    grid, out, meta, heights = _pond_run(tmp_path, "--hand-ponds", str(tmp_path / "hp.geojson"),
+                                         habitats=True)
+    doc = json.loads((out / "ponds.json").read_text())
+    by_id = {p["id"]: p for p in doc["ponds"]}
+    assert set(by_id) == {"dune-dammed-pond-or-lake-1", "test-pond"}
+    hp = by_id["test-pond"]
+    assert hp["level_m"] == 12.5 and hp["name"] == "Test Pond"
+    assert (hp["source"], hp["confidence"]) == ("Sanborn 1887", "illustrative")
+    assert [p["id"] for p in doc["ponds"]] == sorted(by_id)
+    assert abs(heights[_pixel(grid, -122.3815, 37.7875)] - 10.5) < 0.01
+    assert _habitat(out, meta)[_pixel(grid, -122.3815, 37.7875)] == ID_HAND_POND
+    layer = next(l for l in meta["layers"] if l["id"] == "ponds")
+    assert layer["confidence"] == "illustrative"  # the lowest of documented + illustrative
+    rows = {(r["source"], r["confidence"]): r["count"] for r in meta["hand_sources"]}
+    assert rows[("Sanborn 1887", "illustrative")] == 1
+    assert all(r["layer"] == "ponds" for r in meta["hand_sources"])
+    assert [r["source"] for r in meta["hand_sources"]] == sorted(r["source"] for r in meta["hand_sources"])
+
+
+def test_hand_pond_level_defaults_to_the_median_raw_dem(tmp_path):
+    _write_hand_geojson(tmp_path / "hp.geojson", -122.385, 37.785, -122.378, 37.79)
+    grid, out, meta, heights = _pond_run(tmp_path, "--hand-ponds", str(tmp_path / "hp.geojson"),
+                                         habitats=False, dem_value=9.0)
+    (pond,) = json.loads((out / "ponds.json").read_text())["ponds"]
+    assert pond["id"] == "pond-1" and pond["level_m"] == 9.0
+    assert "habitat_file" not in meta  # no habitats given: no raster to stamp
+
+
+def test_empty_hand_ponds_file_is_accepted_and_adds_nothing(tmp_path):
+    (tmp_path / "hp.geojson").write_text(json.dumps(_EMPTY_FC))
+    _, out, meta, heights = _pond_run(tmp_path, "--hand-ponds", str(tmp_path / "hp.geojson"),
+                                      habitats=False)
+    assert "ponds_file" not in meta and "hand_sources" not in meta
+    assert np.abs(heights - 7.0).max() < 0.01
+
+
+def test_hand_ponds_without_provenance_are_rejected(tmp_path):
+    _write_bay_geojson(tmp_path / "hp.geojson", -122.385, 37.785, -122.378, 37.79)
+    with pytest.raises(ValueError, match="hp.geojson"):
+        _pond_run(tmp_path, "--hand-ponds", str(tmp_path / "hp.geojson"), habitats=False)
+    _write_hand_geojson(tmp_path / "hp2.geojson", -122.385, 37.785, -122.378, 37.79,
+                        confidence="certain")
+    with pytest.raises(ValueError, match="confidence"):
+        _pond_run(tmp_path, "--hand-ponds", str(tmp_path / "hp2.geojson"), habitats=False)
+
+
+def test_tiny_ponds_are_dropped_with_a_stdout_note(tmp_path, capsys):
+    _write_hand_geojson(tmp_path / "hp.geojson", -122.3900, 37.7900, -122.38995, 37.79005,
+                        name="Speck")
+    _, out, meta, _ = _pond_run(tmp_path, "--hand-ponds", str(tmp_path / "hp.geojson"),
+                                habitats=False)
+    assert "Dropped pond 'Speck'" in capsys.readouterr().out
+    assert "ponds_file" not in meta
+
+
+def test_pond_is_not_changed_by_smoothing_or_the_land_ramp(tmp_path):
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    _write_dem(tmp_path / "dem.tif", grid, 7.0)
+    _write_bay_geojson(tmp_path / "bay.geojson", -122.415, 37.77, -122.405, 37.78)
+    out = tmp_path / "out"
+    assert main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), "--out", str(out),
+                 "--bay", str(tmp_path / "bay.geojson"),
+                 "--habitats", str(_pond_habitats(tmp_path))]) == 0  # default smoothing/ramp/shelf
+    meta = json.loads((out / "meta.json").read_text())
+    heights = _read_heights(out, meta)
+    assert abs(heights[_pixel(grid, -122.395, 37.775)] - 5.0) < 0.01
+
+
+def test_a_pond_check_in_checks_json_runs_against_the_pond_mask(tmp_path):
+    checks = tmp_path / "checks.json"
+    checks.write_text(json.dumps([
+        {"name": "the lake", "lon": -122.395, "lat": 37.775, "expect_pond": True}]))
+    _pond_run(tmp_path, "--checks", str(checks))  # passes (exit code 0 asserted inside)
+    checks.write_text(json.dumps([
+        {"name": "dry spot", "lon": -122.41, "lat": 37.76, "expect_pond": True}]))
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    assert main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX),
+                 "--out", str(tmp_path / "o3"), *_FLAT, "--habitats", str(tmp_path / "habitats.geojson"),
+                 "--checks", str(checks)]) == 2
+
+
+def test_pond_flags_merge_with_region_defaults(tmp_path):
+    path, _ = _region_setup(tmp_path, hand_ponds=["data/p.geojson"], pond_classes=["Other pond or lake"],
+                            pond_max_depth_m=3.0, pond_shelf_m=40)
+    base = tmp_path / "pipeline"
+    a = parse_args(["--region", str(path)])
+    assert a.hand_ponds == [base / "data/p.geojson"] and a.pond_classes == ["Other pond or lake"]
+    assert (a.pond_max_depth_m, a.pond_shelf_m) == (3.0, 40)
+    b = parse_args(["--region", str(path), "--hand-ponds", "x.geojson", "y.geojson",
+                    "--pond-classes", "Dune-dammed pond or lake", "Fen", "--pond-max-depth-m", "1.5"])
+    assert b.hand_ponds == [Path("x.geojson"), Path("y.geojson")]  # replaced, not appended
+    assert b.pond_classes == ["Dune-dammed pond or lake", "Fen"] and b.pond_max_depth_m == 1.5
+    assert b.pond_shelf_m == 40
+    plain = parse_args(["--dem", "d.tif", "--bbox", "1", "2", "3", "4", "--out", "o"])
+    assert plain.hand_ponds == [] and plain.pond_classes == list(DEFAULT_POND_CLASSES)
+    assert (plain.pond_max_depth_m, plain.pond_shelf_m) == (2.0, 20.0)
+    # a region without pond keys keeps the default class list
+    p2, _ = _region_setup(tmp_path / "x")
+    assert parse_args(["--region", str(p2)]).pond_classes == list(DEFAULT_POND_CLASSES)
+
+
+def test_pond_banks_are_graded_after_the_carve_and_flags_control_them(tmp_path):
+    # A perched pond (level 30 m) on 7 m ground; a bay strip touches its west shore.
+    _write_hand_geojson(tmp_path / "hp.geojson", -122.385, 37.785, -122.378, 37.79,
+                        level_m=30.0, name="Perched")
+    _write_bay_geojson(tmp_path / "bay.geojson", -122.390, 37.785, -122.385, 37.79)
+    hp = ["--hand-ponds", str(tmp_path / "hp.geojson"), "--bay", str(tmp_path / "bay.geojson")]
+    grid, out, meta, heights = _pond_run(tmp_path, *hp, habitats=False)
+    doc = json.loads((out / "ponds.json").read_text())
+    assert doc["ponds"][0]["level_m"] == 30.0  # the contract is unchanged by the banks
+    assert abs(heights[_pixel(grid, -122.3815, 37.7875)] - 28.0) < 0.01  # bed, untouched
+    # East of the pond: embankment = level - 0.35 * d, ramping down to the 7 m ground.
+    near = heights[_pixel(grid, -122.3775, 37.7875)]  # ~ 45 m from the shore
+    assert 10.0 < near < 30.0
+    assert abs(heights[_pixel(grid, -122.372, 37.7875)] - 7.0) < 0.01  # beyond the reach
+    # The bay strip is water: not raised.
+    assert abs(heights[_pixel(grid, -122.3875, 37.7875)] - (-3.0)) < 0.01
+    assert meta["processing"]["pond_bank_slope"] == 0.35 and meta["processing"]["pond_bank_m"] == 200.0
+
+    # Disabled: the ground next to the pond stays at 7 m.
+    _, _, meta0, h0 = _pond_run(tmp_path, *hp, "--pond-bank-slope", "0", habitats=False,
+                                out_name="nobank")
+    assert abs(h0[_pixel(grid, -122.3775, 37.7875)] - 7.0) < 0.01
+    assert meta0["processing"]["pond_bank_slope"] == 0.0
+    # A shorter reach grades less ground.
+    _, _, _, h1 = _pond_run(tmp_path, *hp, "--pond-bank-m", "20", habitats=False, out_name="short")
+    assert abs(h1[_pixel(grid, -122.3775, 37.7875)] - 7.0) < 0.01
+
+
+def test_pond_bank_flags_merge_with_region_defaults(tmp_path):
+    path, _ = _region_setup(tmp_path, pond_bank_slope=0.5, pond_bank_m=120)
+    a = parse_args(["--region", str(path)])
+    assert (a.pond_bank_slope, a.pond_bank_m) == (0.5, 120)
+    b = parse_args(["--region", str(path), "--pond-bank-slope", "0.2", "--pond-bank-m", "50"])
+    assert (b.pond_bank_slope, b.pond_bank_m) == (0.2, 50)
+    plain = parse_args(["--dem", "d.tif", "--bbox", "1", "2", "3", "4", "--out", "o"])
+    assert (plain.pond_bank_slope, plain.pond_bank_m) == (0.35, 200.0)

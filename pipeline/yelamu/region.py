@@ -16,11 +16,14 @@ from typing import Any
 
 _REQUIRED = ("name", "bbox", "cell_m", "dem", "out")
 _OPTIONAL_PATHS = ("habitats", "bay", "marsh", "landforms", "checks")
-_OPTIONAL_PATH_LISTS = ("hand_bay", "hand_marsh")
-_OPTIONAL_FLOATS = ("smooth_m", "shelf_m", "shore_slope", "open_water_max_m")
+_OPTIONAL_PATH_LISTS = ("hand_bay", "hand_marsh", "hand_ponds")
+_OPTIONAL_FLOATS = ("smooth_m", "shelf_m", "shore_slope", "open_water_max_m",
+                    "pond_max_depth_m", "pond_shelf_m", "pond_bank_slope", "pond_bank_m")
+_NON_NEGATIVE = ("pond_bank_slope", "pond_bank_m")
 _OPTIONAL_INTS = ("shore_open_cells",)
+_OPTIONAL_STRING_LISTS = ("pond_classes",)
 _KNOWN = (*_REQUIRED, *_OPTIONAL_PATHS, *_OPTIONAL_PATH_LISTS, *_OPTIONAL_FLOATS,
-          *_OPTIONAL_INTS)
+          *_OPTIONAL_INTS, *_OPTIONAL_STRING_LISTS)
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,7 @@ class Region:
     marsh: Path | None = None
     hand_bay: list[Path] = field(default_factory=list)
     hand_marsh: list[Path] = field(default_factory=list)
+    hand_ponds: list[Path] = field(default_factory=list)
     landforms: Path | None = None
     checks: Path | None = None
     # Overrides of the CLI defaults; None means "use the CLI/default value".
@@ -43,6 +47,13 @@ class Region:
     shore_slope: float | None = None
     shore_open_cells: int | None = None
     open_water_max_m: float | None = None
+    # Ponds: HabitatCla values (SFEI) that are freshwater ponds; None = the built-in
+    # default list (yelamu.ponds.DEFAULT_POND_CLASSES), [] = no SFEI ponds.
+    pond_classes: list[str] | None = None
+    pond_max_depth_m: float | None = None
+    pond_shelf_m: float | None = None
+    pond_bank_slope: float | None = None  # >= 0; 0 disables bank grading
+    pond_bank_m: float | None = None  # >= 0
 
 
 def _is_number(v: Any) -> bool:
@@ -116,6 +127,8 @@ def load_region(path: Path) -> Region:
             continue
         if not _is_number(value):
             raise fail(f"{key} must be a number or null, got {value!r}")
+        if key in _NON_NEGATIVE and value < 0:
+            raise fail(f"{key} must be 0 or greater, got {value!r}")
         kwargs[key] = float(value)
     for key in _OPTIONAL_INTS:
         value = data.get(key)
@@ -124,4 +137,13 @@ def load_region(path: Path) -> Region:
         if not isinstance(value, int) or isinstance(value, bool):
             raise fail(f"{key} must be an integer or null, got {value!r}")
         kwargs[key] = value
+    for key in _OPTIONAL_STRING_LISTS:
+        value = data.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or not all(
+            isinstance(v, str) and v.strip() for v in value
+        ):
+            raise fail(f"{key} must be a list of non-empty strings")
+        kwargs[key] = [v.strip() for v in value]
     return Region(**kwargs)
