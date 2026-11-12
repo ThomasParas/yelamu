@@ -150,6 +150,68 @@ describe("TerrainChunks", () => {
     t.dispose();
   });
 
+  it("follows setSwitchZoom on the next update (both directions)", () => {
+    const t = make({ switchZoom: 2 });
+    const cam = camera(-100, -100, 400, 3);
+    t.update(cam);
+    expect(t.stats().lod).toBe(0);
+    t.setSwitchZoom(4); // e.g. the window got wider: more chunks fit, switch later
+    t.update(cam);
+    expect(t.stats()).toMatchObject({ lod: 1, lod0Visible: 0, lod1Visible: 16 });
+    t.setSwitchZoom(1.5);
+    t.update(cam);
+    expect(t.stats().lod).toBe(0);
+    expect(t.stats().lod0Visible).toBeGreaterThan(0);
+    t.dispose();
+  });
+
+  it("keeps LOD1 visible under in-view chunks whose LOD0 is not built yet (no holes)", () => {
+    const t = make({ maxBuildsPerUpdate: 1 });
+    // View 200 m at zoom 2 -> 100 m square around the origin: 2 x 2 chunks in view.
+    const cam = camera(0, 0, 200, 2);
+    const inViewLod1 = () => visible(t, 1).length;
+    expect(t.update(cam)).toBe(true);
+    expect(visible(t, 0)).toHaveLength(1);
+    expect(inViewLod1()).toBe(3); // the other three in-view chunks still show LOD1
+    // The visible LOD1 chunks are exactly the in-view chunks without a visible LOD0.
+    const covered = (m: THREE.Mesh) => {
+      m.geometry.computeBoundingBox();
+      return m.geometry.boundingBox!;
+    };
+    const lod0Box = covered(visible(t, 0)[0]);
+    for (const m of visible(t, 1)) {
+      const b = covered(m);
+      expect(b.min.x === lod0Box.min.x && b.min.z === lod0Box.min.z).toBe(false);
+    }
+    expect(t.update(cam)).toBe(true);
+    expect(visible(t, 0)).toHaveLength(2);
+    expect(inViewLod1()).toBe(2);
+    expect(t.update(cam)).toBe(true);
+    expect(t.update(cam)).toBe(false);
+    expect(visible(t, 0)).toHaveLength(4);
+    expect(inViewLod1()).toBe(0); // out-of-view chunks have neither
+    expect(visible(t, 0).length + inViewLod1()).toBe(4);
+    t.dispose();
+  });
+
+  it("drops LOD1 under a chunk that leaves the view while LOD0 is pending", () => {
+    const t = make({ maxBuildsPerUpdate: 1 });
+    t.update(camera(0, 0, 200, 2));
+    t.update(camera(-120, -120, 100, 2)); // 50 m square inside one corner chunk
+    expect(visible(t, 0).length + visible(t, 1).length).toBe(1);
+    t.dispose();
+  });
+
+  it("returns LOD0 memory to the base capacity once back at LOD1", () => {
+    const t = make({ lruCapacity: 2, maxBuildsPerUpdate: 100 });
+    t.update(camera(0, 0, 800, 2)); // all 16 in view: capacity grows, 16 resident
+    expect(t.stats().lod0Resident).toBe(16);
+    t.update(camera(0, 0, 800, 1)); // zoomed out -> LOD1
+    expect(t.stats()).toMatchObject({ lod: 1, lod0Resident: 2, lod0Visible: 0 });
+    expect(lodMeshes(t, 0)).toHaveLength(2);
+    t.dispose();
+  });
+
   it("dispose removes everything and disposes geometries", () => {
     const t = make();
     t.update(camera(-100, -100, 400, 12));

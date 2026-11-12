@@ -34,8 +34,13 @@ export class LruCache<K, V> {
       if (old !== value) this.onEvict?.(key, old);
     }
     this.map.set(key, value);
+    // The first key in iteration order is the least recently used.
+    this.trim();
+  }
+
+  /** Evict least recently used entries until size <= capacity (after lowering capacity). */
+  trim(): void {
     while (this.map.size > this.capacity) {
-      // The first key in iteration order is the least recently used.
       const [oldKey, oldValue] = this.map.entries().next().value as [K, V];
       this.map.delete(oldKey);
       this.onEvict?.(oldKey, oldValue);

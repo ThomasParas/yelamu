@@ -45,7 +45,7 @@ export class TerrainChunks {
   private readonly visibleLod0 = new Set<THREE.Mesh>();
   private readonly baseCapacity: number;
   private readonly maxBuilds: number;
-  private readonly switchZoom: number;
+  private switchZoom: number;
   private currentLod: Lod = 1;
 
   private readonly frustum = new THREE.Frustum();
@@ -82,6 +82,11 @@ export class TerrainChunks {
     });
   }
 
+  /** Replace the zoom at which full-resolution chunks take over; used by the next update(). */
+  setSwitchZoom(zoom: number): void {
+    this.switchZoom = zoom;
+  }
+
   /**
    * Pick the LOD for the camera and make the right meshes visible. Returns true when
    * full-resolution chunks in view are still waiting to be built (call again next frame).
@@ -95,9 +100,11 @@ export class TerrainChunks {
     if (lod === 1) {
       for (const e of this.entries) e.lod1.visible = true;
       this.hideAllLod0();
+      // Zoomed out again: give back the memory the full-resolution working set grew into.
+      this.lod0.capacity = this.baseCapacity;
+      this.lod0.trim();
       return false;
     }
-    for (const e of this.entries) e.lod1.visible = false;
 
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
@@ -109,11 +116,14 @@ export class TerrainChunks {
     // Pass 1: reuse cached meshes (this also refreshes their recency, so the builds in
     // pass 2 can only evict chunks that are not in view).
     const nowVisible = new Set<THREE.Mesh>();
+    const covered = new Set<Entry>(); // in-view chunks whose LOD0 mesh is shown
     const missing: Entry[] = [];
     for (const e of inView) {
       const mesh = this.lod0.get(chunkKey(e.plan, 0));
-      if (mesh) nowVisible.add(mesh);
-      else missing.push(e);
+      if (mesh) {
+        nowVisible.add(mesh);
+        covered.add(e);
+      } else missing.push(e);
     }
 
     // Pass 2: build the missing chunks nearest the view centre first, up to the cap.
@@ -131,8 +141,14 @@ export class TerrainChunks {
       this.root.add(mesh);
       this.lod0.set(chunkKey(e.plan, 0), mesh);
       nowVisible.add(mesh);
+      covered.add(e);
       built++;
     }
+
+    // A chunk keeps its LOD1 mesh until its LOD0 mesh is shown, so builds that are still
+    // pending never leave a hole. Chunks outside the view show neither.
+    const inViewSet = new Set(inView);
+    for (const e of this.entries) e.lod1.visible = inViewSet.has(e) && !covered.has(e);
 
     for (const m of this.visibleLod0) if (!nowVisible.has(m)) m.visible = false;
     for (const m of nowVisible) m.visible = true;

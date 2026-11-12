@@ -44,7 +44,9 @@ async function start() {
 
   // Palette entries are sRGB; vertex colours are read as linear by three.js.
   const palette = paletteToLinear(buildPalette(habitat ? (meta.habitat_classes ?? []) : []));
-  const fallback = new THREE.Color(FALLBACK_GROUND); // already linear
+  // With a habitat raster a class id missing from the legend is "unmapped" grey, never a
+  // guessed ground tan; the tan is only for datasets without any habitat data.
+  const fallback = new THREE.Color(habitat ? GROUP_COLORS.unmapped : FALLBACK_GROUND); // linear
   const colorAt = makeColorAt(
     palette,
     habitat,
@@ -57,13 +59,16 @@ async function start() {
   const depthM = meta.height * meta.cell_m;
   const maxHeightM = (meta.max_m - meta.min_m) * VERTICAL_EXAGGERATION;
   const aspect0 = canvas.clientWidth / canvas.clientHeight;
-  // Fixed from the framing at startup (resizing refits the view but keeps this zoom).
-  const switchZoom = switchZoomFor(
-    fitViewSize(widthM, depthM, maxHeightM, aspect0),
-    canvas.clientHeight,
-    meta.cell_m,
-    MAX_COARSE_SPACING_PX,
-  );
+  // The switch zoom depends on the framing, which follows the window aspect, so it is
+  // recomputed on every resize (a half-width window fits much more map into view).
+  const switchZoomAt = (aspect: number, heightPx: number) =>
+    switchZoomFor(
+      fitViewSize(widthM, depthM, maxHeightM, aspect),
+      heightPx,
+      meta.cell_m,
+      MAX_COARSE_SPACING_PX,
+    );
+  let switchZoom = switchZoomAt(aspect0, canvas.clientHeight);
 
   const terrain = new TerrainChunks(
     heights,
@@ -155,6 +160,8 @@ async function start() {
     camera.bottom = -half;
     camera.left = -half * aspect;
     camera.right = half * aspect;
+    switchZoom = switchZoomAt(aspect, h);
+    terrain.setSwitchZoom(switchZoom);
     controls.place();
   };
   window.addEventListener("resize", resize);

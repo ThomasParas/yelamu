@@ -101,4 +101,17 @@ describe("LruCache", () => {
   it("rejects a capacity below 1", () => {
     expect(() => new LruCache<string, number>(0)).toThrow();
   });
+  it("trim evicts in LRU order down to a lowered capacity and calls onEvict", () => {
+    const onEvict = vi.fn();
+    const c = new LruCache<string, number>(4, onEvict);
+    for (const [k, v] of [["a", 1], ["b", 2], ["c", 3], ["d", 4]] as const) c.set(k, v);
+    c.get("a"); // order now b, c, d, a
+    c.capacity = 2;
+    expect(c.size).toBe(4); // nothing happens until trimmed
+    c.trim();
+    expect(onEvict.mock.calls).toEqual([["b", 2], ["c", 3]]);
+    expect([...c.entries()].map(([k]) => k)).toEqual(["d", "a"]);
+    c.trim(); // already within capacity: no-op
+    expect(onEvict).toHaveBeenCalledTimes(2);
+  });
 });
