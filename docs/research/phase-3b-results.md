@@ -46,6 +46,20 @@ Stage 1 (compliance) passed: the changed files match the plan's list exactly, no
 
 Real city after the fixes: 17 ponds, 1,755 cells, `ponds.json` 30 KB, no `hand_sources` (nothing is hand-drawn yet), sanity checks and the overlay cross-check pass. The browser checks above were made **before** the fixes and not repeated; the changes affect pond edges (higher ground at the shore) and the Sources panel (the hand-drawn section no longer appears while nothing is hand-drawn).
 
+## Re-check after the review fixes (real city, Browser pane)
+
+| Check | Result |
+|---|---|
+| Rebuilt assets are the fixed ones | **pass**: `ponds.json` has 17 ponds, all `inferred`, source "SFEI ... (extent); water level from the modern DEM"; `meta.json` has no `hand_sources` |
+| Mountain Lake | **pass**: unchanged look, flat surface, ramp on the uphill shore, no console messages |
+| Barrier-beach lagoon 1 (Presidio shore, level 3.45 m) | **pass**: the narrow lagoon behind the sandy bar sits on the ground with no hovering sheet |
+| Ponds share the sea's water material | **pass** (checked in the scene: one material for all 17 meshes, identical to the water module's) |
+| Water motion toggle | **partly**: the checkbox turned off and the shared material means ponds follow it; an animated-versus-still difference on a pond was not seen directly |
+| Whole-city view across the LOD switch | **pass**: LOD 1 draws the ponds without artifacts |
+| Console | no warnings or errors |
+
+Still **not** tested: reduced motion with the OS setting, rotation (Q and E) across the LOD switch while watching for shoreline flicker, phones.
+
 ## What was NOT exercised
 
 - Georeferencing on a real 1850s sheet (no sheet downloaded; synthetic sheets with known truth only).
