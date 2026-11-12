@@ -9,3 +9,6 @@ viewer/dist/
 # Derived from SFEI data with no stated license: keep out of git until SFEI confirms terms
 viewer/public/assets/real*/
 docs/research/local/
+
+# Generated synthetic whole-city test data (no real data in it, but 8 MB of binary)
+viewer/public/assets/city-synth/
