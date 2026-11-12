@@ -19,7 +19,7 @@ Executed from `docs/superpowers/plans/2026-11-11-phase-3b-authenticity-tooling.m
 | Check | Result |
 |---|---|
 | Mountain Lake: flat surface at its own level, no wall on the uphill shore | **pass**: a broad terraced ramp (terraces are the 10 m cell size under flat shading) |
-| Sources panel "Hand-drawn and sculpted" | **pass**: four rows, Documented badges, counts "2 ponds", "1 pond", "13 ponds", "1 pond"; the data-layer list also shows a `ponds` layer ("17 freshwater ponds from 4 sources ...") |
+| Sources panel "Hand-drawn and sculpted" | **pass before the review fixes** (four SFEI rows, Documented); **superseded**: after the fixes the section is absent until something is hand-drawn. The data-layer list shows a `ponds` layer ("17 freshwater ponds from 4 sources ...") |
 | Legend line "Ponds and lagoons sit at their own water level." | **pass** (present in the panel text) |
 | `ponds.json` missing | **pass**: exactly one console warning, no pond meshes, the map works |
 | Frame cost of ponds | **no measurable cost**: same view with and without `ponds.json` gave 19 and 17 fps (p90 52 and 59 ms), 41 and 38 draw calls, 661,531 and 661,208 triangles. The absolute numbers are **not** comparable to Phase 3's 8.3 ms: this pane was rendering a 1100 x 750 emulated viewport at zoom 14 and was throttled; only the A/B comparison means anything |
@@ -27,6 +27,24 @@ Executed from `docs/superpowers/plans/2026-11-11-phase-3b-authenticity-tooling.m
 | Flicker while rotating across the LOD switch | **not tested** |
 | Crissy Field lagoon | **not looked at** |
 | Compare tool on real output | **produced** (`docs/research/local/compare-mountain-lake.png`, three panels, grey sheet placeholder) |
+
+## Independent review (read-only, stronger model) and fixes
+
+Stage 1 (compliance) passed: the changed files match the plan's list exactly, nothing SFEI-derived or generated is tracked. Stage 2 found real defects that no test or browser check had caught. All were fixed test-first, one commit each (`c944165` through `8b2f0e7`); pipeline is now at **562** tests (+1 skipped), viewer unchanged at **572** (one comment added in `parse.ts`).
+
+| Finding | Fix |
+|---|---|
+| Overlapping ponds drew two water surfaces (the exported ring was the full polygon, carving used only the cells the pond owns) | Lower-priority ponds lose the area of higher-priority ones before export; every pond is clipped to the grid; a pond split in two gets ids suffixed `-2`, `-3` |
+| The pipeline could emit a `ponds.json` the viewer rejects whole (name over 120 characters, level outside -100..1000), leaving carved beds and no water | Both sides share the limits; the pipeline raises, naming the feature; a test builds the worst allowed pond |
+| Pond edges floated: the bank blend let the ground just outside a pond stay up to 1.75 m below its level (44 of 113 shore cells on the Crissy lagoon) | Lower bound uses distance minus half a cell. On the real city 121 of 706 shore cells were more than 0.5 m below their pond's level, now 32; 31 of those are bay or marsh cells, which the blend never touches |
+| Georeferencing accepted near-collinear control points (six points within 3 m of a 4 km line passed with RMS 1.1 m, yet a point 1 km off the line mapped about 400 m wrong) | Refuses badly conditioned fits (limits per order, 100 / 500 / 2000), degenerate hulls, and order 2 or 3 outputs that extend far beyond the control points (order 1 warns) |
+| SFEI ponds were listed under "Hand-drawn and sculpted", and labelled Documented although their level is the modern DEM median | Only hand ponds produce `hand_sources` rows; SFEI ponds and the `ponds` layer are **Inferred** ("extent from SFEI, level from the modern DEM") |
+| One collapsed hole aborted the whole build | Collapsed holes are dropped with a note; a collapsed outer ring drops an SFEI pond and refuses a hand pond |
+| A pond level under the sea plane (0.6 m) was accepted | Refused for hand ponds, dropped for SFEI ones |
+| Compare-tool lon/lat ticks used the middle latitude and longitude (40 to 50 m off) | Computed on the edge they are drawn on |
+| Minor: negative depth or shelf accepted; `check_polygons` ignored level and name; `--report` written on refusal; a stale docstring | Fixed |
+
+Real city after the fixes: 17 ponds, 1,755 cells, `ponds.json` 30 KB, no `hand_sources` (nothing is hand-drawn yet), sanity checks and the overlay cross-check pass. The browser checks above were made **before** the fixes and not repeated; the changes affect pond edges (higher ground at the shore) and the Sources panel (the hand-drawn section no longer appears while nothing is hand-drawn).
 
 ## What was NOT exercised
 

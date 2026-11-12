@@ -7060,3 +7060,9 @@ git commit -m "docs: Phase 3b results"
 | D. Tracing guide | Task D1 |
 | 3b-2 NOAA importer | Out of scope here; "What still needs a person" 5 |
 | Honest limits (synthetic-only georeferencing) | Spec section 6, "What the prototypes measured", "What still needs a person" 1 |
+
+---
+
+## Addendum A: execution and review fixes
+
+Executed mechanically in plan order (commits `8401af7` to `09bc418`, results note `11390ad`); every count in the tasks matched. An independent read-only review then found nine defects, fixed in `c944165` through `8b2f0e7` (pipeline 562 tests plus 1 skipped, viewer 572). Where this plan's code differs from the repository, **the repository is the truth**: notably pond ownership and clipping (`ponds.py`), the bank-blend lower bound, shared limits with `viewer/src/ponds/parse.ts`, georeferencing conditioning and extrapolation refusals, SFEI ponds being `inferred`, and `hand_sources` listing hand ponds only. See `docs/research/phase-3b-results.md` for the table.
