@@ -58,7 +58,7 @@ Not changed: no viewer test asserts the NOAA credit text (seen in the browser in
 
 ## What still needs a person
 
-1. Confirm or change the uncertain seeds on `docs/research/local/noaa-preview.png`: the Islais marsh seed, the 1857 bay seed (`b08-open-bay-east`) and the two importer closures.
+1. ~~Confirm or change the uncertain seeds~~ **Done 2026-11-12**: the owner reviewed the preview and accepted every seed and closure; `noaa_seeds.json` records this and keeps the known limits in each note. The data stays Inferred.
 2. Decide whether any unseeded area becomes bay, marsh or stays land.
 3. Treasure Island and Yerba Buena Island via the T-00687 scan (name file, source and size before downloading).
 4. The Phase 3b-1 items (Lake Merced pond, the two `Tidal coastal lagoon` polygons, Rincon Hill and the Market Street dune ridge) and the Phase 3 launch items (About and hotspot review, phone measurement, assistive-tech pass, SFEI reply, hosting).
