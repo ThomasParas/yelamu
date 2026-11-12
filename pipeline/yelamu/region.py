@@ -19,7 +19,8 @@ _OPTIONAL_PATHS = ("habitats", "bay", "marsh", "landforms", "checks")
 _OPTIONAL_PATH_LISTS = ("hand_bay", "hand_marsh", "hand_ponds")
 _OPTIONAL_FLOATS = ("smooth_m", "shelf_m", "shore_slope", "open_water_max_m",
                     "pond_max_depth_m", "pond_shelf_m", "pond_bank_slope", "pond_bank_m")
-_NON_NEGATIVE = ("pond_bank_slope", "pond_bank_m")
+_NON_NEGATIVE = ("pond_bank_slope", "pond_bank_m", "pond_max_depth_m")
+_POSITIVE = ("pond_shelf_m",)
 _OPTIONAL_INTS = ("shore_open_cells",)
 _OPTIONAL_STRING_LISTS = ("pond_classes",)
 _KNOWN = (*_REQUIRED, *_OPTIONAL_PATHS, *_OPTIONAL_PATH_LISTS, *_OPTIONAL_FLOATS,
@@ -50,8 +51,8 @@ class Region:
     # Ponds: HabitatCla values (SFEI) that are freshwater ponds; None = the built-in
     # default list (yelamu.ponds.DEFAULT_POND_CLASSES), [] = no SFEI ponds.
     pond_classes: list[str] | None = None
-    pond_max_depth_m: float | None = None
-    pond_shelf_m: float | None = None
+    pond_max_depth_m: float | None = None  # >= 0; 0 gives a bed at the water level
+    pond_shelf_m: float | None = None  # > 0
     pond_bank_slope: float | None = None  # >= 0; 0 disables bank grading
     pond_bank_m: float | None = None  # >= 0
 
@@ -129,6 +130,8 @@ def load_region(path: Path) -> Region:
             raise fail(f"{key} must be a number or null, got {value!r}")
         if key in _NON_NEGATIVE and value < 0:
             raise fail(f"{key} must be 0 or greater, got {value!r}")
+        if key in _POSITIVE and not value > 0:
+            raise fail(f"{key} must be greater than 0, got {value!r}")
         kwargs[key] = float(value)
     for key in _OPTIONAL_INTS:
         value = data.get(key)

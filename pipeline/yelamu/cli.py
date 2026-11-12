@@ -307,10 +307,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="SFEI HabitatCla values that are freshwater ponds (default: the four "
                         "pond/lake/lagoon classes; 'Tidal coastal lagoon' is not included)")
     p.add_argument("--pond-max-depth-m", type=float, default=DEFAULT_MAX_DEPTH_M,
-                   help="depth (m) of a pond bed below its water level, reached over "
+                   help="depth (m) of a pond bed below its water level (0 or more), reached over "
                         "--pond-shelf-m from the shore")
     p.add_argument("--pond-shelf-m", type=float, default=DEFAULT_SHELF_M,
-                   help="distance (m) over which a pond bed deepens from the shore to full depth")
+                   help="distance (m, greater than 0) over which a pond bed deepens from the shore "
+                        "to full depth")
     p.add_argument("--pond-bank-slope", type=float, default=DEFAULT_BANK_SLOPE,
                    help="maximum slope (m per m) of the graded bank around a pond; "
                         "0 disables the grading")
@@ -350,6 +351,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     missing = [f"--{name}" for name in ("dem", "bbox", "out") if getattr(args, name) is None]
     if missing:
         p.error("missing " + ", ".join(missing) + " (give the flag or use --region)")
+    if not args.pond_shelf_m > 0:
+        p.error(f"--pond-shelf-m must be greater than 0, got {args.pond_shelf_m:g}")
+    if not args.pond_max_depth_m >= 0:
+        p.error(f"--pond-max-depth-m must be 0 or greater, got {args.pond_max_depth_m:g}")
     return args
 
 

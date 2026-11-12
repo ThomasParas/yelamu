@@ -1122,3 +1122,20 @@ def test_pond_bank_flags_merge_with_region_defaults(tmp_path):
     assert (b.pond_bank_slope, b.pond_bank_m) == (0.2, 50)
     plain = parse_args(["--dem", "d.tif", "--bbox", "1", "2", "3", "4", "--out", "o"])
     assert (plain.pond_bank_slope, plain.pond_bank_m) == (0.35, 200.0)
+
+
+@pytest.mark.parametrize("flag,value,needle", [
+    ("--pond-shelf-m", "0", "pond-shelf-m"), ("--pond-shelf-m", "-5", "pond-shelf-m"),
+    ("--pond-max-depth-m", "-1", "pond-max-depth-m"),
+])
+def test_cli_rejects_a_non_positive_pond_shelf_and_a_negative_depth(tmp_path, capsys, flag, value, needle):
+    base = ["--dem", "d.tif", "--bbox", *map(str, BBOX), "--out", str(tmp_path / "o")]
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*base, flag, value])
+    assert exc.value.code == 2 and needle in capsys.readouterr().err
+
+
+def test_cli_accepts_zero_depth_and_a_small_positive_shelf():
+    base = ["--dem", "d.tif", "--bbox", *map(str, BBOX), "--out", "o"]
+    a = parse_args([*base, "--pond-max-depth-m", "0", "--pond-shelf-m", "0.5"])
+    assert a.pond_max_depth_m == 0.0 and a.pond_shelf_m == 0.5

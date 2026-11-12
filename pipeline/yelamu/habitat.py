@@ -71,7 +71,7 @@ def rasterize_habitats(
     skipped. Classes are burned one at a time in sorted-name order, so where polygons of
     different classes overlap, the class that sorts LAST wins (deterministic, and
     independent of feature order). A cell is a class if its centre is inside a polygon.
-    More than 251 distinct classes raises ValueError (ids must fit in uint8).
+    More than MAX_SFEI_CLASSES (250: ids 5..254 in a uint8) distinct classes raises ValueError.
     """
     by_class: dict[str, list] = {}
     for feature in collection.get("features", []):

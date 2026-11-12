@@ -148,6 +148,7 @@ def test_bad_cell_m_is_rejected(tmp_path, cell):
     ("pond_classes", "Fen"), ("pond_classes", [1]), ("pond_classes", ["Fen", " "]),
     ("pond_max_depth_m", "deep"), ("pond_shelf_m", True),
     ("pond_bank_slope", -0.1), ("pond_bank_slope", "x"), ("pond_bank_m", -5), ("pond_bank_m", True),
+    ("pond_max_depth_m", -0.5), ("pond_shelf_m", 0), ("pond_shelf_m", -20),
 ])
 def test_bad_value_types_are_rejected_naming_key_and_file(tmp_path, key, value):
     path = _write(tmp_path, {**MINIMAL, key: value}, "v.json")
@@ -208,3 +209,12 @@ def test_full_city_region_values():
 def test_bank_slope_zero_is_allowed(tmp_path):
     r = load_region(_write(tmp_path, {**MINIMAL, "pond_bank_slope": 0, "pond_bank_m": 0}))
     assert r.pond_bank_slope == 0.0 and r.pond_bank_m == 0.0
+
+
+def test_pond_depth_may_be_zero_but_the_shelf_must_be_positive(tmp_path):
+    r = load_region(_write(tmp_path, {**MINIMAL, "pond_max_depth_m": 0, "pond_shelf_m": 0.5}))
+    assert r.pond_max_depth_m == 0.0 and r.pond_shelf_m == 0.5
+    with pytest.raises(ValueError, match="pond_shelf_m must be greater than 0"):
+        load_region(_write(tmp_path, {**MINIMAL, "pond_shelf_m": 0}, "s.json"))
+    with pytest.raises(ValueError, match="pond_max_depth_m must be 0 or greater"):
+        load_region(_write(tmp_path, {**MINIMAL, "pond_max_depth_m": -1}, "d.json"))

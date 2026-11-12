@@ -121,3 +121,26 @@ def test_the_shipped_empty_hand_files_pass():
     files = sorted((root / "data/full-city/hand").glob("*.geojson"))
     assert {f.name for f in files} == {"hand_bay.geojson", "hand_marsh.geojson", "hand_ponds.geojson"}
     assert main([*map(str, files), "--region", str(root / "regions/full-city.json")]) == 0
+
+
+@pytest.mark.parametrize("props,needle", [
+    ({"level_m": "high"}, "level_m"),
+    ({"level_m": True}, "level_m"),
+    ({"level_m": 1000.5}, "level_m"),
+    ({"level_m": -100.5}, "level_m"),
+    ({"level_m": float("nan")}, "level_m"),
+    ({"name": "N" * 121}, "name"),
+])
+def test_hand_pond_level_and_name_the_viewer_would_reject_fail(tmp_path, props, needle):
+    path = write(tmp_path, [feat(sq(-122.40, 37.77, -122.39, 37.78), **GOOD, **props)])
+    r = check_file(path, BBOX)
+    assert not r.ok and any(needle in p and "feature 0" in p for p in r.problems)
+    assert main([str(path)]) == 1
+
+
+def test_valid_hand_pond_level_and_name_pass(tmp_path):
+    path = write(tmp_path, [
+        feat(sq(-122.40, 37.77, -122.39, 37.78), **GOOD, level_m=12.5, name="Lake"),
+        feat(sq(-122.38, 37.77, -122.37, 37.78), **GOOD, level_m=1000, name="N" * 120),
+        feat(sq(-122.36, 37.77, -122.35, 37.78), **GOOD, level_m=-100)])
+    assert check_file(path, BBOX).ok

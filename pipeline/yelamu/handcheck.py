@@ -6,14 +6,16 @@ For each GeoJSON file: feature count, geometry validity as drawn, provenance (so
 confidences), total area in hectares, features outside the region's bounding box, and
 pairs of features of the same file that overlap by more than 0.5 ha. Exit code 1 when any
 file has an unreadable or invalid geometry, a feature without a valid source / confidence,
-or a feature lying entirely outside the bbox (overlaps and partly-outside features are
-only warnings).
+a `level_m` that is not a finite number from -100 to 1000 or a `name` over 120 characters
+(the viewer would reject the pond file), or a feature lying entirely outside the bbox
+(overlaps and partly-outside features are only warnings).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from shapely.geometry import box, shape
 from shapely.validation import explain_validity
 
 from yelamu.geo import Grid
+from yelamu.ponds import MAX_LEVEL_M, MAX_NAME_CHARS, MIN_LEVEL_M
 from yelamu.provenance import provenance_problem
 from yelamu.region import load_region
 from yelamu.sources import feature_label, geometry_to_utm_polygons
@@ -50,6 +53,23 @@ class FileReport:
 
 def _label(path: Path, index: int, props) -> str:
     return feature_label(path.name, index, props)
+
+
+def _pond_property_problems(props: dict) -> list[str]:
+    """Problems with a feature's `level_m` and `name` (hand ponds), by the viewer's limits."""
+    problems = []
+    level = props.get("level_m")
+    if level is not None and (
+        isinstance(level, bool) or not isinstance(level, (int, float))
+        or not math.isfinite(level) or not MIN_LEVEL_M <= level <= MAX_LEVEL_M
+    ):
+        problems.append(f"properties.level_m must be a number from {MIN_LEVEL_M:g} to "
+                        f"{MAX_LEVEL_M:g} (metres), got {level!r}")
+    name = props.get("name")
+    if isinstance(name, str) and len(name.strip()) > MAX_NAME_CHARS:
+        problems.append(f"properties.name is {len(name.strip())} characters, longer than the "
+                        f"{MAX_NAME_CHARS} the viewer accepts")
+    return problems
 
 
 def check_file(
@@ -103,6 +123,7 @@ def check_file(
         else:
             report.sources[props["source"].strip()] += 1
             report.confidences[props["confidence"]] += 1
+        report.problems += [f"{label}: {m}" for m in _pond_property_problems(props)]
         geom = shapely.unary_union(parts)
         report.area_ha += geom.area / 1e4
         kept.append((index, props, geom))
