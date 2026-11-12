@@ -45,11 +45,11 @@ The island is 1930s fill. In 1769 there was a shoal north of Yerba Buena Island.
 
 ## Area 3: ponds
 
-*Lake Merced (north and south lakes), others the SFEI layer misses.* SFEI's layer ends at latitude 37.7328, so **Lake Merced is not in it**. Trace each lake into `hand_ponds.geojson` with `"level_m"` (the surface height in metres) and `"name"`. For Lake Merced the modern DEM gives about 5.6 m, which is a reasonable value: say so in `source`.
+*Lake Merced (north, east and south lakes), others the SFEI layer misses.* SFEI's layer ends at latitude 37.7328, so **Lake Merced is not in it** (and the NOAA vectors only draw the Pacific shore there). Trace each lake into `hand_ponds.geojson` with `"level_m"` (the surface height in metres) and `"name"`.
 
-- Source example: `"Lake Merced extent from <sheet>, level from USGS 3DEP DEM (modern surface)"`; confidence `inferred`.
-- SFEI pond classes already give 17 ponds. The two **Tidal coastal lagoon** polygons (near -122.404, 37.796 and -122.413, 37.804) are not included on purpose: decide with the compare image whether they are a lagoon behind a bar or an open tidal channel, then either add `"Tidal coastal lagoon"` to `pond_classes` in `regions/full-city.json` or trace them as marsh.
-- Check: `ponds.json` lists the pond, the viewer shows a flat water surface at its level with no wall on the uphill side, and the compare image's blue area follows the sheet.
+- **Done 2026-11-12 (owner's choice)**: the three lakes are traced from the flat 5.55 to 5.70 m lake surface of the modern USGS DEM by `scripts/trace_flat_lakes.py` (22.6, 10.0 and 67.6 ha; level 5.6 m), `confidence: inferred`. The outline is the **modern** lake: the 1769 outline is not known to this project, and the 6 ha impoundment is not traced. Replace them if you later trace the 1852 sheet (T-00382).
+- SFEI pond classes give 17 ponds. The two **Tidal coastal lagoon** patches (0.9 + 0.5 ha near -122.413, 37.804 and -122.404, 37.796) are **tidal marsh** (owner's choice, 2026-11-12): `regions/full-city.json` lists the class in `marsh_classes`, so the build draws those cells at the marsh level (0.5 m) and keeps the SFEI habitat class. They are not ponds (a tidal lagoon is not freshwater).
+- Check: `ponds.json` lists the pond, the viewer shows a flat water surface at its level with no wall on the uphill side.
 
 ## Area 4: lost landforms
 
@@ -63,3 +63,8 @@ The island is 1930s fill. In 1769 there was a shoal north of Yerba Buena Island.
 ## When you are done
 
 Run the whole test-suite, rebuild everything, look at the real city in the viewer at the places you changed, and add one line per area to `docs/research/phase-3b-results.md` saying what source you used and what is still a guess.
+
+**Entries made (2026-11-12, owner approved, both `inferred`):**
+
+- *Rincon Hill (original height)*: a bump of +5.0 m at -122.39219, 37.78558 (radius 180 m). Source: Charles Lockwood, SPUR (2003), "A History of Ever-changing Rincon Hill": the hill rose 120 ft (36.6 m); the DEM peak today is 31.6 m. SPUR says "above the uninhabited sand dunes", so reading 120 ft as the peak height is an upper reading. The radius is an assumption.
+- *Market Street sand hill*: a bump of +13.7 m at -122.4021, 37.7880 (radius 150 m). Source: FoundSF, "Mission Plank Road": "an 80-foot sand hill between Second and Third Streets" (24.4 m); the DEM there averages 10.7 m. A single mention, and the position and radius are assumptions. Other texts speak of dunes of 100 to 200 ft in this area; none is used.

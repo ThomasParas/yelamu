@@ -1,1 +1,22 @@
-[]
+[
+ {
+  "kind": "bump",
+  "name": "Rincon Hill (original height)",
+  "lon": -122.39219,
+  "lat": 37.78558,
+  "radius_m": 180,
+  "delta_m": 5.0,
+  "source": "Lockwood, SPUR 2003: Rincon Hill rose 120 ft (36.6 m); DEM peak today 31.6 m; +5.0 m added. Footprint radius 180 m assumed",
+  "confidence": "inferred"
+ },
+ {
+  "kind": "bump",
+  "name": "Market Street sand hill",
+  "lon": -122.4021,
+  "lat": 37.788,
+  "radius_m": 150,
+  "delta_m": 13.7,
+  "source": "FoundSF 'Mission Plank Road': an 80-ft (24.4 m) sand hill between Second and Third Streets; DEM there 10.7 m; +13.7 m added. Radius 150 m assumed",
+  "confidence": "inferred"
+ }
+]

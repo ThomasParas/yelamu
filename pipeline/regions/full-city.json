@@ -15,6 +15,7 @@
     "Barrier beach-impounded freshwater lagoon",
     "Other pond or lake"
   ],
+  "marsh_classes": ["Tidal coastal lagoon"],
   "landforms": "data/full-city/landforms.json",
   "checks": "data/full-city/checks.json",
   "out": "../viewer/public/assets/real-city"

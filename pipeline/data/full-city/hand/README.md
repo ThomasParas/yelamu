@@ -69,3 +69,14 @@ keep working.
 - `note` (optional): free text.
 
 Any seed or input error exits with status 1 and writes nothing.
+
+## Lake Merced (generated file entries)
+
+`hand_ponds.geojson` currently holds the three Lake Merced lakes, **generated** by
+`scripts/trace_flat_lakes.py` from the flat lake surface of the modern DEM (level 5.6 m,
+`confidence: inferred`; the outline is the modern one). Re-run:
+
+    uv run python scripts/trace_flat_lakes.py --region regions/full-city.json \
+        --out data/full-city/hand/hand_ponds.geojson
+
+Replace the file by hand if you trace a historical outline.
