@@ -1,12 +1,12 @@
 /** Legend panel: what the ground colours and map symbols mean. */
 import type { HeightmapMeta } from "../heightmap";
-import { legendEntries } from "../legendEntries";
+import { legendEntries, legendNotes } from "../legendEntries";
 import { VEGETATION_NOTE } from "../provenanceData";
 import type { Shell } from "./shell";
 
 export function createLegend(
   shell: Shell,
-  meta: Pick<HeightmapMeta, "habitat_classes" | "overlay_file">,
+  meta: Pick<HeightmapMeta, "habitat_classes" | "overlay_file" | "ponds_file">,
   options: { vegetation?: boolean } = {},
 ) {
   const panel = shell.addPanel("legend", "Legend");
@@ -35,6 +35,13 @@ export function createLegend(
     none.className = "panel__note";
     none.textContent = "This dataset has no ground classes.";
     parts.splice(1, 1, none);
+  }
+
+  for (const text of legendNotes(meta)) {
+    const note = document.createElement("p");
+    note.className = "panel__note";
+    note.textContent = text;
+    parts.push(note);
   }
 
   if (meta.overlay_file) {

@@ -40,3 +40,13 @@ export function legendEntries(classes: readonly HabitatClass[] | undefined): Leg
     color: hexToCss(GROUP_COLORS[group]),
   }));
 }
+
+/** Legend line for datasets that draw ponds (those with `ponds_file`). Plain text, no colour of its own. */
+export const PONDS_LEGEND_NOTE = "Ponds and lagoons sit at their own water level.";
+
+/** Extra plain-text lines the Legend shows beneath the ground colours, depending on the dataset. */
+export function legendNotes(meta: { ponds_file?: string | null }): string[] {
+  const notes: string[] = [];
+  if (typeof meta.ponds_file === "string" && meta.ponds_file !== "") notes.push(PONDS_LEGEND_NOTE);
+  return notes;
+}

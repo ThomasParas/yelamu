@@ -1,7 +1,7 @@
 /** Sources panel: where each data layer comes from and how sure we are. */
 import { confidenceInfo } from "../confidence";
 import type { HeightmapMeta } from "../heightmap";
-import { OVERLAY_NOTE, VEGETATION_NOTE, processingEntries } from "../provenanceData";
+import { HAND_SOURCES_NOTE, OVERLAY_NOTE, VEGETATION_NOTE, handSourceRows, processingEntries } from "../provenanceData";
 import { confidenceBadge } from "./hotspotPanel";
 import type { Shell } from "./shell";
 
@@ -14,7 +14,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
 
 export function createProvenance(
   shell: Shell,
-  meta: Pick<HeightmapMeta, "layers" | "processing" | "overlay_file">,
+  meta: Pick<HeightmapMeta, "layers" | "processing" | "overlay_file" | "hand_sources">,
   options: { vegetation?: boolean } = {},
 ) {
   const panel = shell.addPanel("provenance", "Sources");
@@ -44,6 +44,32 @@ export function createProvenance(
     }
     card.appendChild(dl);
     parts.push(card);
+  }
+
+  const handRows = handSourceRows(meta.hand_sources);
+  if (handRows.length > 0) {
+    parts.push(el("h3", "panel__subtitle", "Hand-drawn and sculpted"));
+    parts.push(el("p", "panel__note", HAND_SOURCES_NOTE));
+    for (const row of handRows) {
+      const card = el("section", "prov");
+      card.appendChild(el("h4", "prov__title", row.label));
+      const dl = el("dl", "prov__list");
+      const info = confidenceInfo(row.confidence);
+      const confidenceDd = el("dd");
+      confidenceDd.append(confidenceBadge(row.confidence), el("span", "hotspot__meaning", info.meaning));
+      const rows: Array<[string, Node | string]> = [
+        ["Source", row.source],
+        ["Confidence", confidenceDd],
+      ];
+      if (row.countText) rows.push(["Features", row.countText]);
+      for (const [term, value] of rows) {
+        dl.appendChild(el("dt", undefined, term));
+        if (typeof value === "string") dl.appendChild(el("dd", undefined, value));
+        else dl.appendChild(value);
+      }
+      card.appendChild(dl);
+      parts.push(card);
+    }
   }
 
   const entries = processingEntries(meta.processing);

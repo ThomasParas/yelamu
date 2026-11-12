@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { OVERLAY_NOTE, VEGETATION_NOTE, formatValue, processingEntries } from "./provenanceData";
+import type { HandSource } from "./heightmap";
+import { HAND_SOURCES_NOTE, OVERLAY_NOTE, VEGETATION_NOTE, formatValue, handSourceRows, processingEntries } from "./provenanceData";
 
 describe("formatValue", () => {
   it("formats scalars", () => {
@@ -80,5 +81,110 @@ describe("VEGETATION_NOTE", () => {
     expect(VEGETATION_NOTE).toBe(
       "Vegetation shapes (trees, shrubs, reeds) are illustrative: they show the kind of plants, not individual plants.",
     );
+  });
+});
+
+describe("handSourceRows", () => {
+  const hs = (over: Record<string, unknown> = {}) =>
+    ({ layer: "hand_water", source: "Coast Survey", confidence: "inferred", count: 3, ...over }) as HandSource;
+
+  it("labels the known layers and words the count", () => {
+    const rows = handSourceRows([
+      hs(),
+      hs({ layer: "landforms", source: "Sculpted", count: 2 }),
+      hs({ layer: "ponds", source: "Pond file", count: 1, confidence: "documented" }),
+    ]);
+    expect(rows).toEqual([
+      { layer: "hand_water", label: "Hand-drawn water", source: "Coast Survey", confidence: "inferred", countText: "3 polygons" },
+      { layer: "landforms", label: "Sculpted landforms", source: "Sculpted", confidence: "inferred", countText: "2 landforms" },
+      { layer: "ponds", label: "Ponds", source: "Pond file", confidence: "documented", countText: "1 pond" },
+    ]);
+  });
+
+  it("uses singular and plural correctly, including zero", () => {
+    expect(handSourceRows([hs({ count: 1 })])[0].countText).toBe("1 polygon");
+    expect(handSourceRows([hs({ count: 0 })])[0].countText).toBe("0 polygons");
+    expect(handSourceRows([hs({ layer: "landforms", count: 1 })])[0].countText).toBe("1 landform");
+    expect(handSourceRows([hs({ layer: "ponds", count: 5 })])[0].countText).toBe("5 ponds");
+  });
+
+  it("sorts known layers in a fixed order, then others by id, then by source", () => {
+    const rows = handSourceRows([
+      hs({ layer: "zeta_layer", source: "a" }),
+      hs({ layer: "ponds", source: "b" }),
+      hs({ layer: "hand_water", source: "z source" }),
+      hs({ layer: "alpha_layer", source: "a" }),
+      hs({ layer: "hand_water", source: "a source" }),
+      hs({ layer: "landforms", source: "m" }),
+    ]);
+    expect(rows.map((r) => `${r.layer}:${r.source}`)).toEqual([
+      "hand_water:a source",
+      "hand_water:z source",
+      "landforms:m",
+      "ponds:b",
+      "alpha_layer:a",
+      "zeta_layer:a",
+    ]);
+  });
+
+  it("humanises unknown layer ids and counts them as items", () => {
+    const rows = handSourceRows([hs({ layer: "wind_gaps", count: 2 }), hs({ layer: "constructor", count: 1 })]);
+    expect(rows.map((r) => r.label)).toEqual(["Constructor", "Wind gaps"]);
+    expect(rows[1].countText).toBe("2 items");
+    expect(rows[0].countText).toBe("1 item");
+  });
+
+  it("tolerates junk input", () => {
+    for (const bad of [undefined, null, "x", 5, {}, true]) {
+      expect(handSourceRows(bad as unknown as HandSource[])).toEqual([]);
+    }
+    expect(handSourceRows([])).toEqual([]);
+    const rows = handSourceRows([
+      null,
+      5,
+      "str",
+      [],
+      {},
+      { layer: "" },
+      { layer: "   " },
+      { layer: 7 },
+      hs(),
+    ] as unknown as HandSource[]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("fills in missing fields without throwing", () => {
+    const rows = handSourceRows([
+      { layer: "ponds" },
+      { layer: "ponds", source: "   ", confidence: 5, count: "3" },
+      { layer: "ponds", source: "x", count: -1 },
+      { layer: "ponds", source: "y", count: 1.5 },
+      { layer: "ponds", source: "z", count: NaN },
+    ] as unknown as HandSource[]);
+    expect(rows).toHaveLength(5);
+    for (const r of rows) {
+      expect(r.countText).toBe("");
+      expect(r.confidence).toBe("");
+    }
+    expect(rows.find((r) => r.source === "Source not recorded")).toBeDefined();
+  });
+
+  it("clips very long text", () => {
+    const row = handSourceRows([hs({ source: "s".repeat(1000), layer: "q".repeat(500) })])[0];
+    expect(row.source.length).toBe(200);
+    expect(row.label.length).toBeLessThanOrEqual(60);
+  });
+
+  it("does not modify its input", () => {
+    const input = [hs({ layer: "ponds" }), hs()];
+    const copy = JSON.stringify(input);
+    handSourceRows(input);
+    expect(JSON.stringify(input)).toBe(copy);
+  });
+});
+
+describe("HAND_SOURCES_NOTE", () => {
+  it("is plain text", () => {
+    expect(HAND_SOURCES_NOTE).toMatch(/^Features drawn or sculpted by hand/);
   });
 });

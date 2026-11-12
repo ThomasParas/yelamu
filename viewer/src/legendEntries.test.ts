@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GROUP_COLORS } from "./habitat";
-import { GROUP_LABELS, hexToCss, legendEntries } from "./legendEntries";
+import { GROUP_LABELS, PONDS_LEGEND_NOTE, hexToCss, legendEntries, legendNotes } from "./legendEntries";
 
 describe("hexToCss", () => {
   it("pads to six digits", () => {
@@ -34,5 +34,15 @@ describe("legendEntries", () => {
 
   it("has a label for every colour group", () => {
     expect(GROUP_LABELS.map(([g]) => g).sort()).toEqual(Object.keys(GROUP_COLORS).sort());
+  });
+});
+
+describe("legendNotes", () => {
+  it("adds the ponds line only when the dataset has a ponds file", () => {
+    expect(PONDS_LEGEND_NOTE).toBe("Ponds and lagoons sit at their own water level.");
+    expect(legendNotes({ ponds_file: "ponds.json" })).toEqual([PONDS_LEGEND_NOTE]);
+    expect(legendNotes({})).toEqual([]);
+    expect(legendNotes({ ponds_file: "" })).toEqual([]);
+    expect(legendNotes({ ponds_file: null })).toEqual([]);
   });
 });
