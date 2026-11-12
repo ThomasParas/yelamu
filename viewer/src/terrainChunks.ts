@@ -20,6 +20,19 @@ export interface TerrainChunksOptions {
   lruCapacity?: number;
   /** Max full-resolution chunks built by one update() call. Default 6. */
   maxBuildsPerUpdate?: number;
+  /** Observers of the full-resolution chunk lifecycle (e.g. a vegetation layer). */
+  hooks?: TerrainChunkHooks;
+}
+
+/**
+ * Called for LOD0 (full resolution) chunk meshes only. `onLod0Built` runs right after the
+ * mesh has been created and added to `root`; `onLod0Evicted` runs when the LRU drops it
+ * (or on dispose), BEFORE its geometry is disposed and the mesh is removed from `root`,
+ * so a hook can detach children it added. A throwing hook is logged and ignored.
+ */
+export interface TerrainChunkHooks {
+  onLod0Built(plan: ChunkPlan, mesh: THREE.Mesh): void;
+  onLod0Evicted(plan: ChunkPlan, mesh: THREE.Mesh): void;
 }
 
 export type ColorAt = (cellIndex: number, heightM: number) => [number, number, number];
@@ -45,6 +58,7 @@ export class TerrainChunks {
   private readonly visibleLod0 = new Set<THREE.Mesh>();
   private readonly baseCapacity: number;
   private readonly maxBuilds: number;
+  private readonly hooks: TerrainChunkHooks | undefined;
   private switchZoom: number;
   private currentLod: Lod = 1;
 
@@ -65,7 +79,9 @@ export class TerrainChunks {
     this.switchZoom = options.switchZoom;
     this.baseCapacity = options.lruCapacity ?? 96;
     this.maxBuilds = options.maxBuildsPerUpdate ?? 6;
+    this.hooks = options.hooks;
     this.lod0 = new LruCache<string, THREE.Mesh>(this.baseCapacity, (_key, mesh) => {
+      this.runHook("onLod0Evicted", mesh);
       this.visibleLod0.delete(mesh);
       this.root.remove(mesh);
       mesh.geometry.dispose();
@@ -140,6 +156,7 @@ export class TerrainChunks {
       const mesh = this.makeMesh(e.plan, 0);
       this.root.add(mesh);
       this.lod0.set(chunkKey(e.plan, 0), mesh);
+      this.runHook("onLod0Built", mesh);
       nowVisible.add(mesh);
       covered.add(e);
       built++;
@@ -156,6 +173,11 @@ export class TerrainChunks {
     for (const m of nowVisible) this.visibleLod0.add(m);
 
     return missing.length > built;
+  }
+
+  /** The full-resolution meshes currently shown (read-only view; do not keep it across updates). */
+  visibleLod0Meshes(): ReadonlySet<THREE.Mesh> {
+    return this.visibleLod0;
   }
 
   stats(): { lod: Lod; lod0Resident: number; lod0Visible: number; lod1Visible: number } {
@@ -189,8 +211,18 @@ export class TerrainChunks {
     );
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.userData.lod = lod;
+    mesh.userData.plan = chunk;
     mesh.matrixAutoUpdate = false; // chunks sit at the origin and never move
     return mesh;
+  }
+
+  private runHook(name: keyof TerrainChunkHooks, mesh: THREE.Mesh): void {
+    if (!this.hooks) return;
+    try {
+      this.hooks[name](mesh.userData.plan as ChunkPlan, mesh);
+    } catch (err) {
+      console.error(`terrain chunk hook ${name} failed`, err);
+    }
   }
 
   private heightRange(c: ChunkPlan): [number, number] {

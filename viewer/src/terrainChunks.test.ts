@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { ChunkPlan } from "./chunks";
 import { TerrainChunks } from "./terrainChunks";
 
 // 33x33 samples, 10 m cells -> world x/z in [-160, 160]; 4x4 chunks of 8 cells (80 m).
@@ -227,5 +228,104 @@ describe("TerrainChunks", () => {
     const t = new TerrainChunks(heights, size, 1, undefined, material, { chunkCells: 8, switchZoom: 2 });
     expect(lodMeshes(t, 1)[0].geometry.getAttribute("color")).toBeUndefined();
     t.dispose();
+  });
+
+  describe("hooks", () => {
+    function hooked(opts: Partial<ConstructorParameters<typeof TerrainChunks>[5]> = {}) {
+      const built: Array<[ChunkPlan, THREE.Mesh]> = [];
+      const evicted: Array<[ChunkPlan, THREE.Mesh, boolean, boolean]> = [];
+      let t!: TerrainChunks;
+      t = make({
+        hooks: {
+          onLod0Built: (plan, mesh) => built.push([plan, mesh]),
+          // record what the hook can still see at eviction time
+          onLod0Evicted: (plan, mesh) =>
+            evicted.push([plan, mesh, t.root.children.includes(mesh), mesh.geometry.getAttribute("position") !== undefined]),
+        },
+        ...opts,
+      });
+      return { t, built, evicted };
+    }
+
+    it("fires onLod0Built once per built chunk, after the mesh is added, with its plan", () => {
+      const { t, built } = hooked();
+      expect(built).toHaveLength(0); // LOD1 meshes never fire hooks
+      t.update(camera(-100, -100, 400, 4));
+      expect(built).toHaveLength(4);
+      for (const [plan, mesh] of built) {
+        expect(mesh.userData.lod).toBe(0);
+        expect(t.root.children.includes(mesh)).toBe(true);
+        expect(mesh.userData.plan).toBe(plan);
+        expect(typeof plan.cx).toBe("number");
+      }
+      // cached chunks are not announced again
+      t.update(camera(-100, -100, 400, 4));
+      t.update(camera(-100, -100, 400, 1));
+      t.update(camera(-100, -100, 400, 4));
+      expect(built).toHaveLength(4);
+      t.dispose();
+    });
+
+    it("fires onLod0Evicted once per eviction, before the geometry is disposed and the mesh removed", () => {
+      const { t, built, evicted } = hooked({ lruCapacity: 2 });
+      t.update(camera(-100, -100, 400, 12));
+      const first = built[0][1];
+      let disposedAtHook: boolean | null = null;
+      first.geometry.addEventListener("dispose", () => {
+        disposedAtHook = evicted.length > 0; // the hook has already run
+      });
+      t.update(camera(100, -100, 400, 12));
+      expect(evicted).toHaveLength(0);
+      t.update(camera(100, 100, 400, 12)); // third chunk evicts the first
+      expect(built).toHaveLength(3);
+      expect(evicted).toHaveLength(1);
+      const [plan, mesh, stillChild, hasGeometry] = evicted[0];
+      expect(mesh).toBe(first);
+      expect(plan).toBe(built[0][0]);
+      expect(stillChild).toBe(true); // not yet removed from root
+      expect(hasGeometry).toBe(true);
+      expect(disposedAtHook).toBe(true);
+      expect(t.root.children.includes(first)).toBe(false);
+      t.dispose();
+    });
+
+    it("announces evictions of everything on dispose", () => {
+      const { t, built, evicted } = hooked();
+      t.update(camera(-100, -100, 400, 4));
+      t.dispose();
+      expect(evicted).toHaveLength(built.length);
+    });
+
+    it("survives a throwing hook", () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const t = make({
+        hooks: {
+          onLod0Built: () => {
+            throw new Error("boom");
+          },
+          onLod0Evicted: () => {
+            throw new Error("boom");
+          },
+        },
+        lruCapacity: 1,
+      });
+      expect(() => {
+        t.update(camera(-100, -100, 400, 12));
+        t.update(camera(100, 100, 400, 12));
+      }).not.toThrow();
+      expect(t.stats().lod0Resident).toBe(1);
+      t.dispose();
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it("exposes the visible LOD0 meshes", () => {
+      const t = make();
+      t.update(camera(-100, -100, 400, 4));
+      expect(t.visibleLod0Meshes().size).toBe(4);
+      t.update(camera(-100, -100, 400, 1));
+      expect(t.visibleLod0Meshes().size).toBe(0);
+      t.dispose();
+    });
   });
 });
