@@ -305,3 +305,97 @@ def test_land_ramp_edge_cases_no_water_and_all_water():
     everything = np.ones((4, 4), dtype=bool)
     out = apply_land_ramp(dem, everything, 10.0, 0.15)
     assert np.array_equal(out, dem) and out is not dem
+
+
+# ------------------------------------------------------------------ stamp_ridge
+
+from yelamu.terrain import stamp_ridge  # noqa: E402
+
+
+def _ridge_grid():
+    # 41 x 21 cells of 10 m; cell centres at x = 5, 15, ..., 405 and y = 205 .. 5 (row 0 north).
+    return Grid(west=0, south=0, east=410, north=210, cell=10)
+
+
+def _xy_to_rc(x, y):
+    return int((210 - y) // 10), int(x // 10)
+
+
+def test_ridge_peak_is_full_delta_on_the_line_and_zero_outside():
+    grid = _ridge_grid()
+    dem = np.zeros((grid.height, grid.width), dtype="float32")
+    # West-east line along y = 105 (the boundary between rows 9 and 10), x 100..300.
+    out = stamp_ridge(dem, grid, [(105, 105), (305, 105)], half_width_m=40, delta_m=12)
+    assert out.dtype == np.float32
+    # Cell centres on the line (y = 105 is a centre of rows 10: y=105 -> row (210-105)//10 = 10).
+    r, c = _xy_to_rc(205, 105)
+    assert out[r, c] == pytest.approx(12.0, abs=1e-4)
+    # 20 m off the line (half of half_width): raised cosine gives 0.5.
+    assert out[r - 2, c] == pytest.approx(6.0, abs=1e-4)
+    assert out[r + 2, c] == pytest.approx(6.0, abs=1e-4)  # symmetric
+    # At and beyond half_width: exactly zero.
+    assert out[r - 4, c] == 0.0 and out[r + 4, c] == 0.0
+    assert out[r - 6, c] == 0.0
+    # Far along the line, outside the ridge's ends.
+    assert out[r, _xy_to_rc(405, 105)[1]] == 0.0
+
+
+def test_ridge_falloff_matches_raised_cosine():
+    grid = _ridge_grid()
+    dem = np.zeros((grid.height, grid.width), dtype="float32")
+    out = stamp_ridge(dem, grid, [(5, 105), (405, 105)], half_width_m=50, delta_m=10)
+    r, c = _xy_to_rc(205, 105)
+    for k in range(0, 5):
+        d = 10.0 * k
+        assert out[r + k, c] == pytest.approx(10 * 0.5 * (1 + np.cos(np.pi * d / 50)), abs=1e-4)
+
+
+def test_ridge_negative_delta_lowers_and_deltas_add_to_existing_ground():
+    grid = _ridge_grid()
+    dem = np.full((grid.height, grid.width), 20.0, dtype="float32")
+    r, c = _xy_to_rc(205, 105)
+    lowered = stamp_ridge(dem, grid, [(105, 105), (305, 105)], 40, -8)
+    assert lowered[r, c] == pytest.approx(12.0, abs=1e-4)
+    assert lowered[0, 0] == 20.0
+    # Two overlapping ridges ADD (like stamp_landform): never max'd or double-clamped.
+    twice = stamp_ridge(lowered, grid, [(105, 105), (305, 105)], 40, -8)
+    assert twice[r, c] == pytest.approx(4.0, abs=1e-4)
+    # The input is not modified.
+    assert dem[r, c] == 20.0
+
+
+def test_ridge_endpoints_have_round_caps_and_a_self_overlapping_line_is_applied_once():
+    grid = _ridge_grid()
+    dem = np.zeros((grid.height, grid.width), dtype="float32")
+    out = stamp_ridge(dem, grid, [(105, 105), (205, 105)], half_width_m=40, delta_m=10)
+    r, c_end = _xy_to_rc(205, 105)
+    assert out[r, c_end] == pytest.approx(10.0, abs=1e-4)  # on the end point
+    # 20 m beyond the end along the axis: distance 20 -> 0.5
+    assert out[r, c_end + 2] == pytest.approx(5.0, abs=1e-4)
+    assert out[r, c_end + 4] == 0.0
+    # A line that doubles back over itself must not stack: still the full delta at most.
+    back = stamp_ridge(dem, grid, [(105, 105), (205, 105), (105, 105)], 40, 10)
+    assert back.max() == pytest.approx(10.0, abs=1e-4)
+    assert np.allclose(back, out)
+
+
+def test_ridge_diagonal_is_symmetric_about_the_line():
+    grid = Grid(west=0, south=0, east=300, north=300, cell=10)
+    dem = np.zeros((30, 30), dtype="float32")
+    out = stamp_ridge(dem, grid, [(0, 0), (300, 300)], half_width_m=60, delta_m=5)
+    # North-up flipped, the array is indexed [y, x]; the line y = x makes it symmetric
+    # under swapping x and y (a mirror in the line).
+    north_up_flipped = np.flipud(out)
+    assert np.allclose(north_up_flipped, north_up_flipped.T, atol=1e-5)
+    assert out.max() <= 5.0 + 1e-5 and out.min() >= 0.0
+
+
+def test_ridge_outside_the_grid_changes_nothing_and_input_validation():
+    grid = _ridge_grid()
+    dem = np.zeros((grid.height, grid.width), dtype="float32")
+    far = stamp_ridge(dem, grid, [(5000, 5000), (6000, 5000)], 40, 9)
+    assert (far == 0).all()
+    with pytest.raises(ValueError):
+        stamp_ridge(dem, grid, [(1, 1)], 40, 9)  # needs two points
+    with pytest.raises(ValueError):
+        stamp_ridge(dem, grid, [(1, 1), (50, 50)], 0, 9)  # half-width must be > 0

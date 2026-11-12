@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
+import shapely
 from scipy import ndimage
 
 from yelamu.geo import Grid
@@ -78,6 +81,47 @@ def stamp_landform(
     dist = np.hypot(xx - x, yy - y)
     weight = np.where(dist < radius_m, 0.5 * (1.0 + np.cos(np.pi * dist / radius_m)), 0.0)
     return (dem + delta_m * weight).astype("float32")
+
+
+def stamp_ridge(
+    dem: np.ndarray,
+    grid: Grid,
+    points: Sequence[tuple[float, float]],
+    half_width_m: float,
+    delta_m: float,
+) -> np.ndarray:
+    """Raise (delta_m > 0) or lower (delta_m < 0) the ground along a polyline.
+
+    `points` are UTM metres (easting, northing), at least two. The change is delta_m on
+    the line itself and falls off with a raised cosine of the distance to the polyline,
+    reaching exactly 0 at half_width_m (and staying 0 beyond), so a lost dune ridge
+    blends into the surrounding terrain. Distance is measured to the nearest point of
+    the whole polyline (shapely), so the ends are round caps and a line that doubles
+    back on itself is applied ONCE, not stacked. Separate stamps ADD, as with
+    stamp_landform: the delta is added to whatever is there, never max'd.
+    Only cells within half_width_m of the line's bounding box are evaluated.
+    """
+    if len(points) < 2:
+        raise ValueError("a ridge needs at least two points")
+    if not half_width_m > 0:
+        raise ValueError(f"half_width_m must be greater than 0, got {half_width_m!r}")
+    out = np.asarray(dem, dtype="float32").copy()
+    line = shapely.linestrings(np.asarray(points, dtype="float64"))
+    x0, y0, x1, y1 = line.bounds
+    # Window of cells (by centre) that can lie within half_width_m of the line.
+    col0 = max(0, int(np.floor((x0 - half_width_m - grid.west) / grid.cell - 0.5)))
+    col1 = min(grid.width, int(np.ceil((x1 + half_width_m - grid.west) / grid.cell + 0.5)))
+    row0 = max(0, int(np.floor((grid.north - y1 - half_width_m) / grid.cell - 0.5)))
+    row1 = min(grid.height, int(np.ceil((grid.north - y0 + half_width_m) / grid.cell + 0.5)))
+    if col0 >= col1 or row0 >= row1:
+        return out
+    xs = grid.west + (np.arange(col0, col1) + 0.5) * grid.cell
+    ys = grid.north - (np.arange(row0, row1) + 0.5) * grid.cell
+    xx, yy = np.meshgrid(xs, ys)
+    dist = shapely.distance(shapely.points(xx.ravel(), yy.ravel()), line).reshape(xx.shape)
+    weight = np.where(dist < half_width_m, 0.5 * (1.0 + np.cos(np.pi * dist / half_width_m)), 0.0)
+    out[row0:row1, col0:col1] = (out[row0:row1, col0:col1] + delta_m * weight).astype("float32")
+    return out
 
 
 def smooth_land(
