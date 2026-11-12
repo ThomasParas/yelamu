@@ -268,14 +268,14 @@ def lonlat_ticks(grid: Grid, scale: int = 1, max_ticks: int = 5):
     """Tick positions for a panel showing `grid` at `scale` pixels per cell.
 
     Returns (x_ticks, y_ticks): lists of (pixel, label). x_ticks are longitudes (placed
-    along the bottom edge), y_ticks latitudes (along the left edge); a tick is a multiple of
-    a 'nice' degree step chosen so there are at most `max_ticks` of each.
+    along the bottom edge), y_ticks latitudes (along the left edge), each at the position its
+    meridian / parallel really has on that edge; a tick is a multiple of a 'nice' degree step
+    chosen so there are at most `max_ticks` of each.
     """
     corners = [_UTM_TO_LONLAT.transform(x, y) for x in (grid.west, grid.east)
                for y in (grid.south, grid.north)]
     lon0, lon1 = min(c[0] for c in corners), max(c[0] for c in corners)
     lat0, lat1 = min(c[1] for c in corners), max(c[1] for c in corners)
-    mid_lon, mid_lat = (lon0 + lon1) / 2, (lat0 + lat1) / 2
     to_utm = Transformer.from_crs("EPSG:4326", UTM_CRS, always_xy=True)
 
     def step_for(span: float) -> float:
@@ -289,14 +289,34 @@ def lonlat_ticks(grid: Grid, scale: int = 1, max_ticks: int = 5):
         k0, k1 = int(np.ceil(lo / s - 1e-9)), int(np.floor(hi / s + 1e-9))
         return [round(k * s, 6) for k in range(k0, k1 + 1)]
 
+    # UTM north is not true north, so a meridian leans across the panel and a parallel tilts.
+    # Place each tick where its line meets the edge it is drawn on: longitudes on the bottom
+    # edge (y = south), latitudes on the left edge (x = west). A few fixed-point steps
+    # converge to well under a millimetre.
+    def _x_on_edge(lon: float) -> float:
+        lat = _UTM_TO_LONLAT.transform(grid.west, grid.south)[1]
+        x = grid.west
+        for _ in range(4):
+            x = to_utm.transform(lon, lat)[0]
+            lat = _UTM_TO_LONLAT.transform(x, grid.south)[1]
+        return x
+
+    def _y_on_edge(lat: float) -> float:
+        lon = _UTM_TO_LONLAT.transform(grid.west, grid.south)[0]
+        y = grid.south
+        for _ in range(4):
+            y = to_utm.transform(lon, lat)[1]
+            lon = _UTM_TO_LONLAT.transform(grid.west, y)[0]
+        return y
+
     xt, yt = [], []
     for lon in values(lon0, lon1):
-        x, _ = to_utm.transform(lon, mid_lat)
+        x = _x_on_edge(lon)
         px = (x - grid.west) / grid.cell * scale
         if 0 <= px <= grid.width * scale:
             xt.append((px, f"{abs(lon):.3f}{'W' if lon < 0 else 'E'}"))
     for lat in reversed(values(lat0, lat1)):  # top of the panel (north) first
-        _, y = to_utm.transform(mid_lon, lat)
+        y = _y_on_edge(lat)
         py = (grid.north - y) / grid.cell * scale
         if 0 <= py <= grid.height * scale:
             yt.append((py, f"{abs(lat):.3f}{'S' if lat < 0 else 'N'}"))

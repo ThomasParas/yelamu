@@ -175,6 +175,24 @@ def test_ticks_lie_inside_and_roundtrip():
     assert lats == sorted(lats, reverse=True)
 
 
+def test_ticks_are_placed_on_the_edge_they_are_drawn_on_for_the_full_city():
+    from pyproj import Transformer
+    grid = Grid.from_lonlat_bbox(-122.53, 37.70, -122.33, 37.84, cell=10)
+    to_lonlat = Transformer.from_crs(UTM_CRS, "EPSG:4326", always_xy=True)
+    scale = 2
+    xt, yt = lonlat_ticks(grid, scale=scale)
+    assert len(xt) >= 2 and len(yt) >= 2
+    for px, label in xt:  # longitudes sit on the BOTTOM edge (y = south)
+        lon = -float(label[:-1])
+        lon_at_px, _ = to_lonlat.transform(grid.west + px / scale * grid.cell, grid.south)
+        metres = abs(lon_at_px - lon) * 111_320 * np.cos(np.radians(37.77))
+        assert metres <= 0.5 * grid.cell, (label, metres)
+    for py, label in yt:  # latitudes sit on the LEFT edge (x = west)
+        lat = float(label[:-1])
+        _, lat_at_py = to_lonlat.transform(grid.west, grid.north - py / scale * grid.cell)
+        assert abs(lat_at_py - lat) * 111_000 <= 0.5 * grid.cell, (label, lat_at_py)
+
+
 def _write_sheet(path, grid, value_rgb, crs=UTM_CRS, alpha=None, offset=(0.0, 0.0)):
     h, w = grid.height, grid.width
     data = np.zeros((4 if alpha is not None else 3, h, w), dtype="uint8")
