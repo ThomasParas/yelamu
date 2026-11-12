@@ -1,10 +1,26 @@
 import * as THREE from "three";
 import { createIsoCamera, fitViewSize } from "./camera";
 import { switchZoomFor } from "./chunks";
-import { attachControls } from "./controls";
+import type { AppContext } from "./appContext";
+import { decodeState, type AppState } from "./appState";
+import { attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, paletteToLinear, shadeByDepth } from "./habitat";
 import { loadHabitat, loadHeightmap } from "./heightmap";
+import { createHashSync } from "./hashSync";
+import { LayerSelection } from "./layerSelection";
+import { initModules } from "./modules";
+import { PlaceSelection } from "./placeSelection";
+import { QualityController } from "./quality";
+import { pickSurpriseTarget, type SurpriseTarget } from "./surprise";
+import { pickRandomLandPoint } from "./randomLand";
+import { SCENE_BACKGROUND } from "./theme";
 import { TerrainChunks } from "./terrainChunks";
+import { copyText } from "./ui/clipboard";
+import { createShell } from "./ui/shell";
+import "./ui/ui.css";
+import { VegetationLayer } from "./vegetation/layer";
+import { ViewRig, unitsPerPixel } from "./viewRig";
+import { createWaterMaterial } from "./water/waterMaterial";
 
 // Real hills are gentle at this scale; a diorama needs them exaggerated to read.
 const VERTICAL_EXAGGERATION = 3;
@@ -26,14 +42,26 @@ const dataset = /^[a-z0-9_-]+$/.test(requested) ? requested : "slice";
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/${dataset}`;
 const DEBUG = params.has("debug");
 
+// Camera limits. The target may stray this fraction of the larger map half-extent past the edge.
+const TARGET_MARGIN_FRACTION = 0.15;
+const MIN_ZOOM = 0.8;
+const MAX_ZOOM = 40;
+// "Surprise me" flies in to this multiple of the zoom where full-resolution terrain starts.
+const SURPRISE_ZOOM_FACTOR = 1.3;
+// Screen pixels one arrow-key press pans by (Shift = 3x).
+const KEY_PAN_STEP_PX = 60;
+
+// The shell does not need any data, so it exists before loading and can show errors.
+const shell = createShell(document.getElementById("ui")!);
+shell.setStatus("Loading...");
+
 async function start() {
   const canvas = document.getElementById("scene") as HTMLCanvasElement;
-  const status = document.getElementById("status")!;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xdfe6e9);
+  scene.background = new THREE.Color(SCENE_BACKGROUND);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 0.7));
   const sun = new THREE.DirectionalLight(0xfff3d6, 2.6);
   sun.position.set(-1, 1.2, 0.6);
@@ -70,21 +98,43 @@ async function start() {
     );
   let switchZoom = switchZoomAt(aspect0, canvas.clientHeight);
 
+  // Plants stand on the full-resolution chunks only (the coarse LOD is too rough to plant on).
+  // The layer starts disabled; the effects module switches it on from the layer toggle and the
+  // quality level, and chunks built before that are planted lazily (see VegetationLayer.refresh).
+  const vegetation = habitat
+    ? new VegetationLayer({
+        size: meta,
+        heights,
+        habitat,
+        classes: meta.habitat_classes ?? [],
+        waterLevelM: meta.water_level_m,
+        exaggeration: VERTICAL_EXAGGERATION,
+      })
+    : null;
+  vegetation?.setEnabled(false);
+
   const terrain = new TerrainChunks(
     heights,
     meta,
     VERTICAL_EXAGGERATION,
     colorAt,
     new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true }),
-    { switchZoom },
+    {
+      switchZoom,
+      hooks: vegetation
+        ? {
+            onLod0Built: (plan, mesh) => vegetation.attach(mesh, plan),
+            onLod0Evicted: (_plan, mesh) => vegetation.detach(mesh),
+          }
+        : undefined,
+    },
   );
   scene.add(terrain.root);
 
   const extent = Math.max(meta.width, meta.height) * meta.cell_m;
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(extent * 4, extent * 4).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: 0x3f7fa6, transparent: true, opacity: 0.8 }),
-  );
+  // The same translucent blue as before; moving ripples are switched on by the effects module.
+  const waterFx = createWaterMaterial();
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(extent * 4, extent * 4).rotateX(-Math.PI / 2), waterFx.material);
   water.position.y = meta.water_level_m * VERTICAL_EXAGGERATION;
   scene.add(water);
 
@@ -106,17 +156,19 @@ async function start() {
   const overlay = DEBUG ? document.createElement("div") : null;
   if (overlay) {
     overlay.style.cssText =
-      "position:fixed;right:12px;top:12px;padding:6px 10px;background:rgba(0,0,0,.7);" +
+      "position:fixed;right:12px;bottom:12px;z-index:20;padding:6px 10px;background:rgba(0,0,0,.7);" +
       "color:#fff;border-radius:6px;font:12px/1.4 ui-monospace,monospace;white-space:pre;pointer-events:none";
     document.body.appendChild(overlay);
   }
+  const quality = new QualityController();
   const frameTimes: number[] = [];
   let lastFrame = 0;
   const trackFrame = (now: number) => {
-    // Rendering is on demand, so skip the idle gaps between interactions.
+    // Rendering is on demand, so skip the idle gaps between interactions (>= 500 ms).
     if (lastFrame && now - lastFrame < 500) {
       frameTimes.push(now - lastFrame);
       if (frameTimes.length > 60) frameTimes.shift();
+      quality.record(now - lastFrame);
     }
     lastFrame = now;
   };
@@ -124,30 +176,155 @@ async function start() {
     if (!overlay) return;
     const avg = frameTimes.reduce((a, b) => a + b, 0) / (frameTimes.length || 1);
     const s = terrain.stats();
+    const veg = vegetation?.stats() ?? { instances: 0, meshes: 0 };
     overlay.textContent =
       `fps        ${avg > 0 ? (1000 / avg).toFixed(0) : "-"}\n` +
       `draw calls ${renderer.info.render.calls}\n` +
       `triangles  ${renderer.info.render.triangles.toLocaleString()}\n` +
       `LOD        ${s.lod} (switch at zoom ${switchZoom.toFixed(2)}, now ${camera.zoom.toFixed(2)})\n` +
-      `LOD0 chunks resident ${s.lod0Resident}, visible ${s.lod0Visible}`;
+      `LOD0 chunks resident ${s.lod0Resident}, visible ${s.lod0Visible}\n` +
+      `quality    level ${quality.level()} (p90 ${Number.isFinite(quality.p90()) ? quality.p90().toFixed(1) : "-"} ms)\n` +
+      `vegetation ${vegetation ? `${veg.instances.toLocaleString()} instances, ${veg.meshes} meshes` : "none"}`;
   };
 
   // One render per animation frame, however many times it is requested. update() may
   // return true when chunks are still being built, so keep going until it settles.
+  const frameCallbacks = new Set<() => void>();
+  const onFrame = (cb: () => void) => {
+    frameCallbacks.add(cb);
+    return () => void frameCallbacks.delete(cb);
+  };
   let queued = false;
-  const requestRender = () => {
+  let interactive = false;
+  const schedule = () => {
     if (queued) return;
     queued = true;
     requestAnimationFrame((now) => {
       queued = false;
+      const wasInteractive = interactive;
+      interactive = false;
+      waterFx.setTime(now / 1000);
+      if (!wasInteractive) {
+        // Only the idle water animation asked for this frame: nothing else has changed, so
+        // skip the terrain update and the post-render callbacks (label layout), and do not
+        // let the ~15 fps cadence reach the quality controller as if it were slow rendering.
+        renderer.render(scene, camera);
+        lastFrame = 0;
+        return;
+      }
       const pending = terrain.update(camera);
       renderer.render(scene, camera);
+      for (const cb of [...frameCallbacks]) {
+        try {
+          cb();
+        } catch (err) {
+          // A broken callback must not stop rendering; drop it after the first failure.
+          frameCallbacks.delete(cb);
+          console.error("frame callback failed and was removed", err);
+        }
+      }
       trackFrame(now);
       updateOverlay();
       if (pending) requestRender();
     });
   };
-  const controls = attachControls(canvas, camera, requestRender);
+  const requestRender = () => {
+    interactive = true;
+    schedule();
+  };
+  const requestIdleRender = () => schedule();
+  const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const halfWidth = widthM / 2;
+  const halfDepth = depthM / 2;
+  const rig = new ViewRig(camera, {
+    bounds: { halfWidth, halfDepth },
+    margin: TARGET_MARGIN_FRACTION * Math.max(halfWidth, halfDepth),
+    minZoom: MIN_ZOOM,
+    maxZoom: MAX_ZOOM,
+    reducedMotion,
+  });
+
+  // Shared state from the URL hash: view pose and enabled layers.
+  const fromHash = decodeState(location.hash);
+  rig.setState({ x: fromHash.x, z: fromHash.z, zoom: fromHash.zoom, rot: fromHash.rot });
+  // No `l` in the hash: each layer takes its default. `l=` (empty): everything optional is off.
+  const layers = new LayerSelection(fromHash.layers);
+  const place = new PlaceSelection(fromHash.place);
+
+  const appState = (): AppState => ({
+    ...rig.getState(),
+    layers: layers.hashValue(),
+    place: place.get(),
+  });
+  const hashSync = createHashSync({
+    getState: appState,
+    write: (encoded) => {
+      try {
+        // Keep the path and the ?data= / ?debug query; only the fragment changes.
+        history.replaceState(history.state, "", `${location.pathname}${location.search}#${encoded}`);
+      } catch {
+        // replaceState can throw in sandboxed frames; the URL just stays as it is.
+      }
+    },
+  });
+  rig.onChange(() => {
+    requestRender();
+    hashSync.schedule();
+  });
+  layers.onChange(() => hashSync.schedule());
+  place.onChange(() => hashSync.schedule());
+  window.addEventListener("pagehide", () => hashSync.flush());
+  // A hand-edited or pasted hash on the same page: apply it (replaceState does not fire this).
+  window.addEventListener("hashchange", () => {
+    const next = decodeState(location.hash);
+    rig.setState({ x: next.x, z: next.z, zoom: next.zoom, rot: next.rot });
+    if (next.layers) layers.replace(next.layers);
+    place.set(next.place);
+    hashSync.markCurrent();
+  });
+
+  attachPointerControls(canvas, camera, rig);
+
+  const surpriseTargets: SurpriseTarget[] = [];
+  const handlers: AppContext["handlers"] = {
+    search: () => {},
+    help: () => {},
+    escape: () => void shell.closeTopPanel(),
+  };
+  attachKeyboard(
+    window,
+    rig,
+    {
+      onSearch: () => handlers.search(),
+      onHelp: () => handlers.help(),
+      onEscape: () => handlers.escape(),
+      panStepPx: KEY_PAN_STEP_PX,
+    },
+    () => unitsPerPixel(camera, canvas.clientHeight),
+  );
+
+  shell.onReset(() => rig.reset());
+  shell.onRotate((dir) => rig.rotate(dir));
+  shell.onSurprise(() => {
+    const target = pickSurpriseTarget(surpriseTargets, Math.random);
+    if (target) {
+      rig.flyTo(target.x, target.z, target.zoom);
+      place.set(target.place);
+      return;
+    }
+    place.set(undefined);
+    const spot = pickRandomLandPoint(heights, meta, meta.water_level_m, Math.random);
+    if (!spot) {
+      shell.toast("No dry land to visit");
+      return;
+    }
+    rig.flyTo(spot.x, spot.z, switchZoom * SURPRISE_ZOOM_FACTOR);
+  });
+  shell.onCopyLink(async () => {
+    hashSync.flush(); // make sure the address bar holds the view being shared
+    const ok = await copyText(location.href);
+    shell.toast(ok ? "Link copied" : "Could not copy the link");
+  });
 
   const resize = () => {
     const w = canvas.clientWidth;
@@ -162,15 +339,45 @@ async function start() {
     camera.right = half * aspect;
     switchZoom = switchZoomAt(aspect, h);
     terrain.setSwitchZoom(switchZoom);
-    controls.place();
+    rig.place();
+    requestRender();
   };
   window.addEventListener("resize", resize);
   resize();
 
-  status.textContent = `${meta.width}x${meta.height} cells at ${meta.cell_m} m. Drag to pan, scroll to zoom.`;
+  shell.setStatus(
+    `${meta.width}x${meta.height} cells at ${meta.cell_m} m. Drag to pan, scroll to zoom, Q and E to rotate.`,
+  );
+
+  const ctx: AppContext = {
+    canvas,
+    scene,
+    camera,
+    renderer,
+    rig,
+    shell,
+    meta,
+    heights,
+    habitat,
+    terrain,
+    requestRender,
+    requestIdleRender,
+    quality,
+    vegetation,
+    water: waterFx,
+    assetBase: ASSET_BASE,
+    verticalExaggeration: VERTICAL_EXAGGERATION,
+    layers,
+    place,
+    surpriseTargets,
+    onFrame,
+    handlers,
+  };
+  if (DEBUG) (window as unknown as { __yelamu: AppContext }).__yelamu = ctx;
+  void initModules(ctx);
 }
 
 start().catch((err) => {
   console.error(err);
-  document.getElementById("status")!.textContent = `Failed to load: ${err.message}`;
+  shell.setStatus(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
 });

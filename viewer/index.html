@@ -2,20 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Yelamu</title>
-    <style>
-      html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
-      #scene { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-      #status {
-        position: fixed; left: 12px; bottom: 12px; padding: 6px 10px;
-        background: rgba(255, 255, 255, 0.85); border-radius: 6px; font-size: 13px;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Yelamu: interactive 3D map of the historical landscape of San Francisco</title>
   </head>
   <body>
-    <canvas id="scene"></canvas>
-    <div id="status">Loading...</div>
+    <canvas
+      id="scene"
+      role="img"
+      tabindex="0"
+      aria-label="Interactive 3D map of Yelamu, the historical landscape of San Francisco. Arrow keys pan the map, plus and minus zoom, Q and E rotate, H resets the view."
+    ></canvas>
+    <div id="ui"></div>
+    <noscript>
+      <p class="noscript-msg" style="font-family: system-ui, sans-serif; padding: 1rem">Yelamu is an interactive 3D map and needs JavaScript to run.</p>
+    </noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
