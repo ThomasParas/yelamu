@@ -1,0 +1,873 @@
+/* Yelamu viewer UI. System fonts only; no external requests. */
+
+:root {
+  color-scheme: light dark;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bg: #dfe6e9;
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface-strong: #ffffff;
+  --text: #1c2429;
+  --text-muted: #55636c;
+  --border: rgba(28, 36, 41, 0.16);
+  --accent: #1d6a87;
+  --accent-text: #ffffff;
+  --hover: rgba(29, 106, 135, 0.1);
+  --focus: #0b57d0;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.16);
+  --radius: 10px;
+  --gap: 8px;
+  --control-h: 36px;
+  --edge: 12px;
+  --topbar-h: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* confidence badges: background / text / border per level */
+  --doc-bg: #dcefe0;
+  --doc-fg: #14532d;
+  --inf-bg: #fdf0d2;
+  --inf-fg: #6b4300;
+  --ill-bg: #ece7f6;
+  --ill-fg: #44316b;
+  /* map labels sit on the (unthemed) canvas, so they keep their own contrast */
+  --label-fg: #1c2429;
+  --label-halo: rgba(255, 255, 255, 0.95);
+  /* focus ring around the canvas: fixed, because the scene background does not follow the theme */
+  --canvas-ring: #0b57d0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a2126;
+    --surface: rgba(28, 36, 41, 0.92);
+    --surface-strong: #232d33;
+    --text: #e8eef1;
+    --text-muted: #a2b1ba;
+    --border: rgba(232, 238, 241, 0.2);
+    --accent: #6cc1de;
+    --accent-text: #0d1a20;
+    --hover: rgba(108, 193, 222, 0.16);
+    --focus: #8ab4f8;
+    --shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    --doc-bg: #1f3b2a;
+    --doc-fg: #bfe8cb;
+    --inf-bg: #43331a;
+    --inf-fg: #f3d9a0;
+    --ill-bg: #33294a;
+    --ill-fg: #d8caf2;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 var(--font);
+}
+
+#scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+#scene:active {
+  cursor: grabbing;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+/* The map itself is a keyboard target (arrow keys pan, +/- zoom, Q/E rotate). It fills the
+   window, so the ring goes inside it: a blue line on a white band reads on any ground. */
+#scene:focus {
+  outline: none;
+}
+#scene:focus-visible {
+  outline: 3px solid var(--canvas-ring);
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.9);
+}
+
+/* --- skip link: first in the tab order, visible only while focused --- */
+.skip-link {
+  position: fixed;
+  top: var(--edge);
+  left: var(--edge);
+  z-index: 40;
+  padding: 10px 16px;
+  background: var(--surface-strong);
+  color: var(--text);
+  border: 2px solid var(--focus);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font: 600 14px/1.3 var(--font);
+  text-decoration: none;
+  transform: translateY(-300%);
+}
+.skip-link:focus {
+  transform: none;
+}
+
+/* The UI layer never blocks the canvas; only the boxes inside it take pointer events. */
+.ui-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  font-family: var(--font);
+}
+.ui-root > * {
+  pointer-events: auto;
+}
+.ui-root > .panels {
+  pointer-events: none;
+}
+
+/* --- top bar --- */
+.topbar {
+  position: fixed;
+  top: var(--edge);
+  left: var(--edge);
+  right: var(--edge);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap) 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.topbar__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.topbar__search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.topbar__search:empty {
+  display: none;
+}
+.topbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+/* Wide screens: the menu's children sit directly in the top bar's row. */
+.topbar__menu {
+  display: contents;
+}
+.topbar__menu-btn {
+  display: none;
+}
+.topbar__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.topbar__links:empty {
+  display: none;
+}
+
+.topbar button,
+.btn {
+  min-height: var(--control-h);
+  min-width: var(--control-h);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.topbar button:hover,
+.btn:hover {
+  background: var(--hover);
+}
+.topbar button:active,
+.btn:active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.topbar button.btn--icon,
+.btn--icon {
+  padding: 0;
+}
+.btn-glyph {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+/* --- layer toggles --- */
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.toggle.is-disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+.toggle input:disabled {
+  cursor: not-allowed;
+}
+
+/* --- status line and toast --- */
+.status {
+  position: fixed;
+  left: var(--edge);
+  bottom: calc(var(--edge) + var(--safe-bottom));
+  max-width: calc(100% - 2 * var(--edge));
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+.status:empty {
+  display: none;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(56px + var(--safe-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--edge));
+  padding: 8px 14px;
+  background: var(--text);
+  color: var(--bg);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.toast[data-visible="true"] {
+  opacity: 1;
+}
+.toast:empty {
+  display: none;
+}
+
+/* --- side panel (bottom sheet on narrow screens) --- */
+.panel {
+  position: fixed;
+  top: calc(var(--topbar-h) + 2 * var(--edge));
+  right: var(--edge);
+  bottom: var(--edge);
+  width: min(360px, calc(100% - 2 * var(--edge)));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-strong);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  pointer-events: auto;
+}
+.panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.panel__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+.panel__body {
+  flex: 1 1 auto;
+  padding: 12px 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.panel:focus {
+  outline: none;
+}
+.panel:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* --- narrow screens: Menu disclosure, bigger touch targets, bottom sheet --- */
+@media (max-width: 640px) {
+  .topbar button,
+  .btn,
+  .toggle,
+  .topbar .search__input {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+  }
+  .topbar__search {
+    flex: 1 1 0;
+  }
+  .topbar__menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+  }
+  .topbar__menu {
+    display: none;
+  }
+  .topbar__menu[data-open="true"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .topbar__links,
+  .topbar__actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .topbar__links .btn,
+  .topbar__actions .btn:not(.btn--icon) {
+    flex: 1 1 auto;
+  }
+  .panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 60vh;
+    max-height: 60dvh;
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-bottom: 0;
+    padding-bottom: var(--safe-bottom);
+  }
+}
+@media (pointer: coarse) {
+  .topbar button,
+  .btn,
+  .toggle,
+  .topbar .search__input {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.noscript-msg {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(32rem, calc(100% - 2 * var(--edge)));
+  padding: 16px 20px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+
+/* --- search combobox --- */
+.search {
+  position: relative;
+}
+.search__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+}
+.search__input::placeholder {
+  color: var(--text-muted);
+}
+.search__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  width: max(100%, 280px);
+  max-width: calc(100vw - 4 * var(--edge));
+  max-height: min(50vh, 360px);
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.search__option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.search__option.is-active {
+  background: var(--hover);
+  border-left-color: var(--accent);
+}
+.search__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.search__meta {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* --- map labels and hotspot markers (over the canvas) --- */
+.ui-root > .labels {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.labels > * {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.label {
+  padding: 0 2px;
+  color: var(--label-fg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-shadow:
+    0 0 2px var(--label-halo),
+    0 0 2px var(--label-halo),
+    0 0 3px var(--label-halo),
+    0 0 4px var(--label-halo);
+  pointer-events: none;
+}
+.label.is-selected {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 28px;
+  padding: 2px 9px 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--shadow);
+}
+/* Grow the hit area to at least 44x44 CSS px without changing the layout. */
+.marker::after {
+  content: "";
+  position: absolute;
+  inset: -11px -8px;
+}
+.marker__dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--surface-strong);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.marker:hover {
+  background: var(--surface-strong);
+}
+.marker.is-selected {
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--accent);
+}
+.marker.is-selected .marker__dot {
+  background: var(--accent-text);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent-text);
+}
+
+/* --- panel content --- */
+.btn--text {
+  padding: 0 14px;
+}
+.btn--primary,
+.topbar button.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.btn--primary:hover,
+.topbar button.btn--primary:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
+}
+.panel__subtitle {
+  margin: 16px 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.panel__body > .panel__subtitle:first-child {
+  margin-top: 0;
+}
+.panel__note {
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.hotspot__kind {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hotspot__description {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.hotspot__confidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.hotspot__meaning {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.hotspot__sources {
+  margin: 0 0 16px;
+  padding-left: 1.2em;
+}
+.hotspot__sources li {
+  margin: 4px 0;
+}
+
+/* Badges always carry their text; the border style repeats the level for colour-blind readers. */
+.badge {
+  display: inline-block;
+  padding: 1px 9px;
+  border: 1.5px solid currentcolor;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge--documented {
+  background: var(--doc-bg);
+  color: var(--doc-fg);
+  border-style: solid;
+}
+.badge--inferred {
+  background: var(--inf-bg);
+  color: var(--inf-fg);
+  border-style: dashed;
+}
+.badge--illustrative {
+  background: var(--ill-bg);
+  color: var(--ill-fg);
+  border-style: dotted;
+}
+.badge--unknown {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+/* --- legend --- */
+.legend {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.legend__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.swatch {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.legend__icon {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+.legend__icon--marker::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 3px solid var(--surface-strong);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.legend__icon--label::before {
+  content: "Aa";
+  position: absolute;
+  inset: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+/* A dark street line on a swatch of the (light) map background, so it shows in dark mode too. */
+.legend__icon--street {
+  background: #dfe6e9;
+  border-radius: 4px;
+}
+.legend__icon--street::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 10px;
+  height: 2px;
+  background: #1f2a33; /* STREET_COLOR in overlay/streetsLayer.ts */
+}
+
+/* --- sources panel --- */
+.prov {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.prov__title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.prov__list {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.prov__list dt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.prov__list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.prov__list--processing {
+  grid-template-columns: minmax(0, 1fr) auto; /* label, then a value that never wraps */
+}
+.prov__list--processing dd {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.prov__list dd .hotspot__meaning {
+  display: block;
+  margin-top: 2px;
+}
+
+/* --- about dialog --- */
+.about {
+  box-sizing: border-box;
+  width: min(40rem, calc(100% - 2 * var(--edge)));
+  max-height: calc(100vh - 2 * var(--edge));
+  max-height: calc(100dvh - 2 * var(--edge));
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-strong);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.about::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.about__inner {
+  padding: 20px 22px 22px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.about__title {
+  margin: 0 0 8px;
+  font-size: 1.4rem;
+}
+.about__heading {
+  margin: 18px 0 4px;
+  font-size: 1.05rem;
+}
+.about p {
+  margin: 6px 0;
+}
+.about__confidence,
+.about__credits {
+  margin: 6px 0;
+  padding-left: 1.2em;
+}
+.about__confidence {
+  padding-left: 0;
+  list-style: none;
+}
+.about__confidence li {
+  margin: 6px 0;
+}
+.about__warning {
+  margin: 18px 0 14px;
+  font-weight: 650;
+}
+.about__close {
+  min-height: 44px;
+}
+
+/* --- places panel --- */
+.places {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.places__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.places__item:hover {
+  background: var(--hover);
+}
+.places__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.places__kind {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+@media (pointer: coarse) {
+  .places__item {
+    min-height: 44px;
+  }
+}
