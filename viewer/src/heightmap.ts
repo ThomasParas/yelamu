@@ -1,3 +1,5 @@
+import type { HabitatClass } from "./habitat";
+
 export type Confidence = "documented" | "inferred" | "illustrative";
 
 export interface LayerInfo {
@@ -17,6 +19,9 @@ export interface HeightmapMeta {
   heights_format: string;
   water_level_m: number;
   layers: LayerInfo[];
+  /** One byte per cell (habitat class id), same row-major layout as the heightmap. */
+  habitat_file?: string;
+  habitat_classes?: HabitatClass[];
 }
 
 /**
@@ -65,4 +70,21 @@ export async function loadHeightmap(
   const q = new Uint16Array(count);
   for (let i = 0; i < count; i++) q[i] = view.getUint16(i * 2, true);
   return { meta, heights: decodeHeights(q, meta) };
+}
+
+/** Habitat class id per cell, or null when the dataset has no habitat raster. */
+export async function loadHabitat(
+  baseUrl: string,
+  meta: Pick<HeightmapMeta, "width" | "height" | "habitat_file">,
+): Promise<Uint8Array | null> {
+  if (!meta.habitat_file) return null;
+  const url = `${baseUrl}/${meta.habitat_file}`;
+  const buffer = await (await fetchChecked(url)).arrayBuffer();
+  const count = meta.width * meta.height;
+  if (buffer.byteLength !== count) {
+    throw new Error(
+      `${url}: expected ${count} bytes for ${meta.width}x${meta.height}, got ${buffer.byteLength}`,
+    );
+  }
+  return new Uint8Array(buffer);
 }
