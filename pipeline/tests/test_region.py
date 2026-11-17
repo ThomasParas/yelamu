@@ -229,3 +229,47 @@ def test_pond_depth_may_be_zero_but_the_shelf_must_be_positive(tmp_path):
         load_region(_write(tmp_path, {**MINIMAL, "pond_shelf_m": 0}, "s.json"))
     with pytest.raises(ValueError, match="pond_max_depth_m must be 0 or greater"):
         load_region(_write(tmp_path, {**MINIMAL, "pond_max_depth_m": -1}, "d.json"))
+
+
+CONTEXT = {
+    "bbox": [-122.6, 37.6, -122.3, 37.9],
+    "cell_m": 60,
+    "places": "data/overlay/context_places.json",
+}
+
+
+def test_context_is_optional(tmp_path):
+    assert load_region(_write(tmp_path, MINIMAL)).context is None
+
+
+def test_context_round_trip_resolves_paths_against_the_pipeline_dir(tmp_path):
+    data = {**MINIMAL, "context": {**CONTEXT, "hand_bay": ["data/x/a.geojson"], "hand_marsh": []}}
+    ctx = load_region(_write(tmp_path, data)).context
+    base = tmp_path / "pipeline"
+    assert ctx.bbox == (-122.6, 37.6, -122.3, 37.9)
+    assert ctx.cell_m == 60.0 and isinstance(ctx.cell_m, float)
+    assert ctx.places == base / "data/overlay/context_places.json"
+    assert ctx.hand_bay == [base / "data/x/a.geojson"]
+    assert ctx.hand_marsh == []
+
+
+@pytest.mark.parametrize(
+    "context, message",
+    [
+        ("nope", "context must be an object"),
+        ({**CONTEXT, "colour": "grey"}, r"unknown key\(s\): colour"),
+        ({"cell_m": 60}, "missing required key bbox"),
+        ({"bbox": CONTEXT["bbox"]}, "missing required key cell_m"),
+        ({**CONTEXT, "bbox": [-122.6, 37.6, -122.3]}, "four numbers"),
+        # not strictly outside the region bbox [-122.5, 37.7, -122.4, 37.8] on every side
+        ({**CONTEXT, "bbox": [-122.5, 37.6, -122.3, 37.9]}, "strictly outside"),
+        ({**CONTEXT, "bbox": [-122.6, 37.6, -122.3, 37.8]}, "strictly outside"),
+        ({**CONTEXT, "cell_m": 5}, "at least the region cell_m"),
+        ({**CONTEXT, "cell_m": True}, "at least the region cell_m"),
+        ({**CONTEXT, "places": 3}, "non-empty path string"),
+        ({**CONTEXT, "hand_bay": "a.geojson"}, "list of path strings"),
+    ],
+)
+def test_context_rejects_bad_values(tmp_path, context, message):
+    with pytest.raises(ValueError, match=message):
+        load_region(_write(tmp_path, {**MINIMAL, "context": context}))
