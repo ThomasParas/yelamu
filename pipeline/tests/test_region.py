@@ -184,10 +184,12 @@ def test_shipped_regions_load(name):
     region = load_region(PIPELINE / "regions" / f"{name}.json")
     assert region.name == name
     assert region.dem == PIPELINE / "data" / "raw" / "dem.tif"
-    for p in (region.habitats, region.bay, region.marsh):
-        assert p is not None and p.exists(), p
     for p in (region.landforms, region.checks, *region.hand_bay, *region.hand_marsh,
               *region.hand_ponds):
+        assert p is not None and p.exists(), p
+    if not (PIPELINE / "data" / "raw").exists():
+        pytest.skip("pipeline/data/raw is not present (a fresh clone): raw inputs not checked")
+    for p in (region.habitats, region.bay, region.marsh):
         assert p is not None and p.exists(), p
 
 
