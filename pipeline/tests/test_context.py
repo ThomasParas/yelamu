@@ -99,15 +99,45 @@ def test_flatten_water_sets_open_water_to_the_bay_floor():
 
 def test_city_edge_heights_are_copied_onto_the_hole_boundary_only():
     lat = _lattice()
-    city = np.tile(np.arange(CITY.width, dtype="float64"), (CITY.height, 1))  # height = column index
+    # A stand-in city whose height depends on BOTH row and column (bilinear is exact on it).
+    city = np.zeros((CITY.height, CITY.width), dtype="float64")
+    for r in range(CITY.height):
+        for c in range(CITY.width):
+            city[r, c] = r * 1000.0 + c
     ring = np.zeros((lat.rows, lat.cols), dtype="float32")
     out = apply_city_edge(ring, lat, city, CITY.cell)
-    assert out[lat.j0, lat.i0] == pytest.approx(0.0)  # west edge = column 0
-    assert out[lat.j1, lat.i1] == pytest.approx(CITY.width - 1)  # east edge = last column
-    assert out[lat.j0, lat.i0 + 1] > 0.0
+
+    def analytic(i, j):
+        col = lat.x(i) / CITY.cell + (CITY.width - 1) / 2.0
+        row = lat.z(j) / CITY.cell + (CITY.height - 1) / 2.0
+        return row * 1000.0 + col
+
+    jm = (lat.j0 + lat.j1) // 2
+    im = (lat.i0 + lat.i1) // 2
+    assert lat.j0 < jm < lat.j1 and lat.i0 < im < lat.i1
+    boundary = [
+        (lat.i0, lat.j0), (lat.i1, lat.j0), (lat.i0, lat.j1), (lat.i1, lat.j1),  # corners
+        (lat.i0, jm), (lat.i0, jm + 1),  # west edge, middle
+        (lat.i1, jm), (lat.i1, jm + 1),  # east edge, middle
+        (im, lat.j0), (im + 1, lat.j0),  # north edge, middle
+        (im, lat.j1), (im + 1, lat.j1),  # south edge, middle
+    ]
+    for i, j in boundary:
+        assert out[j, i] == pytest.approx(analytic(i, j), abs=1e-2), (i, j)
+    # Sanity: the field really varies along both axes on the edges.
+    assert out[jm, lat.i0] != out[jm + 1, lat.i0]  # west edge varies with z
+    assert out[lat.j0, im] != out[lat.j0, im + 1]  # north edge varies with x
+    assert out[lat.j0, lat.i0] == pytest.approx(0.0)  # north-west corner = city (0, 0)
+    assert out[lat.j1, lat.i1] == pytest.approx((CITY.height - 1) * 1000.0 + CITY.width - 1)
     assert out[lat.j0 + 1, lat.i0 + 1] == 0.0  # interior untouched
     assert out[0, 0] == 0.0  # outside untouched
     assert ring.max() == 0.0  # the input is not modified
+    # Exactly the hole boundary changed: every other vertex is still zero.
+    changed = np.argwhere(out != 0.0)
+    for j, i in changed:
+        assert (lat.i0 <= i <= lat.i1 and lat.j0 <= j <= lat.j1) and (
+            i in (lat.i0, lat.i1) or j in (lat.j0, lat.j1)
+        ), (i, j)
 
 
 def test_water_polygons_set_bay_and_marsh_and_bay_wins():
@@ -136,8 +166,13 @@ def test_sample_lattice_is_bilinear():
     h = np.zeros((lat.rows, lat.cols), dtype="float64")
     h[4, 6] = 10.0
     h[4, 7] = 20.0
+    h[5, 6] = 30.0
     assert sample_lattice(h, lat, lat.x(6), lat.z(4)) == pytest.approx(10.0)
     assert sample_lattice(h, lat, lat.x(6) + lat.dx / 2, lat.z(4)) == pytest.approx(15.0)
+    # Between rows: vertices (col 6, row 4) = 10 and (col 6, row 5) = 30, midpoint 20.
+    assert sample_lattice(h, lat, lat.x(6), lat.z(4) + lat.dz / 2) == pytest.approx(20.0)
+    # Centre of the cell with corners 10, 20, 30, 0.
+    assert sample_lattice(h, lat, lat.x(6) + lat.dx / 2, lat.z(4) + lat.dz / 2) == pytest.approx(15.0)
     # Outside the lattice clamps to the nearest edge vertex instead of failing.
     assert sample_lattice(h, lat, lat.x(0) - 1e6, lat.z(0) - 1e6) == pytest.approx(h[0, 0])
 
