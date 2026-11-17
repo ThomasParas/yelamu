@@ -17,13 +17,13 @@
       "id": "terrain",
       "source": "USGS 3DEP, modified",
       "confidence": "inferred",
-      "attribution": "USGS 3DEP; see docs/research"
+      "attribution": "USGS 3DEP; see the project's source code repository"
     },
     {
       "id": "water",
       "source": "SFEI historical ecology",
       "confidence": "documented",
-      "attribution": "SFEI; see docs/research"
+      "attribution": "SFEI; see the project's source code repository"
     },
     {
       "id": "open_water_gap_fill",

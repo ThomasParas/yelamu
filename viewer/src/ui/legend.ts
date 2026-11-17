@@ -52,7 +52,7 @@ export function createLegend(
     sym.className = "legend legend--symbols";
     const rows: Array<[string, string]> = [
       ["marker", "Hotspot: select it to read about the place."],
-      ["label", "Text label: a landmark. Positions are approximate."],
+      ["label", "Text label: a landmark, mostly modern, shown for orientation. Positions are approximate."],
       ["street", "Thin dark line: a modern street, for orientation only."],
     ];
     for (const [kind, text] of rows) {

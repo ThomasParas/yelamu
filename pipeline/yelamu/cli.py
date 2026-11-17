@@ -185,11 +185,11 @@ def build(
               f"{int(pond_mask(ponds, dem.shape).sum())} cells")
 
     layers = [
-        Layer("terrain", "USGS 3DEP, modified", "inferred", "USGS 3DEP; see docs/research"),
+        Layer("terrain", "USGS 3DEP, modified", "inferred", "USGS 3DEP; see the project's source code repository"),
     ]
     if bay_path or marsh_path:
         layers.append(
-            Layer("water", "SFEI historical ecology", "documented", "SFEI; see docs/research")
+            Layer("water", "SFEI historical ecology", "documented", "SFEI; see the project's source code repository")
         )
     if gap is not None:
         layers.append(

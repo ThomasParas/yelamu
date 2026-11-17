@@ -18,7 +18,7 @@ export const GROUP_LABELS: ReadonlyArray<readonly [string, string]> = [
   ["scrub", "Scrub"],
   ["woodland", "Oak and bay woodland"],
   ["rock", "Rock"],
-  ["unmapped", "Not yet reconstructed (modern terrain shown for context)"],
+  ["unmapped", "Not covered by the historical habitat map (modern terrain shown for context)"],
 ];
 
 export function hexToCss(hex: number): string {

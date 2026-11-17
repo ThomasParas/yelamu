@@ -1,6 +1,6 @@
 # Launch review sheet: everything a visitor reads
 
-Prepared 2026-11-17 for Task C1 of `docs/superpowers/plans/2026-11-17-launch-readiness.md`. Nothing here has been changed in the code: every change below is a **suggestion for you to approve, edit or reject**. The text is as the live page shows it (read from the running viewer).
+**Decisions recorded 2026-11-17 (see the end of this file); the text below is the state before them.** Prepared 2026-11-17 for Task C1 of `docs/superpowers/plans/2026-11-17-launch-readiness.md`. Nothing here has been changed in the code: every change below is a **suggestion for you to approve, edit or reject**. The text is as the live page shows it (read from the running viewer).
 
 How the hotspot checks were made: all **11** hotspot descriptions (not only the 8 not yet checked, since the earlier run did not record which 3 were) were compared clause by clause with their cited pages, fetched live on 2026-11-17, by three read-only checkers. Verdicts: SUPPORTED, PARTLY (loosely paraphrased), NOT FOUND, CONTRADICTED. Nothing was contradicted.
 
@@ -78,3 +78,20 @@ Six data layers, each with Source, Confidence and Attribution: terrain (USGS 3DE
 - Whether the wording is **right for the people it concerns**: the Ramaytush Ohlone text, the label "Documented", and the choice to show a reconstruction with so much `Inferred` shore are yours to judge.
 - Whether the **1850s lines** are accurate (NOAA states their accuracy was not determined), or how much of that shore was already altered by the first fill.
 - Whether a visitor will read the Sources panel at all.
+
+## Decisions made (owner, 2026-11-17) and applied
+
+| # | Decision | Applied |
+|---|---|---|
+| 1, 2, 5, 6 | Yerba Buena Cove (drop "tidal"), Washerwoman's Lagoon ("beyond"), Mountain Lake (species as a class), Islais Creek (match the source): **apply** | `pipeline/data/overlay/hotspots.json` |
+| 3 | Lake Merced: **date the outlet clause** ("A freshwater lake that was once a lagoon ...") | same |
+| 4 | South of Market fens: **reword and date it** (likely relics of the last ice age; "in 1896 a botanist described one as an 'Arctic oasis' amid California vegetation") | same |
+| 7 | Western dune sheet "maps" nit | not applied (optional, not chosen) |
+| 8 | Landmarks: **say they are modern** (Legend: "Text label: a landmark, mostly modern, shown for orientation. Positions are approximate."); labels stay | `viewer/src/ui/legend.ts` |
+| 9 | About: **add the 1850s Coast Survey maps** | `viewer/src/ui/about.ts` |
+| 10 | Sources panel: **tidy it** (attribution points to the source repository; the Processing list is removed from the public panel; seed ids stay) | `pipeline/yelamu/cli.py`, `viewer/src/ui/provenance.ts`, rebuilt `meta.json` |
+| Legend | Unmapped ground: **"Not covered by the historical habitat map (modern terrain shown for context)"** | `viewer/src/legendEntries.ts` |
+| 11 | Ramaytush Ohlone section: **approved as written**. The Association has not been contacted; that remains your decision | `about.ts` comment records the approval |
+
+The heightmap and habitat raster are byte-identical after the rebuild; only `meta.json` and `overlay.json` changed.
+

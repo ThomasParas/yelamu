@@ -1,7 +1,7 @@
 /** Sources panel: where each data layer comes from and how sure we are. */
 import { confidenceInfo } from "../confidence";
 import type { HeightmapMeta } from "../heightmap";
-import { HAND_SOURCES_NOTE, OVERLAY_NOTE, VEGETATION_NOTE, handSourceRows, processingEntries } from "../provenanceData";
+import { HAND_SOURCES_NOTE, OVERLAY_NOTE, VEGETATION_NOTE, handSourceRows } from "../provenanceData";
 import { confidenceBadge } from "./hotspotPanel";
 import type { Shell } from "./shell";
 
@@ -72,16 +72,8 @@ export function createProvenance(
     }
   }
 
-  const entries = processingEntries(meta.processing);
-  if (entries.length > 0) {
-    parts.push(el("h3", "panel__subtitle", "Processing"));
-    const dl = el("dl", "prov__list prov__list--processing");
-    for (const e of entries) {
-      dl.appendChild(el("dt", undefined, e.label));
-      dl.appendChild(el("dd", undefined, e.value));
-    }
-    parts.push(dl);
-  }
+  // The raw processing settings (meta.processing) are deliberately not shown to visitors: they are
+  // build parameters that live in the data file and the repository.
 
   if (meta.overlay_file) {
     parts.push(el("h3", "panel__subtitle", "Streets and landmarks"));

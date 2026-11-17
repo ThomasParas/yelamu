@@ -47,13 +47,14 @@ export function createAbout(): AboutDialog {
       "What this map is",
       paragraph(
         "This map shows the landscape of the San Francisco peninsula around 1769. It is reconstructed from " +
-          "modern elevation data and from historical ecology maps. It is an informed picture of how land and " +
-          "water may have lain, not a photograph or a survey.",
+          "modern elevation data, from historical ecology maps and, along parts of the bay shore, from 1850s " +
+          "U.S. Coast Survey maps. It is an informed picture of how land and water may have lain, not a " +
+          "photograph or a survey.",
       ),
     ),
   );
 
-  // Wording needs the owner's review before public launch
+  // Wording approved by the owner on 2026-11-17 (launch review)
   inner.appendChild(
     section(
       "The Ramaytush Ohlone",

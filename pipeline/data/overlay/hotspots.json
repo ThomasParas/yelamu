@@ -5,7 +5,7 @@
     "kind": "bay",
     "lon": -122.3975,
     "lat": 37.7955,
-    "description": "A tidal cove on the bay shore between Clarks Point and Rincon Point; its beach lay back near today's Montgomery Street until Gold Rush filling put downtown over it.",
+    "description": "A cove on the bay shore between Clarks Point and Rincon Point; its beach lay as far back as today's Montgomery Street until Gold Rush filling put downtown over it.",
     "sources": [
       {
         "title": "Yerba Buena Cove (Wikipedia)",
@@ -35,7 +35,7 @@
     "kind": "marsh",
     "lon": -122.404,
     "lat": 37.7835,
-    "description": "Rare peat-soil fens lay in low ground between dune ridges and along tidal marsh edges in today's SoMa; an 1896 botanist called one an Arctic oasis in California.",
+    "description": "Rare peat-soil fens, likely relics of the last ice age, lay in low ground between dune ridges and along tidal marsh edges in today's SoMa; in 1896 a botanist described one as an 'Arctic oasis' amid California vegetation.",
     "sources": [
       {
         "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
@@ -50,7 +50,7 @@
     "kind": "lake",
     "lon": -122.4711,
     "lat": 37.7887,
-    "description": "A dune-dammed headwater lake: drainage pooled behind sand mounds, making habitat for California red-legged frogs and San Francisco garter snakes.",
+    "description": "A dune-dammed headwater lake: drainage pooled behind sand mounds. Dune-dammed lakes like this provided habitat for species such as California red-legged frogs and San Francisco garter snakes.",
     "sources": [
       {
         "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
@@ -65,7 +65,7 @@
     "kind": "lagoon",
     "lon": -122.4283,
     "lat": 37.8004,
-    "description": "A freshwater lagoon held back by dunes and beaches, in what is now the Marina District, below Russian Hill and toward the Presidio.",
+    "description": "A freshwater lagoon held back by dunes and beaches, in what is now the Marina District, beyond Russian Hill and toward the Presidio.",
     "sources": [
       {
         "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
@@ -99,7 +99,7 @@
     "kind": "lake",
     "lon": -122.4945,
     "lat": 37.7268,
-    "description": "Once a lagoon fed by streams, groundwater and an ocean channel; drifting dunes cut that link, though storms and quakes reopened it, and a tail ran to Ocean Beach as late as the 1800s.",
+    "description": "A freshwater lake that was once a lagoon fed by streams, groundwater and an ocean channel; drifting dunes cut that link, though storms and quakes reopened it, and a tail ran to Ocean Beach as late as the 1800s.",
     "sources": [
       {
         "title": "San Francisco's Lake Merced: Native Wetland (Western Neighborhoods Project)",
@@ -148,7 +148,7 @@
     "kind": "creek",
     "lon": -122.3925,
     "lat": 37.7485,
-    "description": "Fresh water from uphill springs ran down the Islais Creek watershed into saltwater marshlands on the bay's east shore, before the lower creek was filled and channelized.",
+    "description": "Fresh water from uphill springs flowed into saltwater marshlands on the bay's east shore, before the shoreline and creek were filled in and the creek channelized.",
     "sources": [
       {
         "title": "Islais Creek (Port of San Francisco)",

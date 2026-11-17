@@ -21,7 +21,7 @@ describe("legendEntries", () => {
     expect(e.map((x) => x.group)).toEqual(["water", "woodland", "unmapped"]);
     expect(e[0].label).toBe("Bay, ocean and ponds");
     expect(e[1].label).toBe("Oak and bay woodland");
-    expect(e[2].label).toBe("Not yet reconstructed (modern terrain shown for context)");
+    expect(e[2].label).toBe("Not covered by the historical habitat map (modern terrain shown for context)");
     expect(e[0].color).toBe("#3f7fa6");
   });
 
