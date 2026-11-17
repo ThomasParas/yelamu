@@ -40,6 +40,7 @@ const params = new URLSearchParams(location.search);
 const dataset = datasetFromSearch(location.search);
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/${dataset}`;
 const DEBUG = params.has("debug");
+const BENCH = params.has("bench"); // on-screen phone benchmark (see bench.ts)
 
 // Camera limits. The target may stray this fraction of the larger map half-extent past the edge.
 const TARGET_MARGIN_FRACTION = 0.15;
@@ -377,7 +378,9 @@ async function start() {
     handlers,
   };
   if (DEBUG) (window as unknown as { __yelamu: AppContext }).__yelamu = ctx;
-  void initModules(ctx);
+  void initModules(ctx).then(() => {
+    if (BENCH) void import("./bench").then((m) => m.startBench(ctx));
+  });
 }
 
 start().catch((err) => {

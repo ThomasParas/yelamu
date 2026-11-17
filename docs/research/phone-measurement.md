@@ -6,6 +6,17 @@ turn if it is not. Desktop numbers say little about a phone GPU, so measure on t
 Smooth enough means: **at least 30 fps and a 95th-percentile frame gap under 50 ms** while
 panning at full-resolution terrain (LOD 0) with vegetation on.
 
+## 0. Quick route: the on-screen benchmark (no developer tools)
+
+Open the production build with `?bench` on the phone, for example `http://<computer address>:4173/?bench`
+(serve it with `cd viewer && npm run build:site && npx vite preview --host --port 4173`; both devices
+on the same Wi-Fi). Close the About dialog, tap **Run the benchmark** and leave the phone alone for
+about 40 seconds. It runs scenarios A to D below by itself and prints PASS or FAIL per scenario
+(at least 30 fps, p95 frame gap under 50 ms, quality level not dropped) with the figures. Take a
+screenshot of the box, and note the battery percentage before and after and whether the phone felt
+warm. Use sections 1 to 3 only if you need the full detail; section 5 (idle battery cost of the
+water) is not part of the quick route.
+
 ## 1. Serve the viewer to the phone
 
 1. On the computer, from the `viewer/` folder: `npx vite --host`
