@@ -102,7 +102,7 @@ export function createShell(root: HTMLElement): Shell {
   // First stop in the tab order: jump past the top bar to the search box (or, when the
   // dataset has none, to the first control). The link must not touch the URL hash, which
   // holds the view state, so it is handled in script.
-  document.querySelector(".skip-link")?.remove();
+  document.querySelector(".skip-nav")?.remove();
   const skip = el("a", "skip-link", { href: "#", "data-skip": "search" }, "Skip to search");
   skip.addEventListener("click", (e) => {
     e.preventDefault();
@@ -110,7 +110,10 @@ export function createShell(root: HTMLElement): Shell {
       document.getElementById(SEARCH_INPUT_ID) ?? root.querySelector<HTMLElement>(".topbar button, .topbar input");
     target?.focus();
   });
-  document.body.prepend(skip);
+  // A navigation landmark of its own, so the link is inside a landmark (accessibility rule "region").
+  const skipNav = el("nav", "skip-nav", { "aria-label": "Skip link" });
+  skipNav.appendChild(skip);
+  document.body.prepend(skipNav);
 
   const header = el("header", "topbar", { role: "banner" });
   const title = el("h1", "topbar__title", undefined, "Yelamu");
@@ -286,7 +289,9 @@ export function createShell(root: HTMLElement): Shell {
       });
       closeBtn.appendChild(el("span", "btn-glyph", { "aria-hidden": "true" }, "×"));
       head.append(h2, closeBtn);
-      const body = el("div", "panel__body");
+      // Scrolls, so keyboard users must be able to focus it to scroll (accessibility rule
+      // "scrollable-region-focusable"); named by the panel title.
+      const body = el("div", "panel__body", { tabindex: "0", role: "group", "aria-labelledby": titleId });
       section.append(head, body);
       panelHost.appendChild(section);
 
