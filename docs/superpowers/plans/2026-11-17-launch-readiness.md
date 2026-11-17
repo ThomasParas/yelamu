@@ -686,3 +686,7 @@ A regression I introduced and then caught: wrapping the canvas in `<main>` left 
 
 Tests now: viewer **577**, pipeline 617 (+5 skipped). Observations not acted on: loading the page with an extra query parameter `?x=...` makes the camera drift for about two seconds (shared links use the hash only, so a visitor will not hit it); the water's stripe pattern shows as a checker at some zooms (known cosmetic item).
 
+## Task C1 executed (2026-11-17)
+
+The owner reviewed the launch review sheet and decided each item; all were applied in `97e414d` (decisions recorded at the end of `docs/research/launch-review-sheet.md`). The Ramaytush Ohlone text was **approved as written**. **C1 is satisfied.** Remaining gates: C2 (phone), C3 (VoiceOver), C4 (git email), then C5 to C8. The Association of Ramaytush Ohlone has still not been contacted.
+
