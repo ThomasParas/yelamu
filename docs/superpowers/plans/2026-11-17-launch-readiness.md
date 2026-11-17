@@ -37,7 +37,7 @@
 |---|---|
 | `viewer/src/main.ts` loads the `slice` dataset unless `?data=` says otherwise | A visitor would see the demo slice. Task A1 |
 | `index.html` has a title but no description, sharing tags, icon or robots file | Links shared in chat or social media would be bare. Task A2 |
-| `npm run build` copies **all** of `public/assets` into `dist/` (about 19 MB, including 8 MB of synthetic test data) | Task A3 prunes it to the real data only |
+| `npm run build` copies **all** of `public/assets` into `dist/` (about 19 MB, including 8 MB of synthetic test data) | Task A3 prunes it to the real data only (11 MB) |
 | `viewer/public/assets/real-city` is gitignored | Task A5 tracks it |
 | All 96 commits carry your personal email address as the author | It becomes public with the history. Task C4 asks you to choose |
 | A **fresh clone fails 2 pipeline tests** (`test_shipped_regions_load` needs `pipeline/data/raw`, which is gitignored); 614 pass | Task A6 fixes them so CI is green |
@@ -274,7 +274,7 @@ In `viewer/package.json` `scripts`, after `"build"`, add: `"build:site": "npm ru
 
 Run: `cd viewer && npm run build:site && ls dist/assets && du -sh dist`
 
-Expected: it prints `removed dist/assets/city-synth`, `real` and `slice`; `ls` shows `index-*.js`, `index-*.css` and `real-city`; `dist` is about **9 MB**.
+Expected: it prints `removed dist/assets/city-synth`, `real` and `slice`; `ls` shows `index-*.js`, `index-*.css` and `real-city`; `dist` is about **11 MB** (the data 8.3 MB, the sharing image 0.7 MB).
 
 - [ ] **Step 4: Serve the production build and look at it**
 
@@ -658,3 +658,16 @@ Analytics, a cultural layer (needs the Association's involvement), a mobile app,
 | Phone performance | C2 |
 | Public repo, Pages, subdomain, HTTPS | C4 to C7 |
 | Live verification and record | C8 |
+
+---
+
+## Part A executed (2026-11-17)
+
+Commits: `70710e0` A1, `890531f` A2, `4cc5252` A3, `10d3963` A4, `e5f2df2` A5, the A6 test fix, and the A7 workflow. Results:
+
+- **Viewer tests 572 to 575**, typecheck and build clean; **pipeline 617 passed, 5 skipped** here, and **0 failed (614 passed, 8 skipped) on a fresh clone** (before A6: 2 failed).
+- The production build (`vite preview`) loads the real city with five data requests, all to its own host, and no console warning. `dist` is 11 MB.
+- The rebuilt real-city data is byte-identical to the one already on disk (same heightmap checksum), so the tracked files are the reproducible build of the committed inputs.
+- Every viewer CI step (synthetic data, vitest, tsc, `build:site`) was rehearsed on a fresh clone; `npm ci` and the Actions run itself are only proven by Task C5.
+- A2's sharing image (`og.png`, 1200 x 630) is a screenshot of the whole peninsula with the interface hidden. Look at it before launch: the south-west is bare grey ground where SFEI maps no habitat, and a thin land sliver shows at the map's east edge.
+- `.playwright-mcp/` (browser tool scratch) is now gitignored.
