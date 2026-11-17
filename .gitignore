@@ -6,10 +6,11 @@ pipeline/data/raw/
 viewer/node_modules/
 viewer/dist/
 
-# Derived from SFEI data (GPL-3.0-or-later since SFEI's reply, 2026-11-17; see docs/research/sfei-license-reply.md).
-# Kept out of git for size and hosting reasons until a publishing plan exists.
-viewer/public/assets/real*/
+# The built real-city data is tracked: it derives from GPL-3.0-or-later SFEI data and public sources (NOTICE.md).
+# Older local experiments and review images stay out of git.
+viewer/public/assets/real/
 docs/research/local/
+.playwright-mcp/
 
 # Generated synthetic whole-city test data (no real data in it, but 8 MB of binary)
 viewer/public/assets/city-synth/

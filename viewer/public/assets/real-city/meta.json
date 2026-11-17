@@ -1,0 +1,303 @@
+{
+  "width": 1771,
+  "height": 1565,
+  "cell_m": 10.0,
+  "min_m": -3.0,
+  "max_m": 279.0,
+  "crs": "EPSG:32610",
+  "west": 541354.3531576656,
+  "south": 4172624.3845005874,
+  "east": 559064.3531576656,
+  "north": 4188274.3845005874,
+  "heights_file": "heightmap.u16",
+  "heights_format": "uint16-le",
+  "water_level_m": 0.6,
+  "layers": [
+    {
+      "id": "terrain",
+      "source": "USGS 3DEP, modified",
+      "confidence": "inferred",
+      "attribution": "USGS 3DEP; see docs/research"
+    },
+    {
+      "id": "water",
+      "source": "SFEI historical ecology",
+      "confidence": "documented",
+      "attribution": "SFEI; see docs/research"
+    },
+    {
+      "id": "open_water_gap_fill",
+      "source": "modern DEM where SFEI maps no habitat",
+      "confidence": "inferred",
+      "attribution": "USGS 3DEP; gap fill by this project"
+    },
+    {
+      "id": "hand_water",
+      "source": "hand-drawn from 4 sources: NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-islais-marsh; NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-open-bay-east; NOAA Shorelin...",
+      "confidence": "inferred",
+      "attribution": "this project"
+    },
+    {
+      "id": "landforms",
+      "source": "hand-sculpted from 2 sources: FoundSF 'Mission Plank Road': an 80-ft (24.4 m) sand hill between Second and Third Streets; DEM there 10.7 m; +13.7 m added. Radius 150 m assumed; Lockwood, SPUR 2003: Rincon Hill rose 120 ft (36.6 m); DEM peak today 31.6 m; +5.0 m added. Footprint radius 180 m assumed",
+      "confidence": "inferred",
+      "attribution": "this project"
+    },
+    {
+      "id": "ponds",
+      "source": "20 freshwater ponds from 5 sources: Extent: flat 5.55 to 5.70 m lake surface of the USGS 3DEP DEM (modern lake; 1769 outline not known); level 5.6 m from the same DEM; SFEI Hidden Nature SF habitat class 'Barrier beach-impounded freshwater lagoon' (extent); water level from the modern DEM; SFEI H...",
+      "confidence": "inferred",
+      "attribution": "SFEI; this project"
+    }
+  ],
+  "habitat_file": "habitat.u8",
+  "habitat_classes": [
+    {
+      "id": 0,
+      "name": "Unmapped",
+      "group": "unmapped"
+    },
+    {
+      "id": 1,
+      "name": "Open bay (inferred from modern elevation)",
+      "group": "water"
+    },
+    {
+      "id": 2,
+      "name": "Bay (hand-drawn)",
+      "group": "water"
+    },
+    {
+      "id": 3,
+      "name": "Marsh (hand-drawn)",
+      "group": "marsh"
+    },
+    {
+      "id": 4,
+      "name": "Pond (hand-drawn)",
+      "group": "water"
+    },
+    {
+      "id": 5,
+      "name": "Barrier beach-impounded freshwater lagoon",
+      "group": "water"
+    },
+    {
+      "id": 6,
+      "name": "Beach",
+      "group": "beach"
+    },
+    {
+      "id": 7,
+      "name": "California Bay Woodland",
+      "group": "woodland"
+    },
+    {
+      "id": 8,
+      "name": "Coast live oak woodland",
+      "group": "woodland"
+    },
+    {
+      "id": 9,
+      "name": "Coastal bluff scrub",
+      "group": "scrub"
+    },
+    {
+      "id": 10,
+      "name": "Coastal prairie",
+      "group": "grassland"
+    },
+    {
+      "id": 11,
+      "name": "Coastal prairie/scrub",
+      "group": "grassland"
+    },
+    {
+      "id": 12,
+      "name": "Coastal scrub",
+      "group": "scrub"
+    },
+    {
+      "id": 13,
+      "name": "Deep ocean/bay",
+      "group": "water"
+    },
+    {
+      "id": 14,
+      "name": "Dune slack",
+      "group": "wetland"
+    },
+    {
+      "id": 15,
+      "name": "Dune-dammed headwater lake",
+      "group": "water"
+    },
+    {
+      "id": 16,
+      "name": "Dune-dammed pond or lake",
+      "group": "water"
+    },
+    {
+      "id": 17,
+      "name": "Fen",
+      "group": "wetland"
+    },
+    {
+      "id": 18,
+      "name": "Foothill grassland",
+      "group": "grassland"
+    },
+    {
+      "id": 19,
+      "name": "Island",
+      "group": "rock"
+    },
+    {
+      "id": 20,
+      "name": "Maritime chaparral",
+      "group": "scrub"
+    },
+    {
+      "id": 21,
+      "name": "Mobile dunes",
+      "group": "dune"
+    },
+    {
+      "id": 22,
+      "name": "Other pond or lake",
+      "group": "water"
+    },
+    {
+      "id": 23,
+      "name": "Riparian woodland",
+      "group": "wetland"
+    },
+    {
+      "id": 24,
+      "name": "Sandy/Rocky Intertidal",
+      "group": "beach"
+    },
+    {
+      "id": 25,
+      "name": "Serpentine grassland",
+      "group": "grassland"
+    },
+    {
+      "id": 26,
+      "name": "Serpentine maritime chaparral",
+      "group": "scrub"
+    },
+    {
+      "id": 27,
+      "name": "Serpentine slope wetland/serpentine maritime chaparral complex",
+      "group": "wetland"
+    },
+    {
+      "id": 28,
+      "name": "Shallow ocean/bay",
+      "group": "water"
+    },
+    {
+      "id": 29,
+      "name": "Stabilized dune/dune scrub/grassland",
+      "group": "dune"
+    },
+    {
+      "id": 30,
+      "name": "Tidal coastal lagoon",
+      "group": "marsh"
+    },
+    {
+      "id": 31,
+      "name": "Tidal flat",
+      "group": "marsh"
+    },
+    {
+      "id": 32,
+      "name": "Tidal marsh",
+      "group": "marsh"
+    },
+    {
+      "id": 33,
+      "name": "Tidal slough",
+      "group": "marsh"
+    },
+    {
+      "id": 34,
+      "name": "Wet meadow",
+      "group": "wetland"
+    },
+    {
+      "id": 35,
+      "name": "Willow grove",
+      "group": "wetland"
+    }
+  ],
+  "processing": {
+    "smooth_m": 30.0,
+    "shelf_m": 150.0,
+    "shore_slope": 0.3,
+    "shore_open_cells": 2,
+    "open_water_max_m": 0.5,
+    "coverage": true,
+    "pond_classes": [
+      "Dune-dammed pond or lake",
+      "Dune-dammed headwater lake",
+      "Barrier beach-impounded freshwater lagoon",
+      "Other pond or lake"
+    ],
+    "marsh_classes": [
+      "Tidal coastal lagoon"
+    ],
+    "pond_max_depth_m": 2.0,
+    "pond_shelf_m": 20.0,
+    "pond_bank_slope": 0.35,
+    "pond_bank_m": 200.0
+  },
+  "ponds_file": "ponds.json",
+  "hand_sources": [
+    {
+      "layer": "hand_water",
+      "source": "NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-islais-marsh",
+      "confidence": "inferred",
+      "count": 1
+    },
+    {
+      "layer": "hand_water",
+      "source": "NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-open-bay-east",
+      "confidence": "inferred",
+      "count": 1
+    },
+    {
+      "layer": "hand_water",
+      "source": "NOAA Shoreline Data Rescue Project, CA37B08, sheet T-00687 (1857), mean high water line; area classed by seed b08-open-bay-east",
+      "confidence": "inferred",
+      "count": 1
+    },
+    {
+      "layer": "hand_water",
+      "source": "US Navy BRAC PMO: Treasure Island is 1936-37 fill on the Yerba Buena shoals; extent is the modern 3DEP DEM land north of lat 37.8153; drawn as bay, shoal depth not mapped",
+      "confidence": "inferred",
+      "count": 1
+    },
+    {
+      "layer": "landforms",
+      "source": "FoundSF 'Mission Plank Road': an 80-ft (24.4 m) sand hill between Second and Third Streets; DEM there 10.7 m; +13.7 m added. Radius 150 m assumed",
+      "confidence": "inferred",
+      "count": 1
+    },
+    {
+      "layer": "landforms",
+      "source": "Lockwood, SPUR 2003: Rincon Hill rose 120 ft (36.6 m); DEM peak today 31.6 m; +5.0 m added. Footprint radius 180 m assumed",
+      "confidence": "inferred",
+      "count": 1
+    },
+    {
+      "layer": "ponds",
+      "source": "Extent: flat 5.55 to 5.70 m lake surface of the USGS 3DEP DEM (modern lake; 1769 outline not known); level 5.6 m from the same DEM",
+      "confidence": "inferred",
+      "count": 3
+    }
+  ],
+  "overlay_file": "overlay.json"
+}
