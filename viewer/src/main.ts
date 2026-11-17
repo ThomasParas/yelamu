@@ -7,6 +7,7 @@ import { attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, paletteToLinear, shadeByDepth } from "./habitat";
 import { loadHabitat, loadHeightmap } from "./heightmap";
 import { datasetFromSearch } from "./dataset";
+import { loadFailureMessage } from "./loadError";
 import { createHashSync } from "./hashSync";
 import { LayerSelection } from "./layerSelection";
 import { initModules } from "./modules";
@@ -381,5 +382,5 @@ async function start() {
 
 start().catch((err) => {
   console.error(err);
-  shell.setStatus(`Failed to load: ${err instanceof Error ? err.message : String(err)}`);
+  shell.setStatus(loadFailureMessage(err, DEBUG));
 });
