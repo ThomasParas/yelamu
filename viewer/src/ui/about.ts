@@ -125,6 +125,18 @@ export function createAbout(): AboutDialog {
     ),
   );
 
+  inner.appendChild(
+    section(
+      "Source code and data",
+      paragraph(
+        "The code and the data behind this map are free software under the GNU General Public License, " +
+          "version 3 or any later version: ",
+        safeLink("https://github.com/ThomasParas/yelamu", "github.com/ThomasParas/yelamu"),
+        ".",
+      ),
+    ),
+  );
+
   inner.appendChild(el("p", "about__warning", "This map is not for navigation, engineering or legal use."));
 
   const explore = el("button", "btn btn--primary about__close", "Explore the map");
