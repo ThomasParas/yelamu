@@ -6,6 +6,7 @@ import { decodeState, encodeState, type AppState } from "./appState";
 import { attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, paletteToLinear, shadeByDepth } from "./habitat";
 import { loadHabitat, loadHeightmap } from "./heightmap";
+import { datasetFromSearch } from "./dataset";
 import { createHashSync } from "./hashSync";
 import { LayerSelection } from "./layerSelection";
 import { initModules } from "./modules";
@@ -32,13 +33,10 @@ const FALLBACK_GROUND = 0xa89f78;
 // would be more than this many screen pixels apart. See switchZoomFor in chunks.ts.
 const MAX_COARSE_SPACING_PX = 6;
 
-// Which dataset folder under public/assets/ to load. `?data=real` selects the locally
-// generated real-data slice (gitignored; see docs/research/slice-results.md);
-// `?data=city-synth` the synthetic whole-city grid (npm run make:city-synth). The name
-// is restricted so a URL cannot point the loader at arbitrary paths.
+// Which dataset folder under public/assets/ to load: the real city unless `?data=<name>` asks
+// for another (`slice`, or the synthetic `city-synth` from npm run make:city-synth).
 const params = new URLSearchParams(location.search);
-const requested = params.get("data") ?? "slice";
-const dataset = /^[a-z0-9_-]+$/.test(requested) ? requested : "slice";
+const dataset = datasetFromSearch(location.search);
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/${dataset}`;
 const DEBUG = params.has("debug");
 
