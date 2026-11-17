@@ -576,7 +576,7 @@ Your review (Task C1) is faster if every word a visitor reads is on one page wit
 
 ### Task C2 (OWNER): Measure on a phone
 
-- [ ] Follow `docs/research/phone-measurement.md` (serve with `npx vite --host`, same Wi-Fi). Pass: at least 30 fps and a p95 frame gap under 50 ms in scenario D. If it fails, the agent turns the knob the note names (vegetation default off on coarse pointers is already set) and you re-measure. Save the numbers in `docs/research/launch-results.md`.
+- [x] **Done 2026-11-17, passed** (see "Task C2 executed" below). Follow `docs/research/phone-measurement.md` (serve with `npx vite --host`, same Wi-Fi). Pass: at least 30 fps and a p95 frame gap under 50 ms in scenario D. If it fails, the agent turns the knob the note names (vegetation default off on coarse pointers is already set) and you re-measure. Save the numbers in `docs/research/launch-results.md`.
 
 ### Task C3 (OWNER): Screen reader and keyboard pass
 
@@ -695,4 +695,8 @@ The owner reviewed the launch review sheet and decided each item; all were appli
 - **C4:** the owner chose GitHub's no-reply address. The history was rewritten with `git filter-repo --mailmap` on a copy: all 111 commits now carry `5440145+ThomasParas@users.noreply.github.com` as author and committer, the tree is identical to the original, and the personal address appears nowhere in the history. A scan of the tracked files and history for emails, phone numbers and keys found nothing. **Commit hashes quoted earlier in this plan and in the results notes are from the pre-rewrite history; the commit titles are unchanged.** A backup of the old `.git` is at `~/Documents/yelamu-git-backup-before-rewrite-2026-11-17.tar.gz` (delete it once you are sure; it contains the personal address).
 - **C5:** the **private** repository `ThomasParas/yelamu` was created and `main` pushed. First Actions run: **pipeline job passed, viewer job passed** (about 30 seconds each, `npm ci` included), **deploy job failed as expected** (`Failed to create deployment (404)`: Pages is not enabled yet). The deploy job will show red on every push until Task C7. The project folder now uses the pushed history (its old `.git` replaced; working files and the gitignored raw data untouched; `git status` clean and level with `origin/main`).
 - **Remaining:** C2 (phone), C3 (VoiceOver), C6 (Hostinger CNAME), C7 (make public, enable Pages), C8 (verify live).
+
+## Task C2 executed (2026-11-17)
+
+The owner ran the on-screen benchmark (`?bench`, `353e59a`) on an Android phone (Chrome 157, 60 Hz) over Tailscale. **All four scenarios passed at about 60 fps** (59.5 to 59.7), p95 frame gap 17.2 to 17.5 ms, quality unchanged (2 to 2); scenario D, the gate, had 1.4 M triangles and 32,999 plants with water animation on. Full table and caveats (one recent phone, 40 s, battery and warmth not recorded, no iPhone or older phone) in `docs/research/launch-results.md`. **C2 is satisfied.** Remaining: C3 (VoiceOver), C6, C7, C8.
 
