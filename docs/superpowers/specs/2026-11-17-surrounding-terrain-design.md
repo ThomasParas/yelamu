@@ -94,3 +94,18 @@ Project coverage is from catalogue titles only; each stage first downloads and c
 - Crisp edge or soft fade (decided on the prototype).
 - Whether 60 m stays or 90 m is needed (decided by the phone run).
 - The exact label list and zoom threshold.
+
+## Amendments made while planning (2026-11-17)
+
+These refine the design above; where they differ, they win.
+
+1. **Own file, not a meta block.** The ring is described by `context.json` and `context.u16`, discovered through a new `meta.json` key `context_file` (patched in by `scripts/build_context.py`, like `overlay_file`), and listed in `meta.layers` as the layer `context`. A city rebuild therefore never loses the ring description, and a dataset without the key simply has no ring.
+2. **Vertex lattice with explicit hole indices.** `context.json` stores the lattice origin, spacings (`dx` 60 m, `dz` 59.92 m for the real city), vertex counts and the hole as integer cell indices (`i0, i1, j0, j1`), so the viewer needs no floating-point alignment test. The hole is the city mesh rectangle, 17,700 x 15,640 m.
+3. **City-edge heights.** The ring's vertices on the hole boundary take the city heightmap's values (bilinear along the edge), so the two surfaces meet at the same height; skirts hide the small remaining gaps.
+4. **Open water is flattened.** Ring vertices at or below 0.5 m become the bay floor (-3 m), so the ring's water shades like the city's bay.
+5. **Outer skirt.** The ring is a slab: its outer edge also gets a skirt (down to the sea floor plane) so no cut edge shows daylight.
+6. **Colour.** Land uses the existing "unmapped" ground colour (`GROUP_COLORS.unmapped`), up to 15 percent lighter with height; the Legend row for that colour already says "modern terrain shown for context". Water uses the water colour with the city's depth shading.
+7. **Places ride the existing label, search and Places machinery** as landmarks of a new kind `region`, passed from the context module to the overlay module through `AppContext.extraPlaces`. They are labelled only at zoom 1.6 or less, and selecting one flies to zoom 1.2.
+8. **Camera.** Near and far planes are already +-1e5, so no change. Pan bounds become a rectangle with a centre offset (the ring is not centred on the city), and the minimum zoom is computed from the ring's fit. The sea and sea-floor planes grow from 4x to 6x the city extent.
+9. **Tiles** are 96 x 96 cells (about 63 tiles).
+10. **Optional follow-ups chosen in the look-and-decide task:** a soft colour fade at the city edge, and a soft height knee for Mount Tamalpais.
