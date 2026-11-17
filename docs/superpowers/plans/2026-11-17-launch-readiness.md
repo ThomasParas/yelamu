@@ -690,3 +690,9 @@ Tests now: viewer **577**, pipeline 617 (+5 skipped). Observations not acted on:
 
 The owner reviewed the launch review sheet and decided each item; all were applied in `97e414d` (decisions recorded at the end of `docs/research/launch-review-sheet.md`). The Ramaytush Ohlone text was **approved as written**. **C1 is satisfied.** Remaining gates: C2 (phone), C3 (VoiceOver), C4 (git email), then C5 to C8. The Association of Ramaytush Ohlone has still not been contacted.
 
+## Tasks C4 and C5 executed (2026-11-17)
+
+- **C4:** the owner chose GitHub's no-reply address. The history was rewritten with `git filter-repo --mailmap` on a copy: all 111 commits now carry `5440145+ThomasParas@users.noreply.github.com` as author and committer, the tree is identical to the original, and the personal address appears nowhere in the history. A scan of the tracked files and history for emails, phone numbers and keys found nothing. **Commit hashes quoted earlier in this plan and in the results notes are from the pre-rewrite history; the commit titles are unchanged.** A backup of the old `.git` is at `~/Documents/yelamu-git-backup-before-rewrite-2026-11-17.tar.gz` (delete it once you are sure; it contains the personal address).
+- **C5:** the **private** repository `ThomasParas/yelamu` was created and `main` pushed. First Actions run: **pipeline job passed, viewer job passed** (about 30 seconds each, `npm ci` included), **deploy job failed as expected** (`Failed to create deployment (404)`: Pages is not enabled yet). The deploy job will show red on every push until Task C7. The project folder now uses the pushed history (its old `.git` replaced; working files and the gitignored raw data untouched; `git status` clean and level with `origin/main`).
+- **Remaining:** C2 (phone), C3 (VoiceOver), C6 (Hostinger CNAME), C7 (make public, enable Pages), C8 (verify live).
+
