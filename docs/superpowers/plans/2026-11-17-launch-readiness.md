@@ -671,3 +671,18 @@ Commits: `70710e0` A1, `890531f` A2, `4cc5252` A3, `10d3963` A4, `e5f2df2` A5, t
 - Every viewer CI step (synthetic data, vitest, tsc, `build:site`) was rehearsed on a fresh clone; `npm ci` and the Actions run itself are only proven by Task C5.
 - A2's sharing image (`og.png`, 1200 x 630) is a screenshot of the whole peninsula with the interface hidden. Look at it before launch: the south-west is bare grey ground where SFEI maps no habitat, and a thin land sliver shows at the map's east edge.
 - `.playwright-mcp/` (browser tool scratch) is now gitignored.
+
+## Part B executed (2026-11-17)
+
+| Task | Result |
+|---|---|
+| B1 review sheet | `docs/research/launch-review-sheet.md`. All 11 hotspots re-checked against live pages (the earlier run did not record which 3 had been): **none contradicted**; 3 PARTLY (Yerba Buena Cove "tidal" not on the page; Washerwoman's Lagoon "below" vs "beyond" Russian Hill; Islais two paraphrases); timing and attribution caveats on Lake Merced, SoMa fens and Mountain Lake. Ten suggested changes listed for your decision; none applied |
+| B2 accessibility (axe-core 4.10.2, production build, About open, closed, Places, Legend, Sources, a hotspot panel) | **Before:** 2 moderate (no main landmark; skip link and canvas outside landmarks) and 1 **serious** (the scrolling Legend and Sources panels not keyboard-focusable). **Fixed** (`a6d9df9`): `<main>` around the canvas, the skip link in a navigation landmark, the panel body focusable and named. **After: 0 violations in every state.** axe checks structure and many contrast cases, not everything: Task C3 (VoiceOver) still stands |
+| B3 reduced motion | **Pass.** With `prefers-reduced-motion: reduce` the "Water motion" box is off and disabled and the idle map makes **0** renders in 2 s; with no preference, water animates (29 renders in 2 s idle) and unchecking the box stops all idle rendering (0 renders). Ponds share the water material |
+| B4 rotation across the LOD switch | **Partly.** At rotation 1, zoom 3.40 (coarse LOD) against 3.62 (full detail), the shore at Islais, India Basin and Hunters Point lines up, with no shift; vegetation fills in on full detail. **Not tested:** frame-by-frame flicker during an animated Q/E rotation across the switch (only still frames were compared). The switch zoom depends on window size (3.54 at 750 px tall, 4.29 at 550) |
+| B5 failure states | **Fixed** (`02cc445`): a missing heightmap showed a technical message ("expected 5543230 bytes ... got 1952"); it now says "The map could not be loaded. Please check your connection and reload the page." (detail only with `?debug`). Missing `overlay.json` and `ponds.json`: the map works, two console warnings, no hotspots. On GitHub Pages a missing file returns a 404 rather than this test server's HTML fallback; the message path is the same |
+
+A regression I introduced and then caught: wrapping the canvas in `<main>` left it at its content's height (550 of 750 px, a blank strip at the bottom). Found by looking at the page, not by a test (the viewer tests run without a DOM); fixed in `d2f4cbd`. Lesson recorded: view the page after any layout change.
+
+Tests now: viewer **577**, pipeline 617 (+5 skipped). Observations not acted on: loading the page with an extra query parameter `?x=...` makes the camera drift for about two seconds (shared links use the hash only, so a visitor will not hit it); the water's stripe pattern shows as a checker at some zooms (known cosmetic item).
+
