@@ -208,3 +208,197 @@ def sample_lattice(heights: np.ndarray, lat: Lattice, x: float, z: float) -> flo
         heights[r0, c0] * (1 - fc) * (1 - fr) + heights[r0, c0 + 1] * fc * (1 - fr)
         + heights[r0 + 1, c0] * (1 - fc) * fr + heights[r0 + 1, c0 + 1] * fc * fr
     )
+
+
+# ------------------------------------------------------------------ places
+
+PLACE_KINDS = ("town", "peak", "airport")
+# keep in sync with viewer/src/context/parse.ts
+MAX_PLACES = 200
+MAX_NAME_CHARS = 120
+MAX_SOURCE_CHARS = 300
+_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def load_places(
+    path: Path,
+    bbox: tuple[float, float, float, float],
+    grid: Grid,
+    taken_ids: Sequence[str] | set[str] = (),
+) -> list[dict]:
+    """Read and validate the modern place labels; adds world x, z (metres, 1 decimal)."""
+    path = Path(path)
+    items = json.loads(path.read_text())
+    if not isinstance(items, list):
+        raise ValueError(f"{path}: must contain a JSON list")
+    if len(items) > MAX_PLACES:
+        raise ValueError(f"{path}: {len(items)} places is more than the limit of {MAX_PLACES}")
+    seen: set[str] = set()
+    taken = set(taken_ids)
+    out: list[dict] = []
+    for n, item in enumerate(items):
+        label = f"{path}: place {n}"
+        if not isinstance(item, dict):
+            raise ValueError(f"{label}: must be an object")
+        pid = item.get("id")
+        if not isinstance(pid, str) or not _ID_RE.fullmatch(pid):
+            raise ValueError(f"{label}: id must be lower-case letters, digits and hyphens, got {pid!r}")
+        if pid in seen:
+            raise ValueError(f"{label}: duplicate id {pid!r}")
+        if pid in taken:
+            raise ValueError(f"{label}: id {pid!r} is already used by an overlay landmark or hotspot")
+        seen.add(pid)
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip() or len(name) > MAX_NAME_CHARS:
+            raise ValueError(f"{label} ({pid}): name must be 1 to {MAX_NAME_CHARS} characters")
+        if item.get("kind") not in PLACE_KINDS:
+            raise ValueError(f"{label} ({pid}): kind must be one of {PLACE_KINDS}, got {item.get('kind')!r}")
+        lon, lat = item.get("lon"), item.get("lat")
+        if not (_is_number(lon) and _is_number(lat)):
+            raise ValueError(f"{label} ({pid}): lon and lat must be numbers (lat={lat!r}, lon={lon!r})")
+        west, south, east, north = bbox
+        if not (west < lon < east and south < lat < north):
+            raise ValueError(f"{label} ({pid}): ({lon}, {lat}) is outside the ring bbox {list(bbox)}")
+        source = item.get("source")
+        if not isinstance(source, str) or not source.strip() or len(source) > MAX_SOURCE_CHARS:
+            raise ValueError(f"{label} ({pid}): source must be 1 to {MAX_SOURCE_CHARS} characters")
+        x, z = world_of_lonlat(grid, lon, lat)
+        out.append({
+            "id": pid, "name": name.strip(), "kind": item["kind"],
+            "lon": float(lon), "lat": float(lat), "x": round(x, 1), "z": round(z, 1),
+            "source": source.strip(),
+        })
+    return out
+
+
+# ------------------------------------------------------------------ document and files
+
+LAYER_SOURCE = (
+    "USGS 3DEP elevation data: modern terrain and shoreline, resampled to about {cell:g} m. "
+    "Shown for orientation only; not a reconstruction of 1769."
+)
+
+
+def context_document(
+    lat: Lattice,
+    heights: np.ndarray,
+    min_m: float,
+    max_m: float,
+    places: list[dict],
+    bbox: tuple[float, float, float, float],
+    processing: dict,
+    confidence: str = "illustrative",
+) -> dict:
+    """The context.json content. `heights` is only used for its shape check."""
+    if confidence not in CONFIDENCE_LEVELS:
+        raise ValueError(f"confidence must be one of {CONFIDENCE_LEVELS}, got {confidence!r}")
+    if heights.shape != (lat.rows, lat.cols):
+        raise ValueError(f"heights shape {heights.shape} must be ({lat.rows}, {lat.cols})")
+    return {
+        "version": CONTEXT_VERSION,
+        "crs": UTM_CRS,
+        "heights_file": CONTEXT_HEIGHTS_FILE,
+        "heights_format": "uint16-le",
+        "cols": lat.cols,
+        "rows": lat.rows,
+        "x0": lat.x0,
+        "z0": lat.z0,
+        "dx": lat.dx,
+        "dz": lat.dz,
+        "hole": {"i0": lat.i0, "i1": lat.i1, "j0": lat.j0, "j1": lat.j1},
+        "min_m": min_m,
+        "max_m": max_m,
+        "water_level_m": WATER_LEVEL_M,
+        "bay_floor_m": BAY_FLOOR_M,
+        "bbox": list(bbox),
+        "layers": [{
+            "id": "context",
+            "source": LAYER_SOURCE.format(cell=round((lat.dx + lat.dz) / 2)),
+            "confidence": confidence,
+            "attribution": "USGS 3DEP; this project",
+        }],
+        "places": places,
+        "processing": processing,
+    }
+
+
+def write_context(out_dir: Path, heights: np.ndarray, doc: dict) -> None:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    quantize_heights(heights, doc["min_m"], doc["max_m"]).astype("<u2").tofile(out_dir / CONTEXT_HEIGHTS_FILE)
+    (out_dir / CONTEXT_FILE).write_text(json.dumps(doc, indent=1))
+
+
+def patch_meta(meta_path: Path, layer: dict) -> None:
+    """Add `context_file` and the context layer (replacing any older one) to meta.json."""
+    meta_path = Path(meta_path)
+    meta = json.loads(meta_path.read_text())
+    meta["context_file"] = CONTEXT_FILE
+    meta["layers"] = [l for l in meta.get("layers", []) if l.get("id") != layer["id"]] + [layer]
+    meta_path.write_text(json.dumps(meta, indent=2))
+
+
+def _overlay_ids(out_dir: Path) -> set[str]:
+    path = Path(out_dir) / "overlay.json"
+    if not path.exists():
+        return set()
+    overlay = json.loads(path.read_text())
+    return {p["id"] for key in ("landmarks", "hotspots") for p in overlay.get(key, [])}
+
+
+def build_context(region) -> dict:
+    """Build the ring for `region` (needs its context key and the city already built in region.out)."""
+    from yelamu.sources import load_features  # imported here: pulls in shapely/pyproj readers
+
+    cfg = region.context
+    if cfg is None:
+        raise ValueError(f"region {region.name!r} has no context key")
+    out = Path(region.out)
+    meta_path = out / "meta.json"
+    if not meta_path.exists():
+        raise FileNotFoundError(f"{meta_path} not found: build the city first (yelamu.cli --region ...)")
+    meta = json.loads(meta_path.read_text())
+    grid = Grid.from_lonlat_bbox(*region.bbox, cell=region.cell_m)
+    if (meta["width"], meta["height"]) != (grid.width, grid.height) or not math.isclose(
+        meta["west"], grid.west, abs_tol=1e-3
+    ):
+        raise ValueError(
+            f"{meta_path} does not match the region's grid; rebuild the city, then the ring"
+        )
+    raw = np.fromfile(out / meta["heights_file"], dtype="<u2")
+    if raw.size != grid.width * grid.height:
+        raise ValueError(f"{out / meta['heights_file']} has {raw.size} values, expected {grid.width * grid.height}")
+    city = dequantize_heights(raw.reshape(grid.height, grid.width), meta["min_m"], meta["max_m"])
+
+    lat = build_lattice(grid, cfg.bbox, cfg.cell_m)
+    # ORDER MATTERS. MARSH_LEVEL_M (0.5) equals OPEN_WATER_M (0.5), so flatten_water would
+    # turn every marsh vertex into bay floor if it ran after apply_context_water. Keep:
+    # resample, flatten the DEM's open water, THEN burn the hand-drawn bay and marsh, THEN
+    # match the city edge (see test_build_context_marsh_stays_marsh_...).
+    heights = flatten_water(resample_dem(region.dem, grid, lat))
+    bay = [f.geometry for p in cfg.hand_bay for f in load_features(p, allow_empty=True, require_provenance=True)]
+    marsh = [f.geometry for p in cfg.hand_marsh for f in load_features(p, allow_empty=True, require_provenance=True)]
+    heights = apply_context_water(heights, grid, lat, bay, marsh)
+    heights = apply_city_edge(heights, lat, city.astype("float64"), grid.cell)
+
+    places = load_places(cfg.places, cfg.bbox, grid, _overlay_ids(out)) if cfg.places else []
+    for p in places:
+        p["ground_m"] = round(sample_lattice(heights, lat, p["x"], p["z"]), 1)
+    min_m = float(math.floor(heights.min()))
+    max_m = float(math.ceil(heights.max()))
+    if max_m <= min_m:
+        max_m = min_m + 1.0
+    processing = {
+        "cell_target_m": cfg.cell_m, "dx_m": round(lat.dx, 3), "dz_m": round(lat.dz, 3),
+        "resampling": "average", "open_water_max_m": OPEN_WATER_M, "bay_floor_m": BAY_FLOOR_M,
+        "hand_bay_files": [Path(p).name for p in cfg.hand_bay],
+        "hand_marsh_files": [Path(p).name for p in cfg.hand_marsh],
+    }
+    doc = context_document(lat, heights, min_m, max_m, places, cfg.bbox, processing)
+    write_context(out, heights, doc)
+    patch_meta(meta_path, doc["layers"][0])
+    return doc

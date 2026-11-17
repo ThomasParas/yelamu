@@ -185,3 +185,202 @@ def test_lattice_transform_puts_pixel_centres_on_vertices():
     e, n = t @ (4 + 0.5, 9 + 0.5)
     assert e == pytest.approx(ec + lat.x(4))
     assert n == pytest.approx(nc - lat.z(9))
+
+import json
+
+from yelamu.context import (
+    CONTEXT_FILE,
+    CONTEXT_HEIGHTS_FILE,
+    build_context,
+    context_document,
+    load_places,
+    patch_meta,
+)
+from yelamu.export import Layer, dequantize_heights, write_assets
+from yelamu.region import load_region
+
+
+def _place(**over):
+    base = {
+        "id": "oakland", "name": "Oakland", "kind": "town",
+        "lon": -122.27, "lat": 37.80, "source": "test source",
+    }
+    return {**base, **over}
+
+
+def _places_file(tmp_path, items):
+    path = tmp_path / "places.json"
+    path.write_text(json.dumps(items))
+    return path
+
+
+def test_load_places_adds_world_coordinates(tmp_path):
+    places = load_places(_places_file(tmp_path, [_place()]), RING, CITY)
+    assert [p["id"] for p in places] == ["oakland"]
+    p = places[0]
+    assert p["x"] > HW  # east of the city map
+    assert set(p) >= {"id", "name", "kind", "lon", "lat", "x", "z", "source"}
+
+
+@pytest.mark.parametrize(
+    "item, message",
+    [
+        (_place(id="Bad Id"), "id"),
+        (_place(name="  "), "name"),
+        (_place(name="x" * 121), "name"),
+        (_place(kind="city"), "kind"),
+        (_place(lon=-123.5), "outside the ring bbox"),
+        (_place(lat="37.8"), "lat"),
+        (_place(source=""), "source"),
+    ],
+)
+def test_load_places_rejects_bad_items(tmp_path, item, message):
+    with pytest.raises(ValueError, match=message):
+        load_places(_places_file(tmp_path, [item]), RING, CITY)
+
+
+def test_load_places_rejects_duplicate_and_taken_ids(tmp_path):
+    with pytest.raises(ValueError, match="duplicate"):
+        load_places(_places_file(tmp_path, [_place(), _place()]), RING, CITY)
+    with pytest.raises(ValueError, match="already used"):
+        load_places(_places_file(tmp_path, [_place()]), RING, CITY, taken_ids={"oakland"})
+
+
+def test_patch_meta_adds_the_file_and_one_layer_and_is_idempotent(tmp_path):
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"layers": [{"id": "terrain"}, {"id": "context", "source": "old"}]}))
+    layer = {"id": "context", "source": "new", "confidence": "illustrative", "attribution": "a"}
+    patch_meta(meta, layer)
+    patch_meta(meta, layer)
+    data = json.loads(meta.read_text())
+    assert data["context_file"] == CONTEXT_FILE
+    assert [l["id"] for l in data["layers"]] == ["terrain", "context"]
+    assert data["layers"][1]["source"] == "new"
+
+
+def _mini_world(tmp_path, write_dem=_write_utm_ramp, context_extra=None):
+    """A tiny city (500 m cells) already built into out/, a UTM DEM (a ramp unless `write_dem` says
+    otherwise), and a region file. `context_extra` adds keys to the region's context block."""
+    pipeline = tmp_path / "pipeline"
+    (pipeline / "data" / "raw").mkdir(parents=True)
+    write_dem(pipeline / "data" / "raw" / "dem.tif")
+    city = np.full((CITY.height, CITY.width), 7.0, dtype="float32")
+    out = tmp_path / "out"
+    write_assets(city, CITY, [Layer("terrain", "test", "inferred", "t")], out)
+    (pipeline / "data" / "overlay").mkdir(parents=True)
+    (pipeline / "data" / "overlay" / "p.json").write_text(json.dumps([_place()]))
+    region = {
+        "name": "mini", "bbox": [-122.53, 37.70, -122.33, 37.84], "cell_m": 500,
+        "dem": "data/raw/dem.tif", "out": "../out",
+        "context": {"bbox": list(RING), "cell_m": 2000, "places": "data/overlay/p.json",
+                    **(context_extra or {})},
+    }
+    (pipeline / "regions").mkdir()
+    path = pipeline / "regions" / "mini.json"
+    path.write_text(json.dumps(region))
+    return load_region(path), out
+
+
+def test_build_context_writes_a_consistent_document_and_heights(tmp_path):
+    region, out = _mini_world(tmp_path)
+    doc = build_context(region)
+    on_disk = json.loads((out / CONTEXT_FILE).read_text())
+    assert on_disk == doc
+    assert doc["version"] == 1 and doc["heights_format"] == "uint16-le"
+    assert doc["layers"][0]["id"] == "context" and doc["layers"][0]["confidence"] == "illustrative"
+    raw = np.fromfile(out / CONTEXT_HEIGHTS_FILE, dtype="<u2")
+    assert raw.size == doc["cols"] * doc["rows"]
+    heights = dequantize_heights(raw.reshape(doc["rows"], doc["cols"]), doc["min_m"], doc["max_m"])
+    hole = doc["hole"]
+    # The city's constant 7 m is copied onto the hole boundary (16-bit steps are far finer than 0.1 m).
+    assert heights[hole["j0"], hole["i0"]] == pytest.approx(7.0, abs=0.1)
+    assert heights[hole["j1"], hole["i1"]] == pytest.approx(7.0, abs=0.1)
+    # The place got a ground height from the ring.
+    assert doc["places"][0]["id"] == "oakland" and "ground_m" in doc["places"][0]
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["context_file"] == CONTEXT_FILE
+    assert any(l["id"] == "context" for l in meta["layers"])
+
+
+def test_build_context_needs_the_city_built_first(tmp_path):
+    region, out = _mini_world(tmp_path)
+    (out / "meta.json").unlink()
+    with pytest.raises(FileNotFoundError, match="build the city first"):
+        build_context(region)
+
+
+def test_build_context_refuses_a_region_without_a_context_key(tmp_path):
+    region, _ = _mini_world(tmp_path)
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="no context key"):
+        build_context(replace(region, context=None))
+
+
+def test_context_document_rejects_a_bad_confidence():
+    lat = _lattice()
+    with pytest.raises(ValueError, match="confidence"):
+        context_document(lat, np.zeros((lat.rows, lat.cols), dtype="float32"), 0.0, 1.0, [],
+                         RING, {}, confidence="certain")
+
+
+# ------------------------------------------------------------------ the order of the water steps
+
+
+def _write_utm_two_level_dem(path):
+    """A UTM DEM covering the ring: 20 m land, except open water (-5 m) west of easting 545,000."""
+    west, north, pixel, width, height = 520_000.0, 4_210_000.0, 100.0, 800, 600
+    xs = west + (np.arange(width) + 0.5) * pixel
+    data = np.tile(np.where(xs < 545_000.0, -5.0, 20.0).astype("float32"), (height, 1))
+    with rasterio.open(
+        path, "w", driver="GTiff", height=height, width=width, count=1, dtype="float32",
+        crs="EPSG:32610", transform=from_origin(west, north, pixel, pixel), nodata=-999999.0,
+    ) as dst:
+        dst.write(data, 1)
+
+
+def test_build_context_marsh_stays_marsh_and_open_water_goes_to_the_bay_floor(tmp_path):
+    """MARSH_LEVEL_M equals OPEN_WATER_M, so flatten_water must run BEFORE apply_context_water:
+    run the other way round, every hand-drawn marsh vertex would be flattened to the bay floor."""
+    assert MARSH_LEVEL_M == OPEN_WATER_M  # the hazard this test pins
+    # One marsh polygon on dry land in the north-east of the ring, well outside the city hole.
+    ring = [[-122.20, 37.86], [-122.10, 37.86], [-122.10, 37.92], [-122.20, 37.92], [-122.20, 37.86]]
+    marsh = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"source": "test marsh polygon", "confidence": "illustrative"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }],
+    }
+    region, out = _mini_world(
+        tmp_path, write_dem=_write_utm_two_level_dem, context_extra={"hand_marsh": ["data/marsh.geojson"]}
+    )
+    (tmp_path / "pipeline" / "data" / "marsh.geojson").write_text(json.dumps(marsh))
+    doc = build_context(region)
+    raw = np.fromfile(out / CONTEXT_HEIGHTS_FILE, dtype="<u2")
+    heights = dequantize_heights(raw.reshape(doc["rows"], doc["cols"]), doc["min_m"], doc["max_m"])
+
+    from shapely.geometry import Point
+
+    from yelamu.sources import load_features
+
+    geom = load_features(region.context.hand_marsh[0], require_provenance=True)[0].geometry
+    lat = _lattice()
+    ec, nc = (CITY.west + CITY.east) / 2, (CITY.north + CITY.south) / 2
+    inside = [
+        (i, j)
+        for j in range(lat.rows)
+        for i in range(lat.cols)
+        if geom.contains(Point(ec + lat.x(i), nc - lat.z(j)))
+    ]
+    assert len(inside) >= 4  # several vertices, not a single lucky one
+    assert all(not (lat.i0 <= i <= lat.i1 and lat.j0 <= j <= lat.j1) for i, j in inside)  # outside the hole
+    for i, j in inside:
+        assert heights[j, i] == pytest.approx(MARSH_LEVEL_M, abs=0.05), (i, j)
+        assert heights[j, i] > BAY_FLOOR_M + 1.0
+    # Open water elsewhere (the -5 m strip in the west) is flattened to the bay floor.
+    assert (heights[:, 0] == pytest.approx(BAY_FLOOR_M, abs=0.05))
+    assert heights[lat.rows // 2, 1] == pytest.approx(BAY_FLOOR_M, abs=0.05)
+    # Dry land outside the marsh polygon keeps its 20 m.
+    assert heights[0, lat.cols - 1] == pytest.approx(20.0, abs=0.1)
