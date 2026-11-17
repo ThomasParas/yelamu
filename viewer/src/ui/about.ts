@@ -100,6 +100,31 @@ export function createAbout(): AboutDialog {
   credit("three.js.");
   inner.appendChild(section("Credits", credits));
 
+  // Terms supplied by SFEI for Hidden Nature SF (their reply to the licence question, 2026);
+  // they asked that the data terms and disclaimer be followed, so they are shown here.
+  inner.appendChild(
+    section(
+      "Data terms",
+      paragraph(
+        "San Francisco Historical Habitats is part of Hidden Nature SF, which is free data: it can be " +
+          "redistributed and modified under the terms of the GNU General Public License, version 3 or (at " +
+          "your option) any later version, as published by the Free Software Foundation. More information: ",
+        safeLink("https://www.gnu.org/licenses/", "gnu.org/licenses"),
+        ".",
+      ),
+      paragraph(
+        "Hidden Nature SF is distributed in the hope that it will be useful, but without any warranty, " +
+          "without even the implied warranty of merchantability or fitness for a particular purpose.",
+      ),
+      paragraph(
+        "SFEI data are available without restriction upon use with these caveats: prudent usage, knowledge " +
+          "of the data quality and professional courtesy should be considered. The data are not a survey " +
+          "document, so they must not be used as one or beyond the limits of the source scale. Questions " +
+          "about SFEI data can go to the SFEI GIS team at eigis@sfei.org.",
+      ),
+    ),
+  );
+
   inner.appendChild(el("p", "about__warning", "This map is not for navigation, engineering or legal use."));
 
   const explore = el("button", "btn btn--primary about__close", "Explore the map");
