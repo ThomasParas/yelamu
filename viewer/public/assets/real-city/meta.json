@@ -309,6 +309,18 @@
       "source": "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate.",
       "confidence": "inferred",
       "count": 5
+    },
+    {
+      "layer": "creeks",
+      "source": "Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from 1850s maps and a historical elevation model. Approximate.",
+      "confidence": "inferred",
+      "count": 26
+    },
+    {
+      "layer": "modelled_streams",
+      "source": "Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up. Computed, not observed.",
+      "confidence": "illustrative",
+      "count": 247
     }
   ],
   "overlay_file": "overlay.json",
@@ -340,5 +352,8 @@
         400
       ]
     }
-  }
+  },
+  "creeks_file": "creeks.json",
+  "creeks_mapped": 26,
+  "creeks_modelled": 247
 }
