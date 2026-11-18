@@ -60,16 +60,32 @@ export function hasVillages(meta: { overlay_villages?: unknown } | null | undefi
   return typeof n === "number" && n > 0;
 }
 
+// Wording proposed 2026-11-18, awaiting the owner's approval
+/** Legend "Map symbols" rows for the creek layers (`creeks_mapped` and `creeks_modelled` > 0). */
+export const CREEKS_LEGEND_NOTE =
+  "Creek lines mapped by SFEI's Hidden Nature SF from 1850s maps and a historical elevation model. Approximate; most are inferred.";
+export const MODELLED_LEGEND_NOTE =
+  "Stream channels computed by SFEI from a historical elevation model, shown where no hand-mapped creek exists. Larger channels only. Computed, not observed.";
+
+function positiveCount(n: unknown): boolean {
+  return typeof n === "number" && n > 0;
+}
+
 /**
  * Rows of the Legend's "Map symbols" list as [icon kind, text]; the icon kind is the suffix of the
- * `legend__icon--*` CSS class. The village row appears only when the dataset has villages.
+ * `legend__icon--*` CSS class. The village row appears only when the dataset has villages, the
+ * creek rows only when it has those layers.
  */
-export function symbolRows(meta: { overlay_villages?: unknown } | null | undefined): Array<[string, string]> {
+export function symbolRows(
+  meta: { overlay_villages?: unknown; creeks_mapped?: unknown; creeks_modelled?: unknown } | null | undefined,
+): Array<[string, string]> {
   const rows: Array<[string, string]> = [
     ["marker", "Hotspot: select it to read about the place."],
     ["label", "Text label: a landmark, mostly modern, shown for orientation. Positions are approximate."],
   ];
   if (hasVillages(meta)) rows.push(["village", VILLAGES_LEGEND_NOTE]);
+  if (positiveCount(meta?.creeks_mapped)) rows.push(["creek", CREEKS_LEGEND_NOTE]);
+  if (positiveCount(meta?.creeks_modelled)) rows.push(["modelled", MODELLED_LEGEND_NOTE]);
   rows.push(["street", "Thin dark line: a modern street, for orientation only."]);
   return rows;
 }

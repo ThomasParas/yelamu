@@ -36,6 +36,9 @@
   /* Legend village icon: the disc fill and ring (same values as overlay/villageColors.ts) */
   --village-disc: rgba(202, 175, 143, 0.45);
   --village-ring: rgba(74, 52, 24, 0.9);
+  /* Legend creek lines: same values as creeks/colors.ts (a fixed light swatch, so the dark theme inherits them) */
+  --creek-line: rgba(21, 63, 94, 0.95);
+  --modelled-line: rgba(21, 63, 94, 0.7);
   /* focus ring around the canvas: fixed, because the scene background does not follow the theme */
   --canvas-ring: #0b57d0;
 }
@@ -793,6 +796,30 @@ main {
   border: 2px solid var(--village-ring);
   border-radius: 50%;
   background: var(--village-disc);
+}
+/* A creek line on a swatch of the (light) map background, so it shows in dark mode too. */
+.legend__icon--creek,
+.legend__icon--modelled {
+  background: #dfe6e9;
+  border-radius: 4px;
+}
+.legend__icon--creek::before,
+.legend__icon--modelled::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 3px;
+}
+.legend__icon--creek::before {
+  top: 8px;
+  height: 6px;
+  background: var(--creek-line);
+}
+.legend__icon--modelled::before {
+  top: 9px;
+  height: 4px;
+  background: var(--modelled-line);
 }
 
 /* --- sources panel --- */

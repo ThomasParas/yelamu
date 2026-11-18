@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { GROUP_COLORS } from "./habitat";
 import {
   CONTEXT_LEGEND_NOTE,
+  CREEKS_LEGEND_NOTE,
   GROUP_LABELS,
+  MODELLED_LEGEND_NOTE,
   PONDS_LEGEND_NOTE,
   VILLAGES_LEGEND_NOTE,
   hexToCss,
@@ -101,5 +103,36 @@ describe("symbolRows (Map symbols list)", () => {
       expect(rows.some(([k]) => k === "village"), `overlay_villages = ${JSON.stringify(bad)}`).toBe(false);
     }
     expect(symbolRows(undefined as unknown as object).map(([, t]) => t)).toEqual(BASE);
+  });
+
+  it("adds the creek rows only when the dataset has those layers", () => {
+    for (const meta of [{}, { creeks_mapped: 0, creeks_modelled: 0 }]) {
+      expect(symbolRows(meta).some(([k]) => k === "creek" || k === "modelled")).toBe(false);
+    }
+    const mapped = symbolRows({ creeks_mapped: 26 });
+    expect(mapped.find(([k]) => k === "creek")).toEqual(["creek", CREEKS_LEGEND_NOTE]);
+    expect(mapped.some(([k]) => k === "modelled")).toBe(false);
+    const modelled = symbolRows({ creeks_modelled: 40 });
+    expect(modelled.find(([k]) => k === "modelled")).toEqual(["modelled", MODELLED_LEGEND_NOTE]);
+    expect(modelled.some(([k]) => k === "creek")).toBe(false);
+  });
+
+  it("orders the rows marker, label, village, creek, modelled, street", () => {
+    const rows = symbolRows({ overlay_villages: 5, creeks_mapped: 26, creeks_modelled: 40 });
+    expect(rows.map(([k]) => k)).toEqual(["marker", "label", "village", "creek", "modelled", "street"]);
+    expect(symbolRows({ creeks_mapped: 26, creeks_modelled: 40 }).map(([k]) => k)).toEqual([
+      "marker",
+      "label",
+      "creek",
+      "modelled",
+      "street",
+    ]);
+  });
+
+  it("reads the creek counts defensively", () => {
+    for (const bad of ["26", true, null, NaN, -1, [], {}]) {
+      const rows = symbolRows({ creeks_mapped: bad, creeks_modelled: bad });
+      expect(rows.map(([k]) => k), `creek counts = ${JSON.stringify(bad)}`).toEqual(["marker", "label", "street"]);
+    }
   });
 });

@@ -136,6 +136,19 @@ describe("handSourceRows", () => {
     expect(handSourceRows([hs({ layer: "villages", count: 1 })])[0].countText).toBe("1 village");
   });
 
+  it("labels the creek layers after the village row, with their counts", () => {
+    const rows = handSourceRows([
+      hs({ layer: "modelled_streams", source: "SFEI modelled", count: 40 }),
+      hs({ layer: "creeks", source: "SFEI mapped", count: 26 }),
+      hs({ layer: "villages", source: "SFEI", count: 5 }),
+    ]);
+    expect(rows.map((r) => r.layer)).toEqual(["villages", "creeks", "modelled_streams"]);
+    expect(rows[1]).toMatchObject({ label: "Historical creeks", countText: "26 lines" });
+    expect(rows[2]).toMatchObject({ label: "Modelled streams", countText: "40 channels" });
+    expect(handSourceRows([hs({ layer: "creeks", count: 1 })])[0].countText).toBe("1 line");
+    expect(handSourceRows([hs({ layer: "modelled_streams", count: 1 })])[0].countText).toBe("1 channel");
+  });
+
   it("uses singular and plural correctly, including zero", () => {
     expect(handSourceRows([hs({ count: 1 })])[0].countText).toBe("1 polygon");
     expect(handSourceRows([hs({ count: 0 })])[0].countText).toBe("0 polygons");

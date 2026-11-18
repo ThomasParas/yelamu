@@ -10,11 +10,14 @@
  *     worst case over all ten ground colours 2.35:1 (primary) / 1.74:1 (local, 0.6 opacity)
  *   village label 3b2a14 on its halo fff4e0 ... 12.6:1  (over every ground colour 11.8 .. 12.5)
  *   village outline 4a3418 at 0.9: worst case woodland 1.83:1, beach 6.4:1 (a lighter tan ring: beach 1.11:1)
+ *   creek blue 153f5e at 0.95: worst case woodland 1.80:1, beach 6.95:1 (over the nine land grounds; open water is left out)
+ *   modelled stream 153f5e at 0.7: worst case woodland 1.56:1, beach 3.89:1 (0.65 gives 1.52, 0.6 fails at 1.46)
  *   old street cream fff3d6: woodland 5.4:1 but beach 1.28:1, dune 1.55:1 -> replaced
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { blend, contrastRatio, meetsContrast } from "./a11y";
+import { CREEK_COLOR, CREEK_OPACITY, MODELLED_COLOR, MODELLED_OPACITY } from "./creeks/colors";
 import { GROUP_COLORS } from "./habitat";
 import { LABEL_HALO, LABEL_HALO_ALPHA, LABEL_TEXT } from "./overlay/labels";
 import { STREET_COLOR, STREET_OPACITY } from "./overlay/streetsLayer";
@@ -259,6 +262,39 @@ describe("street lines (a faint orientation aid, not text)", () => {
         expect(ratio, `${kind} streets over ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.5);
       }
     }
+  });
+});
+
+describe("creek lines (a thin graphic, not text)", () => {
+  // Open water is left out on purpose: a creek that ends in a pond has nothing to stand out from there.
+  const land = grounds.filter(([group]) => group !== "water");
+
+  it("clear 1.5:1 against every land ground colour at their opacity", () => {
+    for (const [colour, opacity, kind] of [
+      [CREEK_COLOR, CREEK_OPACITY, "creek"],
+      [MODELLED_COLOR, MODELLED_OPACITY, "modelled stream"],
+    ] as const) {
+      for (const [group, ground] of land) {
+        const ratio = contrastRatio(blend(colour, opacity, ground), ground);
+        expect(ratio, `${kind} over ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.5);
+      }
+    }
+  });
+
+  it("keeps the ui.css Legend swatch tokens in sync with creeks/colors.ts", () => {
+    for (const [token, colour, opacity] of [
+      ["creek-line", CREEK_COLOR, CREEK_OPACITY],
+      ["modelled-line", MODELLED_COLOR, MODELLED_OPACITY],
+    ] as const) {
+      const c = color(light[token]);
+      expect(c.color).toBe(colour);
+      expect(c.alpha).toBeCloseTo(opacity, 2);
+      expect(themes.dark[token]).toBe(light[token]); // drawn on a fixed map-coloured swatch
+    }
+  });
+
+  it("the modelled streams are fainter than the hand-mapped creeks", () => {
+    expect(MODELLED_OPACITY).toBeLessThan(CREEK_OPACITY);
   });
 });
 
