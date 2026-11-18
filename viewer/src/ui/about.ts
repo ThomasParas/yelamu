@@ -33,7 +33,8 @@ function paragraph(...parts: Array<string | Node>): HTMLElement {
   return p;
 }
 
-export function createAbout(): AboutDialog {
+/** `context`: the dataset has the grey surrounding terrain, so the About text describes it. */
+export function createAbout(options: { context?: boolean } = {}): AboutDialog {
   const dialog = el("dialog", "about");
   dialog.setAttribute("aria-labelledby", "about-title");
 
@@ -52,11 +53,15 @@ export function createAbout(): AboutDialog {
           "photograph or a survey.",
       ),
       // Wording approved by the owner on 2026-11-17
-      paragraph(
-        "The grey-brown ground beyond the mapped area is today's terrain and coastline, shown only so the peninsula " +
-          "is not floating on its own. It is not a reconstruction: along the Bay shore it includes land that was " +
-          "filled in after 1769.",
-      ),
+      ...(options.context
+        ? [
+            paragraph(
+              "The grey-brown ground beyond the mapped area is today's terrain and coastline, shown only so the peninsula " +
+                "is not floating on its own. It is not a reconstruction: along the Bay shore it includes land that was " +
+                "filled in after 1769.",
+            ),
+          ]
+        : []),
     ),
   );
 

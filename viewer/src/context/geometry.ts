@@ -64,67 +64,111 @@ export function buildTileGeometry(
   const wallShade = opts.wallShade ?? 0.8;
   const nx = tile.i1 - tile.i0 + 1;
   const ny = tile.j1 - tile.j0 + 1;
-  const pos: number[] = [];
-  const col: number[] = [];
-  const idx: number[] = [];
+
+  // First pass: how many cells are kept, and how many walls do they need? Everything is then
+  // allocated exactly once (the full ring is about half a million vertices).
+  let kept = 0;
+  let walls = 0;
+  for (let cj = tile.j0; cj < tile.j1; cj++) {
+    for (let ci = tile.i0; ci < tile.i1; ci++) {
+      if (!cellKept(doc, ci, cj)) continue;
+      kept++;
+      if (!cellKept(doc, ci - 1, cj)) walls++;
+      if (!cellKept(doc, ci + 1, cj)) walls++;
+      if (!cellKept(doc, ci, cj - 1)) walls++;
+      if (!cellKept(doc, ci, cj + 1)) walls++;
+    }
+  }
+  if (kept === 0) return null;
+
+  const gridVertices = nx * ny;
+  const count = gridVertices + walls * 2; // each wall adds two floor vertices
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const idx = count < 65536 ? new Uint16Array((kept + walls) * 6) : new Uint32Array((kept + walls) * 6);
 
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const gi = tile.i0 + i;
       const gj = tile.j0 + j;
       const h = heights[gj * cols + gi];
-      pos.push(x0 + gi * dx, h * opts.exaggeration, z0 + gj * dz);
-      col.push(...opts.colorAt(h));
+      const v = (j * nx + i) * 3;
+      pos[v] = x0 + gi * dx;
+      pos[v + 1] = h * opts.exaggeration;
+      pos[v + 2] = z0 + gj * dz;
+      const c = opts.colorAt(h);
+      col[v] = c[0];
+      col[v + 1] = c[1];
+      col[v + 2] = c[2];
     }
   }
   const vertex = (gi: number, gj: number) => (gj - tile.j0) * nx + (gi - tile.i0);
 
+  let nextVertex = gridVertices;
   const bottomOf = (top: number): number => {
-    const b = pos.length / 3;
-    pos.push(pos[top * 3], opts.floorY, pos[top * 3 + 2]);
-    col.push(col[top * 3] * wallShade, col[top * 3 + 1] * wallShade, col[top * 3 + 2] * wallShade);
+    const b = nextVertex++;
+    pos[b * 3] = pos[top * 3];
+    pos[b * 3 + 1] = opts.floorY;
+    pos[b * 3 + 2] = pos[top * 3 + 2];
+    const c = opts.colorAt(heights[(tile.j0 + Math.floor(top / nx)) * cols + tile.i0 + (top % nx)]);
+    col[b * 3] = c[0] * wallShade;
+    col[b * 3 + 1] = c[1] * wallShade;
+    col[b * 3 + 2] = c[2] * wallShade;
     return b;
   };
+  let nextIndex = 0;
   const wall = (t0: number, t1: number, ox: number, oz: number) => {
+    // Normal of the triangle (t0, b0, t1) with b0 straight below t0: (b0 - t0) x (t1 - t0) is
+    // (a * tz, 0, -a * tx) for a = floorY - y(t0) and (tx, _, tz) = t1 - t0, in the double
+    // precision the lattice is defined in (not the rounded Float32 copy).
+    const g0 = tile.j0 + Math.floor(t0 / nx);
+    const gi0 = tile.i0 + (t0 % nx);
+    const g1 = tile.j0 + Math.floor(t1 / nx);
+    const gi1 = tile.i0 + (t1 % nx);
+    const a = opts.floorY - heights[g0 * cols + gi0] * opts.exaggeration;
+    const tx = x0 + gi1 * dx - (x0 + gi0 * dx);
+    const tz = z0 + g1 * dz - (z0 + g0 * dz);
+    const flip = a * tz * ox + -a * tx * oz < 0;
     const b0 = bottomOf(t0);
     const b1 = bottomOf(t1);
-    let tri1 = [t0, b0, t1];
-    let tri2 = [t1, b0, b1];
-    const p = (k: number) => new THREE.Vector3(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]);
-    const n = p(tri1[1]).sub(p(tri1[0])).cross(p(tri1[2]).sub(p(tri1[0])));
-    if (n.x * ox + n.z * oz < 0) {
-      tri1 = [t0, t1, b0];
-      tri2 = [t1, b1, b0];
+    if (flip) {
+      idx.set([t0, t1, b0, t1, b1, b0], nextIndex);
+    } else {
+      idx.set([t0, b0, t1, t1, b0, b1], nextIndex);
     }
-    idx.push(...tri1, ...tri2);
+    nextIndex += 6;
   };
 
-  let kept = 0;
-  const walls: Array<() => void> = []; // appended after all top triangles, so the top block is contiguous
+  // Top triangles first (one contiguous block), then the walls.
   for (let cj = tile.j0; cj < tile.j1; cj++) {
     for (let ci = tile.i0; ci < tile.i1; ci++) {
       if (!cellKept(doc, ci, cj)) continue;
-      kept++;
       const a = vertex(ci, cj);
       const b = vertex(ci, cj + 1);
       const c = vertex(ci + 1, cj);
       const d = vertex(ci + 1, cj + 1);
-      idx.push(a, b, c, b, d, c);
-      if (!cellKept(doc, ci - 1, cj)) walls.push(() => wall(a, b, -1, 0)); // west
-      if (!cellKept(doc, ci + 1, cj)) walls.push(() => wall(c, d, 1, 0)); // east
-      if (!cellKept(doc, ci, cj - 1)) walls.push(() => wall(a, c, 0, -1)); // north
-      if (!cellKept(doc, ci, cj + 1)) walls.push(() => wall(b, d, 0, 1)); // south
+      idx.set([a, b, c, b, d, c], nextIndex);
+      nextIndex += 6;
     }
   }
-  if (kept === 0) return null;
-  for (const w of walls) w();
+  for (let cj = tile.j0; cj < tile.j1; cj++) {
+    for (let ci = tile.i0; ci < tile.i1; ci++) {
+      if (!cellKept(doc, ci, cj)) continue;
+      const a = vertex(ci, cj);
+      const b = vertex(ci, cj + 1);
+      const c = vertex(ci + 1, cj);
+      const d = vertex(ci + 1, cj + 1);
+      if (!cellKept(doc, ci - 1, cj)) wall(a, b, -1, 0); // west
+      if (!cellKept(doc, ci + 1, cj)) wall(c, d, 1, 0); // east
+      if (!cellKept(doc, ci, cj - 1)) wall(a, c, 0, -1); // north
+      if (!cellKept(doc, ci, cj + 1)) wall(b, d, 0, 1); // south
+    }
+  }
 
-  const count = pos.length / 3;
-  const indices = count < 65536 ? new Uint16Array(idx) : new Uint32Array(idx);
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(pos), 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(Float32Array.from(col), 3));
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  geometry.setIndex(new THREE.BufferAttribute(idx, 1));
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;

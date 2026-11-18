@@ -17,6 +17,12 @@ describe("labelKindsFor", () => {
     expect(labelKindsFor(base, 1, false).has("region")).toBe(false);
     expect(labelKindsFor(base, Number.NaN, true).has("region")).toBe(false);
   });
+  it("forces region labels at any zoom when a ring place is chosen, but never with Landmarks off", () => {
+    expect(labelKindsFor(base, 5, true, true).has("region")).toBe(true);
+    expect(labelKindsFor(base, Number.NaN, true, true).has("region")).toBe(true);
+    expect(labelKindsFor(base, 5, false, true).has("region")).toBe(false);
+    expect(labelKindsFor(base, 5, true, false).has("region")).toBe(false);
+  });
   it("keeps the base kinds and does not modify the base set", () => {
     const out = labelKindsFor(base, 1, true);
     expect(out.has("landmark") && out.has("hotspot")).toBe(true);

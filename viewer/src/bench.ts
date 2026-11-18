@@ -104,7 +104,7 @@ export function startBench(ctx: AppContext): void {
   title.textContent = `Yelamu benchmark. Pass: at least ${PASS.minFps} fps, p95 frame gap under ${PASS.maxGapP95Ms} ms, quality not dropped.`;
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = "Run the benchmark (about 40 s; keep the screen on and do not touch it)";
+  button.textContent = "Run the benchmark (about 50 s; keep the screen on and do not touch it)";
   button.style.cssText = "display:block;margin:8px 0;padding:10px 12px;font:600 14px system-ui;width:100%";
   const out = document.createElement("pre");
   out.style.cssText = "margin:0;white-space:pre-wrap;word-break:break-word";

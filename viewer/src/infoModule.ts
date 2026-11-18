@@ -13,7 +13,7 @@ export const infoModule: AppModule = (ctx) => {
   const vegetation = ctx.vegetation !== null;
   const legend = createLegend(shell, meta, { vegetation });
   const sources = createProvenance(shell, meta, { vegetation });
-  const about = createAbout();
+  const about = createAbout({ context: Boolean(meta.context_file) });
 
   // One info panel at a time keeps the screen readable.
   const openOnly = (panel: { open(): void; close(): void }, others: Array<{ close(): void }>) => {

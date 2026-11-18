@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { fitViewSize } from "../camera";
-import { ringBounds, ringFitViewSize, ringMinZoom, ringRect } from "./limits";
+import { holeMatchesCity, ringBounds, ringFitViewSize, ringMinZoom, ringRect } from "./limits";
+import { parseContext } from "./parse";
 import type { ContextDoc } from "./types";
 
 const doc = {
@@ -35,5 +37,24 @@ describe("ringMinZoom", () => {
 describe("ringFitViewSize", () => {
   it("is the camera fit of the ring rectangle", () => {
     expect(ringFitViewSize(doc, 50, 1.5)).toBeCloseTo(fitViewSize(4000, 1000, 50, 1.5));
+  });
+});
+
+describe("holeMatchesCity", () => {
+  const read = (name: string) =>
+    JSON.parse(readFileSync(new URL(`../../public/assets/real-city/${name}`, import.meta.url), "utf8"));
+  const real = parseContext(read("context.json"));
+  const meta = read("meta.json") as { width: number; height: number; cell_m: number };
+
+  it("holds for the committed ring and city", () => {
+    expect(holeMatchesCity(real, meta)).toBe(true);
+  });
+  it("fails when the ring is shifted by 5 m in x or z", () => {
+    expect(holeMatchesCity({ ...real, x0: real.x0 + 5 }, meta)).toBe(false);
+    expect(holeMatchesCity({ ...real, z0: real.z0 - 5 }, meta)).toBe(false);
+  });
+  it("fails when the city is a different size", () => {
+    expect(holeMatchesCity(real, { ...meta, width: meta.width + 1 })).toBe(false);
+    expect(holeMatchesCity(real, { ...meta, height: meta.height - 1 })).toBe(false);
   });
 });

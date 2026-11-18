@@ -48,3 +48,23 @@ export function ringMinZoom(cityViewSize: number, ringViewSize: number, safety =
   }
   return (cityViewSize / ringViewSize) * safety;
 }
+
+/**
+ * True when the ring's hole is exactly the city mesh: the four hole lines sit at -hw, +hw, -hd,
+ * +hd, where hw = (width - 1) * cell / 2 and hd = (height - 1) * cell / 2 (the mesh joins cell
+ * centres). A ring built for some other city would leave a gap or an overlap, so it is not used.
+ */
+export function holeMatchesCity(
+  doc: Pick<ContextDoc, "x0" | "z0" | "dx" | "dz" | "hole">,
+  meta: { width: number; height: number; cell_m: number },
+): boolean {
+  const hw = ((meta.width - 1) * meta.cell_m) / 2;
+  const hd = ((meta.height - 1) * meta.cell_m) / 2;
+  const { i0, i1, j0, j1 } = doc.hole;
+  return (
+    Math.abs(doc.x0 + i0 * doc.dx + hw) < 1 &&
+    Math.abs(doc.x0 + i1 * doc.dx - hw) < 1 &&
+    Math.abs(doc.z0 + j0 * doc.dz + hd) < 1 &&
+    Math.abs(doc.z0 + j1 * doc.dz - hd) < 1
+  );
+}

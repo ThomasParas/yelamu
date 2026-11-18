@@ -115,7 +115,7 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
     if (streets?.update(ctx.camera.zoom)) ctx.requestRender();
   });
   ctx.onFrame(() =>
-    labels.update(ctx.camera, ctx.canvas.clientWidth, ctx.canvas.clientHeight, labelKindsFor(visibleKinds, ctx.camera.zoom, layers.has("landmarks"))),
+    labels.update(ctx.camera, ctx.canvas.clientWidth, ctx.canvas.clientHeight, labelKindsFor(visibleKinds, ctx.camera.zoom, layers.has("landmarks"), regionIds.has(place.get() ?? ""))),
   );
 
   // --- places: one selection drives the panel, the highlight and the hash (`p=`) ---
@@ -152,8 +152,9 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   const searchItems = [...overlaySearchItems(overlay), ...regionSearchItems(ctx.extraPlaces)];
   const index = buildSearchIndex(searchItems);
   const choose = (item: SearchItem) => {
-    const base = regionIds.has(item.id) ? REGION_PLACE_ZOOM : PLACE_ZOOM[item.group];
-    const zoom = Math.max(rig.getState().zoom, base);
+    // A ring place flies to exactly REGION_PLACE_ZOOM (it may zoom out, to where ring labels show);
+    // everything else never zooms out.
+    const zoom = regionIds.has(item.id) ? REGION_PLACE_ZOOM : Math.max(rig.getState().zoom, PLACE_ZOOM[item.group]);
     rig.flyTo(item.x, item.z, zoom);
     if (item.group === "street") return;
     // Same place picked again: the panel may have been closed, so reopen it directly.

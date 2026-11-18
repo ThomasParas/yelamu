@@ -5,12 +5,20 @@ import type { SearchItem } from "../search";
 export const REGION_LABEL_MAX_ZOOM = 1.6;
 /** Declutter priority of a ring label: above ordinary landmarks, below hotspots. */
 export const REGION_PRIORITY = 58;
-/** Zoom a search result or Places entry for a ring place flies to (never zooms out). */
+/** Zoom a search result or Places entry for a ring place flies to (exactly this, in or out). */
 export const REGION_PLACE_ZOOM = 1.2;
 
-/** The label kinds to show this frame: `base` plus "region" when zoomed out and Landmarks is on. */
-export function labelKindsFor(base: ReadonlySet<string>, zoom: number, landmarksOn: boolean): ReadonlySet<string> {
-  if (!landmarksOn || !(zoom <= REGION_LABEL_MAX_ZOOM)) return base;
+/**
+ * The label kinds to show this frame: `base` plus "region" when Landmarks is on and the camera is
+ * zoomed out, or whenever `forceRegion` is set (a ring place is selected, so its label must show).
+ */
+export function labelKindsFor(
+  base: ReadonlySet<string>,
+  zoom: number,
+  landmarksOn: boolean,
+  forceRegion = false,
+): ReadonlySet<string> {
+  if (!landmarksOn || !(forceRegion || zoom <= REGION_LABEL_MAX_ZOOM)) return base;
   const out = new Set(base);
   out.add("region");
   return out;
