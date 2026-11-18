@@ -1,3 +1,4 @@
+import { hasVillages } from "./legendEntries";
 import type { AppModule } from "./modules";
 import { createAbout } from "./ui/about";
 import { createLegend } from "./ui/legend";
@@ -13,7 +14,7 @@ export const infoModule: AppModule = (ctx) => {
   const vegetation = ctx.vegetation !== null;
   const legend = createLegend(shell, meta, { vegetation });
   const sources = createProvenance(shell, meta, { vegetation });
-  const about = createAbout({ context: Boolean(meta.context_file) });
+  const about = createAbout({ context: Boolean(meta.context_file), villages: hasVillages(meta) });
 
   // One info panel at a time keeps the screen readable.
   const openOnly = (panel: { open(): void; close(): void }, others: Array<{ close(): void }>) => {

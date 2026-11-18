@@ -84,6 +84,31 @@ describe("VEGETATION_NOTE", () => {
   });
 });
 
+// The shipped real-city meta.json carries the Village sites row (written by build_overlay).
+const shippedMeta = Object.values(
+  import.meta.glob("../public/assets/real-city/meta.json", { eager: true, import: "default" }),
+) as Array<{ hand_sources?: HandSource[]; overlay_villages?: number }>;
+
+describe.skipIf(shippedMeta.length === 0)("shipped real-city meta: Village sites row", () => {
+  const meta = shippedMeta[0];
+
+  it("lists one Village sites row with the approved source sentence, Inferred, 5 villages", () => {
+    const rows = handSourceRows(meta.hand_sources).filter((r) => r.layer === "villages");
+    expect(rows).toEqual([
+      {
+        layer: "villages",
+        label: "Village sites",
+        source:
+          "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), " +
+          "after Milliken (1983, 1995) and the NPS (2009). Approximate.",
+        confidence: "inferred",
+        countText: "5 villages",
+      },
+    ]);
+    expect(meta.overlay_villages).toBe(5);
+  });
+});
+
 describe("handSourceRows", () => {
   const hs = (over: Record<string, unknown> = {}) =>
     ({ layer: "hand_water", source: "Coast Survey", confidence: "inferred", count: 3, ...over }) as HandSource;

@@ -33,6 +33,9 @@
   /* village names: a dark brown on a warm halo (same values as overlay/villageColors.ts) */
   --village-fg: #3b2a14;
   --village-halo: rgba(255, 244, 224, 0.95);
+  /* Legend village icon: the disc fill and ring (same values as overlay/villageColors.ts) */
+  --village-disc: rgba(202, 175, 143, 0.45);
+  --village-ring: rgba(74, 52, 24, 0.9);
   /* focus ring around the canvas: fixed, because the scene background does not follow the theme */
   --canvas-ring: #0b57d0;
 }
@@ -777,6 +780,19 @@ main {
   top: 10px;
   height: 2px;
   background: #1f2a33; /* STREET_COLOR in overlay/streetsLayer.ts */
+}
+/* A village disc on a swatch of the (light) map background, so it shows in dark mode too. */
+.legend__icon--village {
+  background: #dfe6e9;
+  border-radius: 4px;
+}
+.legend__icon--village::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 2px solid var(--village-ring);
+  border-radius: 50%;
+  background: var(--village-disc);
 }
 
 /* --- sources panel --- */

@@ -4,6 +4,7 @@
  */
 import { CONFIDENCE_INFO } from "../confidence";
 import { takeFirstVisit } from "../aboutSeen";
+import { aboutPeopleSentence } from "./aboutText";
 import { confidenceBadge, safeLink } from "./hotspotPanel";
 
 export interface AboutDialog {
@@ -33,8 +34,11 @@ function paragraph(...parts: Array<string | Node>): HTMLElement {
   return p;
 }
 
-/** `context`: the dataset has the grey surrounding terrain, so the About text describes it. */
-export function createAbout(options: { context?: boolean } = {}): AboutDialog {
+/**
+ * `context`: the dataset has the grey surrounding terrain, so the About text describes it.
+ * `villages`: the dataset marks the primary Yelamu villages, so the About text says so.
+ */
+export function createAbout(options: { context?: boolean; villages?: boolean } = {}): AboutDialog {
   const dialog = el("dialog", "about");
   dialog.setAttribute("aria-labelledby", "about-title");
 
@@ -75,9 +79,7 @@ export function createAbout(options: { context?: boolean } = {}): AboutDialog {
         safeLink("https://www.ramaytush.org/", "Association of Ramaytush Ohlone"),
         ".",
       ),
-      paragraph(
-        "This map shows land and water only. It does not depict villages, people or sacred sites.",
-      ),
+      paragraph(aboutPeopleSentence(options.villages)),
     ),
   );
 

@@ -49,6 +49,31 @@ export const PONDS_LEGEND_NOTE = "Ponds and lagoons sit at their own water level
 export const CONTEXT_LEGEND_NOTE =
   "Beyond the area mapped for 1769, the grey-brown ground is today's terrain and coastline, shown only for orientation. It is not a reconstruction.";
 
+// Wording approved by the owner on 2026-11-18
+/** Legend "Map symbols" row for datasets that mark the primary Yelamu villages (`overlay_villages` > 0). */
+export const VILLAGES_LEGEND_NOTE =
+  "General locations of the five primary Yelamu villages around the time of Spanish contact. Approximate.";
+
+/** True when meta says the dataset has village sites. The field is never validated, so read it defensively. */
+export function hasVillages(meta: { overlay_villages?: unknown } | null | undefined): boolean {
+  const n = meta?.overlay_villages;
+  return typeof n === "number" && n > 0;
+}
+
+/**
+ * Rows of the Legend's "Map symbols" list as [icon kind, text]; the icon kind is the suffix of the
+ * `legend__icon--*` CSS class. The village row appears only when the dataset has villages.
+ */
+export function symbolRows(meta: { overlay_villages?: unknown } | null | undefined): Array<[string, string]> {
+  const rows: Array<[string, string]> = [
+    ["marker", "Hotspot: select it to read about the place."],
+    ["label", "Text label: a landmark, mostly modern, shown for orientation. Positions are approximate."],
+  ];
+  if (hasVillages(meta)) rows.push(["village", VILLAGES_LEGEND_NOTE]);
+  rows.push(["street", "Thin dark line: a modern street, for orientation only."]);
+  return rows;
+}
+
 /** Extra plain-text lines the Legend shows beneath the ground colours, depending on the dataset. */
 export function legendNotes(meta: { ponds_file?: string | null; context_file?: string | null }): string[] {
   const notes: string[] = [];

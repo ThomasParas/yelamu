@@ -90,6 +90,19 @@ describe("ui.css tokens", () => {
   });
 });
 
+describe("legend village icon", () => {
+  it("keeps the ui.css disc and ring tokens in sync with overlay/villageColors.ts", () => {
+    const fill = color(light["village-disc"]);
+    expect(fill.color).toBe(VILLAGE_FILL);
+    expect(fill.alpha).toBeCloseTo(VILLAGE_FILL_OPACITY, 5);
+    const ring = color(light["village-ring"]);
+    expect(ring.color).toBe(VILLAGE_OUTLINE);
+    expect(ring.alpha).toBeCloseTo(VILLAGE_OUTLINE_OPACITY, 5);
+    expect(themes.dark["village-disc"]).toBe(light["village-disc"]); // drawn on a fixed map-coloured swatch
+    expect(themes.dark["village-ring"]).toBe(light["village-ring"]);
+  });
+});
+
 describe.each(Object.keys(themes))("text contrast, %s theme (>= 4.5:1)", (name) => {
   const t = themes[name];
   const c = (k: string) => color(t[k]).color;

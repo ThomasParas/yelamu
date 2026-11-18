@@ -4,9 +4,11 @@ import {
   CONTEXT_LEGEND_NOTE,
   GROUP_LABELS,
   PONDS_LEGEND_NOTE,
+  VILLAGES_LEGEND_NOTE,
   hexToCss,
   legendEntries,
   legendNotes,
+  symbolRows,
 } from "./legendEntries";
 
 describe("hexToCss", () => {
@@ -64,5 +66,40 @@ describe("legendNotes with surrounding terrain", () => {
     const notes = legendNotes({ ponds_file: "ponds.json", context_file: "context.json" });
     expect(notes.length).toBe(2);
     expect(notes[1]).toBe(CONTEXT_LEGEND_NOTE);
+  });
+});
+
+describe("symbolRows (Map symbols list)", () => {
+  const BASE = [
+    "Hotspot: select it to read about the place.",
+    "Text label: a landmark, mostly modern, shown for orientation. Positions are approximate.",
+    "Thin dark line: a modern street, for orientation only.",
+  ];
+
+  it("uses the exact wording the owner approved on 2026-11-18", () => {
+    expect(VILLAGES_LEGEND_NOTE).toBe(
+      "General locations of the five primary Yelamu villages around the time of Spanish contact. Approximate.",
+    );
+  });
+
+  it("adds the village row only when the dataset has villages", () => {
+    const rows = symbolRows({ overlay_villages: 5 });
+    expect(rows.map(([k]) => k).sort()).toEqual(["label", "marker", "street", "village"]);
+    expect(rows.find(([k]) => k === "village")).toEqual(["village", VILLAGES_LEGEND_NOTE]);
+    expect(symbolRows({ overlay_villages: 1 }).some(([k]) => k === "village")).toBe(true);
+  });
+
+  it("leaves the list exactly as before without villages", () => {
+    for (const meta of [{}, { overlay_villages: 0 }, { overlay_villages: undefined }]) {
+      expect(symbolRows(meta).map(([, t]) => t)).toEqual(BASE);
+    }
+  });
+
+  it("reads the unvalidated meta field defensively", () => {
+    for (const bad of ["5", true, null, NaN, -1, [], {}]) {
+      const rows = symbolRows({ overlay_villages: bad as unknown as number });
+      expect(rows.some(([k]) => k === "village"), `overlay_villages = ${JSON.stringify(bad)}`).toBe(false);
+    }
+    expect(symbolRows(undefined as unknown as object).map(([, t]) => t)).toEqual(BASE);
   });
 });

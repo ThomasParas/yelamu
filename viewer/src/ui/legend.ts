@@ -1,12 +1,12 @@
 /** Legend panel: what the ground colours and map symbols mean. */
 import type { HeightmapMeta } from "../heightmap";
-import { legendEntries, legendNotes } from "../legendEntries";
+import { legendEntries, legendNotes, symbolRows } from "../legendEntries";
 import { VEGETATION_NOTE } from "../provenanceData";
 import type { Shell } from "./shell";
 
 export function createLegend(
   shell: Shell,
-  meta: Pick<HeightmapMeta, "habitat_classes" | "overlay_file" | "ponds_file" | "context_file">,
+  meta: Pick<HeightmapMeta, "habitat_classes" | "overlay_file" | "overlay_villages" | "ponds_file" | "context_file">,
   options: { vegetation?: boolean } = {},
 ) {
   const panel = shell.addPanel("legend", "Legend");
@@ -50,12 +50,7 @@ export function createLegend(
     symbols.textContent = "Map symbols";
     const sym = document.createElement("ul");
     sym.className = "legend legend--symbols";
-    const rows: Array<[string, string]> = [
-      ["marker", "Hotspot: select it to read about the place."],
-      ["label", "Text label: a landmark, mostly modern, shown for orientation. Positions are approximate."],
-      ["street", "Thin dark line: a modern street, for orientation only."],
-    ];
-    for (const [kind, text] of rows) {
+    for (const [kind, text] of symbolRows(meta)) {
       const li = document.createElement("li");
       li.className = "legend__row";
       const icon = document.createElement("span");
