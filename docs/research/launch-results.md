@@ -150,3 +150,17 @@ Branch `contact-shadows` (built on main `21e6057`, creeks present): a soft dark 
 | E whole region (grey surround) | 60.0 | 17.4 ms | 3.4 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
 
 Against the creeks run (`creeks-results.md`): C has 36,028 more triangles and 16 more draw calls, the shadow quads (two triangles each) of the planted chunks in view; D drew slightly fewer chunks when sampled. A and E are unchanged in triangles and calls, so no shadows are drawn at those distances, and B has vegetation off. Frame gaps are 17.1 to 17.5 ms against 17.1 to 17.7 ms before; the p95 render time is up 0.5 ms in C, 0.2 ms in E and unchanged elsewhere. The shadows do not cost frames on this phone. Not measured: battery and warmth, an older phone, an iPhone, a long session.
+
+## Ground colour variation on the phone (2026-11-18)
+
+Branch `ground-variation` (`a25ebce`, on main `5d52e46`): land colours vary in soft broad patches (lighter or darker, warm or cool) with fine mottling, from a 256x256 tiling noise texture baked once at load and fetched twice per pixel. A first version computed the noise in the shader and dropped the desktop bench from 120 to 60 fps in every scenario (main without it: 120); the baked texture brought it back to ~120. Same method and phone as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.3 ms | 3.8 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.2 | 17.3 ms | 1.9 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.1 ms | 2.8 ms | 2 -> 2 | 1,353,714 | 98 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.2 ms | 2.3 ms | 2 -> 2 | 1,617,404 | 112 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.4 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+Against the contact-shadows run: frame gaps within 0.2 ms, p95 render time equal or up to 0.2 ms lower. The change adds no geometry; C had fewer chunks streamed in when sampled (D matches the shadows run's C exactly). The phone is capped at 60 Hz, so this shows it keeps up, not its GPU headroom. Not measured: battery and warmth, an older phone, an iPhone, a long session.
