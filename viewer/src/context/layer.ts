@@ -5,7 +5,7 @@ import type { ContextDoc } from "./types";
 export interface ContextLayerOptions extends TileOptions {
   /** Cells per tile edge. Default 96. */
   tileCells?: number;
-  /** Shared material; default a flat-shaded vertex-colour standard material like the city's. */
+  /** Shared material; default a smooth-shaded vertex-colour standard material like the city's. */
   material?: THREE.Material;
 }
 
@@ -19,7 +19,7 @@ export class ContextLayer {
   constructor(doc: ContextDoc, heights: Float32Array, options: ContextLayerOptions) {
     this.object.name = "context";
     this.ownsMaterial = !options.material;
-    this.material = options.material ?? new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true });
+    this.material = options.material ?? new THREE.MeshStandardMaterial({ vertexColors: true });
     for (const tile of planTiles(doc.cols, doc.rows, options.tileCells ?? 96)) {
       const geometry = buildTileGeometry(doc, heights, tile, options);
       if (!geometry) continue;

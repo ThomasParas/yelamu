@@ -49,7 +49,13 @@ export function cellKept(doc: Pick<ContextDoc, "cols" | "rows" | "hole">, ci: nu
  * (a north-west, b south-west, c north-east, d south-east). Skirts: wherever a kept cell's
  * neighbour is not kept (the lattice's outer edge, or the hole boundary), a vertical wall
  * goes down from the cell's edge to `floorY`, wound to face away from the kept cell. Returns
- * null when the tile has no kept cell. No normals: pair it with a flat-shaded material.
+ * null when the tile has no kept cell.
+ *
+ * Normals: the top surface is smooth, from central differences on the WHOLE lattice (one
+ * sample either side, fewer at its edge), so neighbouring tiles agree on their shared border
+ * and no seam shows; flat shading on the 60 m lattice drew every triangle as a facet. A wall
+ * gets its own copies of its two top vertices, so it can carry a level normal pointing out of
+ * the kept cell while the top stays smooth (one position, two normals, along the crease).
  */
 export function buildTileGeometry(
   doc: ContextDoc,
@@ -82,9 +88,10 @@ export function buildTileGeometry(
   if (kept === 0) return null;
 
   const gridVertices = nx * ny;
-  const count = gridVertices + walls * 2; // each wall adds two floor vertices
+  const count = gridVertices + walls * 4; // each wall adds two top copies and two floor vertices
   const pos = new Float32Array(count * 3);
   const col = new Float32Array(count * 3);
+  const nrm = new Float32Array(count * 3);
   const idx = count < 65536 ? new Uint16Array((kept + walls) * 6) : new Uint32Array((kept + walls) * 6);
 
   for (let j = 0; j < ny; j++) {
@@ -100,20 +107,33 @@ export function buildTileGeometry(
       col[v] = c[0];
       col[v + 1] = c[1];
       col[v + 2] = c[2];
+      const il = Math.max(gi - 1, 0);
+      const ir = Math.min(gi + 1, cols - 1);
+      const ju = Math.max(gj - 1, 0);
+      const jd = Math.min(gj + 1, rows - 1);
+      const gx = ir > il ? ((heights[gj * cols + ir] - heights[gj * cols + il]) * opts.exaggeration) / ((ir - il) * dx) : 0;
+      const gz = jd > ju ? ((heights[jd * cols + gi] - heights[ju * cols + gi]) * opts.exaggeration) / ((jd - ju) * dz) : 0;
+      const inv = 1 / Math.sqrt(gx * gx + 1 + gz * gz);
+      nrm[v] = -gx * inv;
+      nrm[v + 1] = inv;
+      nrm[v + 2] = -gz * inv;
     }
   }
   const vertex = (gi: number, gj: number) => (gj - tile.j0) * nx + (gi - tile.i0);
 
   let nextVertex = gridVertices;
-  const bottomOf = (top: number): number => {
+  // A wall vertex: the top vertex's x, z at height y (its own or the floor), with the wall's
+  // level normal (ox, 0, oz) and the top colour times `shade`.
+  const wallVertex = (top: number, y: number, shade: number, ox: number, oz: number): number => {
     const b = nextVertex++;
     pos[b * 3] = pos[top * 3];
-    pos[b * 3 + 1] = opts.floorY;
+    pos[b * 3 + 1] = y;
     pos[b * 3 + 2] = pos[top * 3 + 2];
-    const c = opts.colorAt(heights[(tile.j0 + Math.floor(top / nx)) * cols + tile.i0 + (top % nx)]);
-    col[b * 3] = c[0] * wallShade;
-    col[b * 3 + 1] = c[1] * wallShade;
-    col[b * 3 + 2] = c[2] * wallShade;
+    col[b * 3] = col[top * 3] * shade;
+    col[b * 3 + 1] = col[top * 3 + 1] * shade;
+    col[b * 3 + 2] = col[top * 3 + 2] * shade;
+    nrm[b * 3] = ox;
+    nrm[b * 3 + 2] = oz;
     return b;
   };
   let nextIndex = 0;
@@ -129,12 +149,14 @@ export function buildTileGeometry(
     const tx = x0 + gi1 * dx - (x0 + gi0 * dx);
     const tz = z0 + g1 * dz - (z0 + g0 * dz);
     const flip = a * tz * ox + -a * tx * oz < 0;
-    const b0 = bottomOf(t0);
-    const b1 = bottomOf(t1);
+    const w0 = wallVertex(t0, pos[t0 * 3 + 1], 1, ox, oz);
+    const w1 = wallVertex(t1, pos[t1 * 3 + 1], 1, ox, oz);
+    const b0 = wallVertex(t0, opts.floorY, wallShade, ox, oz);
+    const b1 = wallVertex(t1, opts.floorY, wallShade, ox, oz);
     if (flip) {
-      idx.set([t0, t1, b0, t1, b1, b0], nextIndex);
+      idx.set([w0, w1, b0, w1, b1, b0], nextIndex);
     } else {
-      idx.set([t0, b0, t1, t1, b0, b1], nextIndex);
+      idx.set([w0, b0, w1, w1, b0, b1], nextIndex);
     }
     nextIndex += 6;
   };
@@ -168,6 +190,7 @@ export function buildTileGeometry(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geometry.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
   geometry.setIndex(new THREE.BufferAttribute(idx, 1));
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();

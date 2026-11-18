@@ -205,3 +205,71 @@ describe("the real ring (committed context.json, synthetic heights)", () => {
     expect(wholeHole).toBeGreaterThan(0);
   });
 });
+
+describe("buildTileGeometry normals (smooth shading)", () => {
+  // The fixture heights rise 1 m per column (dx 100) and 2 m per row (dz 100): a plane, so every
+  // top vertex, edge ones included, has the same normal.
+  const geo = buildTileGeometry(doc, heights, whole, opts)!;
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  const nrm = geo.getAttribute("normal") as THREE.BufferAttribute;
+  const gridVertices = 5 * 4;
+
+  it("gives every vertex a normal of unit length", () => {
+    expect(nrm.count).toBe(pos.count);
+    for (let i = 0; i < nrm.count; i++) {
+      expect(Math.hypot(nrm.getX(i), nrm.getY(i), nrm.getZ(i))).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("tilts the top normals against the slope of the lattice, exaggerated", () => {
+    const gx = (1 * 3) / 100;
+    const gz = (2 * 3) / 100;
+    const len = Math.hypot(gx, 1, gz);
+    for (let i = 0; i < gridVertices; i++) {
+      expect(nrm.getX(i)).toBeCloseTo(-gx / len, 6);
+      expect(nrm.getY(i)).toBeCloseTo(1 / len, 6);
+      expect(nrm.getZ(i)).toBeCloseTo(-gz / len, 6);
+    }
+  });
+
+  it("gives wall vertices their own level normals, pointing out of the kept cell", () => {
+    expect(pos.count).toBe(gridVertices + 20 * 4); // 20 walls: two top copies + two floor vertices
+    const index = geo.getIndex()!;
+    for (let t = 10 * 6; t < index.count; t += 3) {
+      const [a, b, c] = [index.getX(t), index.getX(t + 1), index.getX(t + 2)];
+      for (const v of [a, b, c]) {
+        expect(v).toBeGreaterThanOrEqual(gridVertices); // walls never reuse the smooth top vertices
+        expect(nrm.getY(v)).toBe(0);
+      }
+      // the stored normal agrees with the triangle's winding
+      const p = (v: number) => new THREE.Vector3(pos.getX(v), pos.getY(v), pos.getZ(v));
+      const face = p(b).sub(p(a)).cross(p(c).sub(p(a)));
+      expect(face.x * nrm.getX(a) + face.z * nrm.getZ(a)).toBeGreaterThan(0);
+    }
+  });
+
+  it("agrees across a tile border, so tiles show no seam", () => {
+    // Bumpy heights this time, so the normal really depends on the neighbours.
+    const bumpy = Float32Array.from({ length: 20 }, (_, i) => Math.sin(i * 1.7) * 9);
+    const left = buildTileGeometry(doc, bumpy, { i0: 0, i1: 2, j0: 0, j1: 3 }, opts)!;
+    const right = buildTileGeometry(doc, bumpy, { i0: 2, i1: 4, j0: 0, j1: 3 }, opts)!;
+    const nl = left.getAttribute("normal") as THREE.BufferAttribute;
+    const nr = right.getAttribute("normal") as THREE.BufferAttribute;
+    for (let j = 0; j < 4; j++) {
+      const l = j * 3 + 2; // column 2 is the last column of the left tile (3 wide)...
+      const r = j * 3 + 0; // ...and the first of the right one
+      expect(nl.getX(l)).toBeCloseTo(nr.getX(r), 9);
+      expect(nl.getY(l)).toBeCloseTo(nr.getY(r), 9);
+      expect(nl.getZ(l)).toBeCloseTo(nr.getZ(r), 9);
+    }
+  });
+});
+
+describe("ContextLayer material", () => {
+  it("is smooth shaded by default", () => {
+    const layer = new ContextLayer(doc, heights, opts);
+    const mesh = layer.object.children[0] as THREE.Mesh;
+    expect((mesh.material as THREE.MeshStandardMaterial).flatShading).toBe(false);
+    layer.dispose();
+  });
+});
