@@ -372,3 +372,21 @@ def test_build_creeks_without_modelled_input_has_no_modelled_row(tmp_path, grid)
 def test_build_creeks_reports_a_missing_meta_clearly(tmp_path, grid):
     with pytest.raises(FileNotFoundError, match="meta.json"):
         build_creeks(tmp_path, tmp_path / "x.geojson", None)
+
+
+def test_fetch_query_urls():
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "fetch_creeks", Path(__file__).resolve().parent.parent / "scripts" / "fetch_creeks.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["fetch_creeks"] = mod  # a dataclass in the script looks its module up by name
+    spec.loader.exec_module(mod)
+    url = mod.query_url(mod.MAPPED, offset=0)
+    assert url.startswith("https://services1.arcgis.com/8V9ShUQ1DGYVLtOg/arcgis/rest/services/San_Francisco_Historical_Creeks/FeatureServer/0/query?")
+    assert "outSR=4326" in url and "f=geojson" in url and "resultOffset=0" in url
+    modelled = mod.query_url(mod.MODELLED, offset=2000)
+    assert "MYHL_HistoricStreams/FeatureServer/1/query" in modelled
+    assert "StrahlerID%3E%3D3" in modelled and "resultOffset=2000" in modelled
