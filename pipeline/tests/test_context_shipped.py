@@ -38,7 +38,8 @@ def test_the_hole_is_exactly_the_city_mesh():
 def test_places_are_valid_and_do_not_collide_with_overlay_ids():
     doc = _load("context.json")
     overlay = _load("overlay.json")
-    taken = {p["id"] for key in ("landmarks", "hotspots") for p in overlay[key]}
+    taken = {p["id"] for key in ("landmarks", "hotspots", "villages")
+             for p in overlay.get(key, [])}
     ids = [p["id"] for p in doc["places"]]
     assert len(ids) == len(set(ids)) >= 15
     assert not set(ids) & taken

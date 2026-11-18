@@ -356,7 +356,7 @@ def _overlay_ids(out_dir: Path) -> set[str]:
     if not path.exists():
         return set()
     overlay = json.loads(path.read_text())
-    return {p["id"] for key in ("landmarks", "hotspots") for p in overlay.get(key, [])}
+    return {p["id"] for key in ("landmarks", "hotspots", "villages") for p in overlay.get(key, [])}
 
 
 def build_context(region) -> dict:

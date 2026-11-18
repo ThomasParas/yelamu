@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 pipeline/.venv/
 pipeline/data/raw/
+# A symlink to the raw data (used by git worktrees) is not matched by the line above.
+pipeline/data/raw
+.claude/worktrees/
 viewer/node_modules/
 viewer/dist/
 

@@ -1,0 +1,97 @@
+[
+  {
+    "id": "village-sitlintac",
+    "name": "Sitlintac",
+    "lon": -122.4152,
+    "lat": 37.7714,
+    "radius_m": 530,
+    "description": "General location of a Yelamu village site along Mission Creek, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).",
+    "sources": [
+      {
+        "title": "SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      },
+      {
+        "title": "Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report)",
+        "url": "https://digitalcommons.csumb.edu/hornbeck_ind_1/6/"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "village-chutchui",
+    "name": "Chutchui",
+    "lon": -122.4235,
+    "lat": 37.7619,
+    "radius_m": 530,
+    "description": "General location of a Yelamu village site along Mission Creek, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).",
+    "sources": [
+      {
+        "title": "SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      },
+      {
+        "title": "Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report)",
+        "url": "https://digitalcommons.csumb.edu/hornbeck_ind_1/6/"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "village-amuctac",
+    "name": "Amuctac",
+    "lon": -122.4016,
+    "lat": 37.7238,
+    "radius_m": 530,
+    "description": "General location of a Yelamu village site around Visitacion Valley, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).",
+    "sources": [
+      {
+        "title": "SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      },
+      {
+        "title": "Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report)",
+        "url": "https://digitalcommons.csumb.edu/hornbeck_ind_1/6/"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "village-tubsinte",
+    "name": "Tubsinte",
+    "lon": -122.4148,
+    "lat": 37.7109,
+    "radius_m": 530,
+    "description": "General location of a Yelamu village site around Visitacion Valley, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).",
+    "sources": [
+      {
+        "title": "SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      },
+      {
+        "title": "Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report)",
+        "url": "https://digitalcommons.csumb.edu/hornbeck_ind_1/6/"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "village-petlenuc",
+    "name": "Petlenuc",
+    "lon": -122.4552,
+    "lat": 37.7978,
+    "radius_m": 530,
+    "description": "General location of a Yelamu village site in the Presidio near Crissy Field, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).",
+    "sources": [
+      {
+        "title": "SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      },
+      {
+        "title": "Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report)",
+        "url": "https://digitalcommons.csumb.edu/hornbeck_ind_1/6/"
+      }
+    ],
+    "confidence": "inferred"
+  }
+]

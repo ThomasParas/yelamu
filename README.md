@@ -24,7 +24,7 @@ uv run python scripts/build_context.py --region regions/full-city.json
 uv run python scripts/verify_overlay_data.py ../viewer/public/assets/real-city
 ```
 
-Run the overlay and context steps after the terrain step (the terrain build rewrites `meta.json`). The context step builds the grey surround: modern terrain (USGS 3DEP) around the 1769 map, for orientation only (see `docs/superpowers/specs/2026-11-17-surrounding-terrain-design.md`). The hand
+Run the overlay and context steps after the terrain step (the terrain build rewrites `meta.json`, which drops the overlay's `overlay_villages` count and village `hand_sources` row, so `build_overlay.py` has to be rerun after any city rebuild; it restores them from `pipeline/data/overlay/villages.json`). The context step builds the grey surround: modern terrain (USGS 3DEP) around the 1769 map, for orientation only (see `docs/superpowers/specs/2026-11-17-surrounding-terrain-design.md`). The hand
 data files in `pipeline/data/full-city/hand/` are described in the README beside them; three of
 them are generated (`scripts/import_noaa.py`, `scripts/trace_flat_lakes.py`,
 `scripts/trace_treasure_island.py`). Terms for every source are in `NOTICE.md`.

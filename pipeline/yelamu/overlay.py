@@ -1,4 +1,5 @@
-"""The orientation overlay: modern streets, landmarks and documented landscape hotspots.
+"""The orientation overlay: modern streets, landmarks, documented landscape hotspots and the
+approximate village sites.
 
 Everything is converted here into the viewer's WORLD coordinates so the viewer needs no
 map-projection code. World coordinates are metres with the origin at the centre of the
@@ -12,7 +13,8 @@ edges of the `Grid`. This is exactly the vertex position the viewer's terrain me
 for a cell centre: x = (col - (width-1)/2) * cell, z = (row - (height-1)/2) * cell.
 
 The result is written as `overlay.json` next to `heightmap.u16` / `meta.json`, and
-`meta.json` gains `"overlay_file": "overlay.json"`.
+`meta.json` gains `"overlay_file": "overlay.json"` and, when there are village sites, the
+count `overlay_villages` and one `hand_sources` row (layer "villages").
 
     uv run python scripts/build_overlay.py --region regions/full-city.json
 """
@@ -35,6 +37,7 @@ from shapely.geometry import LineString, box
 
 from yelamu.export import CONFIDENCE_LEVELS
 from yelamu.geo import Grid, lonlat_to_utm
+from yelamu.provenance import lowest_confidence
 from yelamu.region import load_region
 
 OVERLAY_VERSION = 1
@@ -59,6 +62,15 @@ MAX_PLACES = 5000  # per section (landmarks, hotspots)
 MAX_NAME_CHARS = 120
 MAX_SOURCES = 20
 DESCRIPTION_MIN, DESCRIPTION_MAX = 20, 400
+# Village discs: the owner-approved size (SFEI draws about 530 m) with room to adjust. The
+# viewer's own cap is 3000 m.
+VILLAGE_RADIUS_MIN, VILLAGE_RADIUS_MAX = 100, 2000
+# Wording approved by the owner on 2026-11-18. The "Village sites" row of the Sources panel.
+VILLAGES_SOURCE_NOTE = (
+    "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of "
+    "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate."
+)
+VILLAGES_LAYER = "villages"
 
 _ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
@@ -267,8 +279,9 @@ def _url_ok(url: Any) -> bool:
 
 
 def _validate_common(
-    items: Any, bbox: tuple[float, float, float, float], kinds: Sequence[str], what: str
+    items: Any, bbox: tuple[float, float, float, float], kinds: Sequence[str] | None, what: str
 ) -> None:
+    """Shared checks (id, name, kind, position). `kinds=None` means the section has no kind."""
     if not isinstance(items, list):
         raise ValueError(f"{what} must be a JSON list of objects, got {type(items).__name__}")
     if len(items) > MAX_PLACES:
@@ -286,9 +299,10 @@ def _validate_common(
             raise ValueError(f"{label}: duplicate id {item_id!r}")
         seen.add(item_id)
         _check_name(_nonblank(item, "name", label), label)
-        kind = _nonblank(item, "kind", label)
-        if kind not in kinds:
-            raise ValueError(f"{label}: kind {kind!r} is not one of {', '.join(kinds)}")
+        if kinds is not None:
+            kind = _nonblank(item, "kind", label)
+            if kind not in kinds:
+                raise ValueError(f"{label}: kind {kind!r} is not one of {', '.join(kinds)}")
         for key in ("lon", "lat"):
             if key not in item:
                 raise ValueError(f"{label}: missing field {key!r}")
@@ -311,48 +325,80 @@ def validate_hotspots(items: Any, bbox: tuple[float, float, float, float]) -> No
     """Raise ValueError (naming the item id) if any hotspot is malformed."""
     _validate_common(items, bbox, HOTSPOT_KINDS, "hotspots")
     for index, item in enumerate(items):
-        label = _label(item, index)
-        description = item.get("description")
-        if not isinstance(description, str) or not (
-            DESCRIPTION_MIN <= _js_length(description.strip()) <= DESCRIPTION_MAX
-        ):
+        _validate_card(item, _label(item, index))
+
+
+def _validate_card(item: dict, label: str) -> None:
+    """The fields a place with an info card needs: description, sources, confidence."""
+    description = item.get("description")
+    if not isinstance(description, str) or not (
+        DESCRIPTION_MIN <= _js_length(description.strip()) <= DESCRIPTION_MAX
+    ):
+        raise ValueError(
+            f"{label}: 'description' must be a string of {DESCRIPTION_MIN}.."
+            f"{DESCRIPTION_MAX} characters"
+        )
+    sources = item.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError(f"{label}: 'sources' must be a non-empty list of {{title, url}}")
+    if len(sources) > MAX_SOURCES:
+        raise ValueError(f"{label}: 'sources' has more than {MAX_SOURCES} entries")
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ValueError(f"{label}: each of 'sources' must be an object, got {source!r}")
+        title, url = source.get("title"), source.get("url")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError(f"{label}: every source in 'sources' needs a non-blank title")
+        if not _url_ok(url):
             raise ValueError(
-                f"{label}: 'description' must be a string of {DESCRIPTION_MIN}.."
-                f"{DESCRIPTION_MAX} characters"
+                f"{label}: source url in 'sources' must be an http(s) URL, got {url!r}"
             )
-        sources = item.get("sources")
-        if not isinstance(sources, list) or not sources:
-            raise ValueError(f"{label}: 'sources' must be a non-empty list of {{title, url}}")
-        if len(sources) > MAX_SOURCES:
-            raise ValueError(f"{label}: 'sources' has more than {MAX_SOURCES} entries")
-        for source in sources:
-            if not isinstance(source, dict):
-                raise ValueError(f"{label}: each of 'sources' must be an object, got {source!r}")
-            title, url = source.get("title"), source.get("url")
-            if not isinstance(title, str) or not title.strip():
-                raise ValueError(f"{label}: every source in 'sources' needs a non-blank title")
-            if not _url_ok(url):
-                raise ValueError(
-                    f"{label}: source url in 'sources' must be an http(s) URL, got {url!r}"
-                )
-        confidence = item.get("confidence")
-        if confidence not in CONFIDENCE_LEVELS:
-            raise ValueError(
-                f"{label}: 'confidence' must be one of {', '.join(CONFIDENCE_LEVELS)}, "
-                f"got {confidence!r}"
-            )
+    confidence = item.get("confidence")
+    if confidence not in CONFIDENCE_LEVELS:
+        raise ValueError(
+            f"{label}: 'confidence' must be one of {', '.join(CONFIDENCE_LEVELS)}, "
+            f"got {confidence!r}"
+        )
 
 
-def validate_unique_ids(landmarks: Sequence[dict], hotspots: Sequence[dict]) -> None:
-    """Raise ValueError if an id is used by both a landmark and a hotspot.
+def validate_villages(items: Any, bbox: tuple[float, float, float, float]) -> None:
+    """Raise ValueError (naming the item id) if any village site is malformed.
 
-    The viewer keys places by id across both lists, so ids must be unique overall. Each list
-    is already checked for duplicates on its own by `validate_landmarks`/`validate_hotspots`.
+    A village is a hotspot without a `kind` and with a `radius_m` (metres, between
+    VILLAGE_RADIUS_MIN and VILLAGE_RADIUS_MAX): the same description, sources and
+    confidence rules apply.
     """
-    landmark_ids = {item["id"] for item in landmarks}
-    for item in hotspots:
-        if item["id"] in landmark_ids:
-            raise ValueError(f"id {item['id']!r} is used by both a landmark and a hotspot")
+    _validate_common(items, bbox, None, "villages")
+    for index, item in enumerate(items):
+        label = _label(item, index)
+        radius = item.get("radius_m")
+        if (isinstance(radius, bool) or not isinstance(radius, (int, float))
+                or not math.isfinite(radius)
+                or not VILLAGE_RADIUS_MIN <= radius <= VILLAGE_RADIUS_MAX):
+            raise ValueError(
+                f"{label}: 'radius_m' must be a number between {VILLAGE_RADIUS_MIN} and "
+                f"{VILLAGE_RADIUS_MAX}, got {radius!r}"
+            )
+        _validate_card(item, label)
+
+
+def validate_unique_ids(
+    landmarks: Sequence[dict], hotspots: Sequence[dict], villages: Sequence[dict] = ()
+) -> None:
+    """Raise ValueError if an id is used by two of landmarks, hotspots and villages.
+
+    The viewer keys places by id across all the lists, so ids must be unique overall. Each
+    list is already checked for duplicates on its own by the `validate_*` functions.
+    """
+    seen: dict[str, str] = {}
+    for noun, items in (("landmark", landmarks), ("hotspot", hotspots), ("village", villages)):
+        for item in items:
+            if item["id"] in seen:
+                raise ValueError(
+                    f"id {item['id']!r} is used by both a {seen[item['id']]} and a {noun}"
+                )
+        for item in items:
+            seen[item["id"]] = noun
 
 
 def validate_streets(streets: Sequence[dict]) -> None:
@@ -382,16 +428,28 @@ def validate_streets(streets: Sequence[dict]) -> None:
                 raise ValueError(f"streets hold more than {MAX_STREET_POINTS} points in total")
 
 
-def _place(grid: Grid, item: dict, extra: Sequence[str]) -> dict:
+def _place(grid: Grid, item: dict, extra: Sequence[str], with_kind: bool = True) -> dict:
     x, z = lonlat_to_world(grid, item["lon"], item["lat"])
-    out = {
-        "id": item["id"], "name": item["name"].strip(), "kind": item["kind"],
-        "x": _r1(x), "z": _r1(z), "lon": float(item["lon"]), "lat": float(item["lat"]),
-    }
+    out: dict[str, Any] = {"id": item["id"], "name": item["name"].strip()}
+    if with_kind:
+        out["kind"] = item["kind"]
+    out.update({"x": _r1(x), "z": _r1(z), "lon": float(item["lon"]), "lat": float(item["lat"])})
     for key in extra:
         value = item[key]
         out[key] = value.strip() if isinstance(value, str) else value
     return out
+
+
+def _card_places(
+    grid: Grid, items: Sequence[dict], extra: Sequence[str], with_kind: bool
+) -> list[dict]:
+    """Places with an info card (hotspots, villages), sorted by id, source titles/URLs stripped."""
+    places = [_place(grid, i, extra, with_kind) for i in sorted(items, key=lambda i: i["id"])]
+    for place in places:
+        place["sources"] = [
+            {"title": s["title"].strip(), "url": s["url"].strip()} for s in place["sources"]
+        ]
+    return places
 
 
 # --------------------------------------------------------------------------- build
@@ -430,6 +488,7 @@ def build_overlay(
     tiger_path: Path | str,
     landmarks_path: Path | str,
     hotspots_path: Path | str,
+    villages_path: Path | str | None = None,
     tolerance_m: float = 6.0,
     promote_m: float = 6000.0,
 ) -> dict:
@@ -438,8 +497,10 @@ def build_overlay(
     `out_dir` must already hold the terrain build's meta.json (FileNotFoundError
     otherwise) and it must describe the same grid as `bbox`/`cell` (ValueError
     otherwise). Local streets at least `promote_m` metres long in total are promoted to
-    'secondary' (0 disables; see promote_long_streets). Nothing is written if any input is
-    invalid. Re-running is idempotent. Returns the overlay dict.
+    'secondary' (0 disables; see promote_long_streets). `villages_path` is optional: no
+    path, or a file that does not exist, means no villages (`"villages": []`, and meta.json
+    loses any village keys). Nothing is written if any input is invalid. Re-running is
+    idempotent. Returns the overlay dict.
     """
     out_dir = Path(out_dir)
     meta_path = out_dir / "meta.json"
@@ -456,7 +517,13 @@ def build_overlay(
     hotspots = _load_json_list(Path(hotspots_path), "hotspots")
     validate_landmarks(landmarks, bbox)
     validate_hotspots(hotspots, bbox)
-    validate_unique_ids(landmarks, hotspots)
+    villages = (
+        _load_json_list(Path(villages_path), "villages")
+        if villages_path is not None and Path(villages_path).exists()
+        else []
+    )
+    validate_villages(villages, bbox)
+    validate_unique_ids(landmarks, hotspots, villages)
     streets = promote_long_streets(
         build_streets(read_tiger_roads(tiger_path), grid, tolerance_m=tolerance_m),
         promote_m,
@@ -467,22 +534,47 @@ def build_overlay(
         "version": OVERLAY_VERSION,
         "streets": streets,
         "landmarks": [_place(grid, i, ()) for i in sorted(landmarks, key=lambda i: i["id"])],
-        "hotspots": [
-            _place(grid, i, ("description", "sources", "confidence"))
-            for i in sorted(hotspots, key=lambda i: i["id"])
-        ],
+        "hotspots": _card_places(
+            grid, hotspots, ("description", "sources", "confidence"), with_kind=True),
+        "villages": _card_places(
+            grid, villages, ("radius_m", "description", "sources", "confidence"),
+            with_kind=False),
     }
-    for hotspot in overlay["hotspots"]:
-        hotspot["sources"] = [
-            {"title": s["title"].strip(), "url": s["url"].strip()} for s in hotspot["sources"]
-        ]
     overlay["processing"] = {"tolerance_m": float(tolerance_m), "promote_m": float(promote_m)}
 
     (out_dir / OVERLAY_FILE).write_text(json.dumps(overlay, separators=(",", ":")))
-    if meta.get("overlay_file") != OVERLAY_FILE:
-        meta["overlay_file"] = OVERLAY_FILE
-        meta_path.write_text(json.dumps(meta, indent=2))
+    patched = patch_overlay_meta(meta, villages)
+    if patched != meta:
+        meta_path.write_text(json.dumps(patched, indent=2))
     return overlay
+
+
+def patch_overlay_meta(meta: dict, villages: Sequence[dict]) -> dict:
+    """The meta.json dict with the overlay keys set; returns a NEW dict, `meta` is untouched.
+
+    Sets `overlay_file`, and for villages `overlay_villages` (the count) plus one
+    `hand_sources` row with layer "villages" (so the Sources panel lists the layer). With no
+    villages both are removed, so deleting villages.json and rebuilding leaves no trace.
+    Every other key and every other layer's `hand_sources` row is kept, in order. A city
+    rebuild rewrites meta.json, so build_overlay has to be run again afterwards.
+    """
+    out = dict(meta)
+    out["overlay_file"] = OVERLAY_FILE
+    rows = [r for r in meta.get("hand_sources", []) if r.get("layer") != VILLAGES_LAYER]
+    if villages:
+        out["overlay_villages"] = len(villages)
+        rows.append({
+            "layer": VILLAGES_LAYER, "source": VILLAGES_SOURCE_NOTE,
+            "confidence": lowest_confidence(v["confidence"] for v in villages),
+            "count": len(villages),
+        })
+    else:
+        out.pop("overlay_villages", None)
+    if rows:
+        out["hand_sources"] = rows
+    else:
+        out.pop("hand_sources", None)
+    return out
 
 
 # ----------------------------------------------------------------------------- CLI
@@ -498,12 +590,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--tiger", type=Path, help="TIGER/Line roads .shp (default: data/raw/tiger/extracted/tl_2024_06075_roads.shp)")
     p.add_argument("--landmarks", type=Path, help="landmarks JSON (default: data/overlay/landmarks.json)")
     p.add_argument("--hotspots", type=Path, help="hotspots JSON (default: data/overlay/hotspots.json)")
+    p.add_argument("--villages", type=Path, help="village sites JSON (default: data/overlay/villages.json; optional, no file means no villages)")
     p.add_argument("--out", type=Path, help="asset folder holding meta.json (default: the region's out)")
     p.add_argument("--tolerance", type=float, default=6.0, help="street simplification tolerance in metres (default 6)")
     p.add_argument("--promote-m", type=float, default=6000.0, help="promote local streets with at least this total length in metres to secondary (default 6000, 0 disables)")
     args = p.parse_args(argv)
 
     try:
+        if args.villages is not None and not args.villages.exists():
+            raise FileNotFoundError(f"villages file not found: {args.villages}")
         region = load_region(args.region)
         base = args.region.resolve().parent.parent  # the pipeline directory
         overlay = build_overlay(
@@ -513,6 +608,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             tiger_path=args.tiger or base / "data/raw/tiger/extracted/tl_2024_06075_roads.shp",
             landmarks_path=args.landmarks or base / "data/overlay/landmarks.json",
             hotspots_path=args.hotspots or base / "data/overlay/hotspots.json",
+            villages_path=args.villages or base / "data/overlay/villages.json",
             tolerance_m=args.tolerance,
             promote_m=args.promote_m,
         )
@@ -526,7 +622,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     points = sum(len(ln) // 2 for s in streets for ln in s["lines"])
     print(
         f"overlay: {len(streets)} streets ({per_kind}), {lines} polylines, {points} points; "
-        f"{len(overlay['landmarks'])} landmarks, {len(overlay['hotspots'])} hotspots"
+        f"{len(overlay['landmarks'])} landmarks, {len(overlay['hotspots'])} hotspots, "
+        f"{len(overlay['villages'])} villages"
     )
     return 0
 

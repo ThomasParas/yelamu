@@ -19,6 +19,7 @@ from yelamu.overlay import (
     validate_landmarks,
     validate_streets,
     validate_unique_ids,
+    validate_villages,
     world_xz,
 )
 
@@ -604,7 +605,9 @@ def test_build_overlay_writes_file_and_updates_meta(tmp_path, grid):
     text = (out / "overlay.json").read_text()
     assert ": " not in text and ", " not in text  # compact separators
     assert json.loads(text) == overlay
-    assert list(overlay) == ["version", "streets", "landmarks", "hotspots", "processing"]
+    assert list(overlay) == ["version", "streets", "landmarks", "hotspots", "villages",
+                             "processing"]
+    assert overlay["villages"] == []  # no villages file given: older datasets still build
     assert overlay["processing"] == {"tolerance_m": 6.0, "promote_m": 6000.0}
     assert overlay["version"] == 1
     assert [(s["kind"], s["name"]) for s in overlay["streets"]] == [
@@ -621,7 +624,7 @@ def test_build_overlay_writes_file_and_updates_meta(tmp_path, grid):
 
     new_meta = json.loads((out / "meta.json").read_text())
     assert new_meta.pop("overlay_file") == "overlay.json"
-    assert new_meta == meta  # every other key untouched
+    assert new_meta == meta  # every other key untouched (no villages: no village meta either)
 
 
 def write_long_road_inputs(tmp_path, grid):
@@ -711,6 +714,283 @@ def test_data_files_in_the_repo_are_valid():
     assert 8 <= len(hotspots) <= 12
 
 
+# ----------------------------------------------------------------------------- villages
+
+
+VILLAGES_SOURCE_NOTE = (
+    "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of "
+    "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate."
+)
+CARD_TEXT = (
+    "General location of a Yelamu village site {place}, around the time of Spanish contact. "
+    "Approximate: villages were places and the people who lived there, and they moved "
+    "seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) "
+    "and the National Park Service (2009)."
+)
+SHIPPED_VILLAGES = {
+    "village-sitlintac": ("Sitlintac", -122.4152, 37.7714, "along Mission Creek"),
+    "village-chutchui": ("Chutchui", -122.4235, 37.7619, "along Mission Creek"),
+    "village-amuctac": ("Amuctac", -122.4016, 37.7238, "around Visitacion Valley"),
+    "village-tubsinte": ("Tubsinte", -122.4148, 37.7109, "around Visitacion Valley"),
+    "village-petlenuc": ("Petlenuc", -122.4552, 37.7978, "in the Presidio near Crissy Field"),
+}
+
+
+def vg(**over):
+    item = {
+        "id": "village-test", "name": "Testville", "lon": -122.42, "lat": 37.77, "radius_m": 530,
+        "description": "General location of a village site, approximate.",
+        "sources": [{"title": "SFEI Hidden Nature SF", "url": "https://storymaps.arcgis.com/x"}],
+        "confidence": "inferred",
+    }
+    item.update(over)
+    return item
+
+
+def test_valid_villages_pass():
+    validate_villages([vg(), vg(id="village-two", name="Two")], BBOX)
+    validate_villages([], BBOX)
+
+
+@pytest.mark.parametrize("key", ["id", "name", "lon", "lat", "radius_m", "description",
+                                 "sources", "confidence"])
+def test_village_missing_field(key):
+    item = vg()
+    del item[key]
+    with pytest.raises(ValueError, match="village-test|item #0"):
+        validate_villages([item], BBOX)
+
+
+@pytest.mark.parametrize("description", [None, "", "   ", "too short", "x" * 401, 12])
+def test_village_description_rules(description):
+    with pytest.raises(ValueError, match="village-test.*description"):
+        validate_villages([vg(description=description)], BBOX)
+    validate_villages([vg(description="x" * 20)], BBOX)
+    validate_villages([vg(description="x" * 400)], BBOX)
+
+
+@pytest.mark.parametrize("sources", [None, [], "https://a.org", [{"title": "T"}],
+                                     [{"title": "", "url": "https://a.org"}],
+                                     [{"title": "T", "url": "ftp://a.org"}]])
+def test_village_needs_valid_sources(sources):
+    with pytest.raises(ValueError, match="village-test.*sources"):
+        validate_villages([vg(sources=sources)], BBOX)
+
+
+@pytest.mark.parametrize("confidence", [None, "certain", "Inferred", ""])
+def test_village_confidence_rules(confidence):
+    with pytest.raises(ValueError, match="village-test.*confidence"):
+        validate_villages([vg(confidence=confidence)], BBOX)
+    for ok in ("documented", "inferred", "illustrative"):
+        validate_villages([vg(confidence=ok)], BBOX)
+
+
+@pytest.mark.parametrize("radius", [99.9, 0, -5, 2000.1, 5000, "530", None, True, float("nan"),
+                                    float("inf")])
+def test_village_radius_must_be_100_to_2000(radius):
+    with pytest.raises(ValueError, match="village-test.*radius_m"):
+        validate_villages([vg(radius_m=radius)], BBOX)
+    for ok in (100, 530, 2000, 1999.5):
+        validate_villages([vg(radius_m=ok)], BBOX)
+
+
+@pytest.mark.parametrize("lon,lat", [(-122.5, 37.77), (-122.42, 37.9), (-122.0, 37.0)])
+def test_village_position_outside_bbox(lon, lat):
+    with pytest.raises(ValueError, match="village-test.*outside the region bbox"):
+        validate_villages([vg(lon=lon, lat=lat)], BBOX)
+
+
+def test_village_id_name_and_duplicates():
+    with pytest.raises(ValueError, match="duplicate"):
+        validate_villages([vg(), vg()], BBOX)
+    with pytest.raises(ValueError, match="id"):
+        validate_villages([vg(id="Bad Id")], BBOX)
+    with pytest.raises(ValueError, match="name"):
+        validate_villages([vg(name="x" * 121)], BBOX)
+    with pytest.raises(ValueError, match="list"):
+        validate_villages({"id": "x"}, BBOX)
+
+
+def test_validate_unique_ids_covers_villages():
+    validate_unique_ids([lm(id="a")], [hs(id="b")], [vg(id="c")])
+    with pytest.raises(ValueError, match="'shared'.*a landmark and a village"):
+        validate_unique_ids([lm(id="shared")], [], [vg(id="shared")])
+    with pytest.raises(ValueError, match="'shared'.*a hotspot and a village"):
+        validate_unique_ids([], [hs(id="shared")], [vg(id="shared")])
+
+
+def test_build_overlay_rejects_a_village_id_shared_with_a_hotspot_and_writes_nothing(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    villages = tmp_path / "villages.json"
+    villages.write_text(json.dumps([vg(id="yerba-buena-cove")]))  # the id hs() uses
+    before = (kwargs["out_dir"] / "meta.json").read_text()
+    with pytest.raises(ValueError, match="yerba-buena-cove"):
+        build_overlay(**kwargs, villages_path=villages)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()
+    assert (kwargs["out_dir"] / "meta.json").read_text() == before
+
+
+def test_build_overlay_propagates_village_validation_errors(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    villages = tmp_path / "villages.json"
+    villages.write_text(json.dumps([vg(radius_m=5000)]))
+    with pytest.raises(ValueError, match="village-test"):
+        build_overlay(**kwargs, villages_path=villages)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()
+
+
+def write_villages(tmp_path: Path) -> Path:
+    villages = tmp_path / "villages.json"
+    villages.write_text(json.dumps([
+        vg(id="village-z", name=" Zed ", lon=-122.41, lat=37.78, description="  " + "d" * 30 + " "),
+        vg(id="village-a", name="Aye", sources=[{"title": " T ", "url": " https://a.org/x "}]),
+    ]))
+    return villages
+
+
+def test_build_overlay_emits_villages_like_hotspots_plus_radius(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    overlay = build_overlay(**kwargs, villages_path=write_villages(tmp_path))
+    assert [v["id"] for v in overlay["villages"]] == ["village-a", "village-z"]  # sorted by id
+    a, z = overlay["villages"]
+    assert list(a) == ["id", "name", "x", "z", "lon", "lat", "radius_m", "description",
+                       "sources", "confidence"]
+    assert "kind" not in a
+    x, zz = lonlat_to_world(grid, a["lon"], a["lat"])
+    assert (a["x"], a["z"]) == (round(x, 1), round(zz, 1))
+    assert a["radius_m"] == 530
+    assert a["confidence"] == "inferred"
+    assert a["sources"] == [{"title": "T", "url": "https://a.org/x"}]  # stripped
+    assert z["name"] == "Zed" and z["description"] == "d" * 30  # stripped
+    assert json.loads((kwargs["out_dir"] / "overlay.json").read_text()) == overlay
+
+
+def test_missing_villages_file_gives_an_empty_list(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    overlay = build_overlay(**kwargs, villages_path=tmp_path / "nope.json")
+    assert overlay["villages"] == []
+    assert build_overlay(**kwargs)["villages"] == []
+
+
+def test_meta_patch_sets_count_and_one_hand_sources_row(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    build_overlay(**kwargs, villages_path=write_villages(tmp_path))
+    new_meta = json.loads((kwargs["out_dir"] / "meta.json").read_text())
+    assert new_meta["overlay_file"] == "overlay.json"
+    assert new_meta["overlay_villages"] == 2
+    assert new_meta["hand_sources"] == [{
+        "layer": "villages", "source": VILLAGES_SOURCE_NOTE, "confidence": "inferred", "count": 2,
+    }]
+    others = {k: v for k, v in new_meta.items()
+              if k not in ("overlay_file", "overlay_villages", "hand_sources")}
+    assert others == meta
+
+
+def test_meta_patch_is_idempotent_and_keeps_every_other_key(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    other_rows = [
+        {"layer": "hand_water", "source": "NOAA", "confidence": "inferred", "count": 1},
+        {"layer": "ponds", "source": "DEM", "confidence": "inferred", "count": 3},
+    ]
+    meta.update({"context_file": "context.json", "shade": {"file": "shade.u8"},
+                 "hand_sources": list(other_rows),
+                 "layers": [{"id": "terrain"}, {"id": "context"}]})
+    (kwargs["out_dir"] / "meta.json").write_text(json.dumps(meta, indent=2))
+    villages = write_villages(tmp_path)
+
+    build_overlay(**kwargs, villages_path=villages)
+    first = (kwargs["out_dir"] / "meta.json").read_bytes()
+    build_overlay(**kwargs, villages_path=villages)
+    assert (kwargs["out_dir"] / "meta.json").read_bytes() == first  # idempotent
+
+    new_meta = json.loads(first)
+    assert new_meta["context_file"] == "context.json"
+    assert new_meta["shade"] == {"file": "shade.u8"}
+    assert new_meta["layers"] == [{"id": "terrain"}, {"id": "context"}]
+    assert new_meta["hand_sources"][:2] == other_rows  # other layers' rows untouched, in order
+    assert [r["layer"] for r in new_meta["hand_sources"]].count("villages") == 1
+    assert len(new_meta["hand_sources"]) == 3
+
+
+def test_meta_patch_replaces_a_stale_village_row_and_count(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    meta["overlay_villages"] = 9
+    meta["hand_sources"] = [{"layer": "villages", "source": "old", "confidence": "documented",
+                             "count": 9}]
+    (kwargs["out_dir"] / "meta.json").write_text(json.dumps(meta, indent=2))
+    build_overlay(**kwargs, villages_path=write_villages(tmp_path))
+    new_meta = json.loads((kwargs["out_dir"] / "meta.json").read_text())
+    assert new_meta["overlay_villages"] == 2
+    assert [r["source"] for r in new_meta["hand_sources"]] == [VILLAGES_SOURCE_NOTE]
+    assert new_meta["hand_sources"][0]["count"] == 2
+
+
+def test_removing_the_villages_file_removes_every_trace_from_meta(tmp_path, grid):
+    kwargs, meta = write_inputs(tmp_path, grid)
+    other = {"layer": "ponds", "source": "DEM", "confidence": "inferred", "count": 3}
+    meta["hand_sources"] = [other]
+    (kwargs["out_dir"] / "meta.json").write_text(json.dumps(meta, indent=2))
+    villages = write_villages(tmp_path)
+    build_overlay(**kwargs, villages_path=villages)
+    build_overlay(**kwargs, villages_path=tmp_path / "gone.json")
+    new_meta = json.loads((kwargs["out_dir"] / "meta.json").read_text())
+    assert "overlay_villages" not in new_meta
+    assert new_meta["hand_sources"] == [other]
+
+
+def test_removing_villages_drops_hand_sources_when_it_was_the_only_row(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    build_overlay(**kwargs, villages_path=write_villages(tmp_path))
+    build_overlay(**kwargs)
+    new_meta = json.loads((kwargs["out_dir"] / "meta.json").read_text())
+    assert "hand_sources" not in new_meta and "overlay_villages" not in new_meta
+
+
+def test_shipped_village_data_is_valid_and_uses_the_approved_wording():
+    from yelamu.region import load_region
+
+    root = Path(__file__).resolve().parent.parent
+    region = load_region(root / "regions" / "full-city.json")
+    villages = json.loads((root / "data/overlay/villages.json").read_text())
+    landmarks = json.loads((root / "data/overlay/landmarks.json").read_text())
+    hotspots = json.loads((root / "data/overlay/hotspots.json").read_text())
+    validate_villages(villages, region.bbox)
+    validate_unique_ids(landmarks, hotspots, villages)
+    assert sorted(v["id"] for v in villages) == sorted(SHIPPED_VILLAGES)
+    for v in villages:
+        name, lon, lat, place = SHIPPED_VILLAGES[v["id"]]
+        assert (v["name"], v["lon"], v["lat"]) == (name, lon, lat)
+        assert v["radius_m"] == 530
+        assert v["confidence"] == "inferred"
+        assert v["description"] == CARD_TEXT.format(place=place)
+        assert [s["url"] for s in v["sources"]] == [
+            "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f",
+            "https://digitalcommons.csumb.edu/hornbeck_ind_1/6/",
+        ]
+
+
+def test_shipped_overlay_has_the_five_villages_and_unique_ids():
+    root = Path(__file__).resolve().parent.parent
+    assets = root.parent / "viewer/public/assets/real-city"
+    overlay = json.loads((assets / "overlay.json").read_text())
+    meta = json.loads((assets / "meta.json").read_text())
+    villages = overlay["villages"]
+    assert sorted(v["id"] for v in villages) == sorted(SHIPPED_VILLAGES)
+    half_w, half_h = meta["width"] * meta["cell_m"] / 2, meta["height"] * meta["cell_m"] / 2
+    for v in villages:
+        assert v["radius_m"] == 530
+        assert "kind" not in v
+        assert -half_w <= v["x"] <= half_w and -half_h <= v["z"] <= half_h  # inside the city
+        assert v["description"] == CARD_TEXT.format(place=SHIPPED_VILLAGES[v["id"]][3])
+        assert v["confidence"] == "inferred"
+    ids = [p["id"] for key in ("landmarks", "hotspots", "villages") for p in overlay[key]]
+    assert len(ids) == len(set(ids))  # unique across the three lists
+    assert meta["overlay_villages"] == 5
+    rows = [r for r in meta["hand_sources"] if r["layer"] == "villages"]
+    assert rows == [{"layer": "villages", "source": VILLAGES_SOURCE_NOTE,
+                     "confidence": "inferred", "count": 5}]
+
+
 # ------------------------------------------------------------------------------- CLI
 
 
@@ -735,6 +1015,14 @@ def test_cli_main_builds_and_reports_errors(tmp_path, grid, capsys):
     capsys.readouterr()
     assert json.loads((kwargs["out_dir"] / "overlay.json").read_text())["processing"]["promote_m"] == 1500.5
     assert json.loads((kwargs["out_dir"] / "meta.json").read_text())["overlay_file"] == "overlay.json"
+
+    # --villages adds the village sites; an explicit file that is missing is an error.
+    villages = write_villages(tmp_path)
+    assert main(argv + ["--villages", str(villages)]) == 0
+    assert "2 villages" in capsys.readouterr().out
+    assert json.loads((kwargs["out_dir"] / "meta.json").read_text())["overlay_villages"] == 2
+    assert main(argv + ["--villages", str(tmp_path / "missing.json")]) == 1
+    assert "villages file not found" in capsys.readouterr().err
 
     # Without --out the region's own `out` ("elsewhere", no meta.json) is used -> clear error.
     assert main(argv[:-2]) == 1

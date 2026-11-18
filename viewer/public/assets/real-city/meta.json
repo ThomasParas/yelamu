@@ -303,8 +303,15 @@
       "source": "Extent: flat 5.55 to 5.70 m lake surface of the USGS 3DEP DEM (modern lake; 1769 outline not known); level 5.6 m from the same DEM",
       "confidence": "inferred",
       "count": 3
+    },
+    {
+      "layer": "villages",
+      "source": "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate.",
+      "confidence": "inferred",
+      "count": 5
     }
   ],
   "overlay_file": "overlay.json",
-  "context_file": "context.json"
+  "context_file": "context.json",
+  "overlay_villages": 5
 }
