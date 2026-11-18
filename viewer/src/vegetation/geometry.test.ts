@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import mergeGeometries, { TINT_RANGE, makeVegetationGeometries, makeVegetationMaterial, tintFor } from "./geometry";
 import { mulberry32 } from "../randomLand";
+import { SPECIES } from "./species";
 
 describe("mergeGeometries", () => {
   it("concatenates positions, normals and colours of non-indexed parts", () => {
@@ -35,10 +36,17 @@ describe("vegetation geometries", () => {
     return g.boundingBox!;
   };
 
-  it("builds a tree, a shrub and a reed with vertex colours", () => {
-    for (const g of [geos.tree, geos.shrub, geos.reed]) {
+  const TREES = ["oak", "bay", "willow"] as const;
+  const SHRUBS = ["coyote-brush", "lupine"] as const;
+  const REEDS = ["tule", "marsh-reed"] as const;
+  const tris = (g: THREE.BufferGeometry) => g.getAttribute("position").count / 3;
+
+  it("builds one vertex-coloured shape per species", () => {
+    expect(Object.keys(geos).sort()).toEqual([...SPECIES].sort());
+    for (const sp of SPECIES) {
+      const g = geos[sp];
       const pos = g.getAttribute("position");
-      expect(pos.count).toBeGreaterThan(0);
+      expect(pos.count, sp).toBeGreaterThan(0);
       expect(pos.count % 3).toBe(0);
       expect(g.getAttribute("color").count).toBe(pos.count);
       for (let i = 0; i < pos.count; i++) {
@@ -47,33 +55,48 @@ describe("vegetation geometries", () => {
     }
   });
 
-  it("is low poly", () => {
-    expect(geos.tree.getAttribute("position").count / 3).toBeLessThan(60);
-    expect(geos.shrub.getAttribute("position").count / 3).toBeLessThan(60);
-    expect(geos.reed.getAttribute("position").count / 3).toBeLessThan(40);
+  it("stays within the triangle budget (tens of thousands are drawn at once)", () => {
+    // The most numerous shapes (shrubs, reeds) must stay as cheap as the old generic ones.
+    expect(tris(geos.oak)).toBeLessThanOrEqual(70);
+    expect(tris(geos.bay)).toBeLessThanOrEqual(50);
+    expect(tris(geos.willow)).toBeLessThanOrEqual(60);
+    for (const sp of [...SHRUBS, ...REEDS]) expect(tris(geos[sp]), sp).toBeLessThanOrEqual(28);
   });
 
-  it("has unit height trees, with the trunk base a little below the ground", () => {
-    const b = bbox(geos.tree);
-    expect(b.max.y).toBeCloseTo(1, 5);
-    expect(b.min.y).toBeLessThan(0);
-    expect(b.min.y).toBeGreaterThan(-0.15);
-    expect(b.max.x).toBeLessThan(0.5);
-    expect(b.max.x).toBeGreaterThan(0.2);
+  it("has unit height trees that start at (or a little below) the ground", () => {
+    for (const sp of TREES) {
+      const b = bbox(geos[sp]);
+      expect(b.max.y, sp).toBeCloseTo(1, 5);
+      expect(b.min.y, sp).toBeLessThanOrEqual(0.1);
+      expect(b.min.y, sp).toBeGreaterThan(-0.15);
+    }
   });
 
-  it("has a squashed shrub of radius about 1 that does not go far below ground", () => {
-    const b = bbox(geos.shrub);
-    expect(b.max.y).toBeGreaterThan(0.5);
-    expect(b.max.y).toBeLessThan(1);
-    expect(b.min.y).toBeGreaterThanOrEqual(-0.5);
-    expect(b.max.x).toBeLessThanOrEqual(1.0001);
+  it("gives the oak a crown wider than it is tall, and the bay a narrower one", () => {
+    const width = (sp: (typeof TREES)[number]) => {
+      const b = bbox(geos[sp]);
+      return Math.max(b.max.x - b.min.x, b.max.z - b.min.z);
+    };
+    expect(width("oak")).toBeGreaterThan(1);
+    expect(width("bay")).toBeLessThan(width("oak") * 0.75);
   });
 
-  it("has thin tall reeds", () => {
-    const b = bbox(geos.reed);
-    expect(b.max.y).toBeCloseTo(1, 1);
-    expect(b.max.x - b.min.x).toBeLessThan(0.6);
+  it("has low shrubs of radius about 1 that do not go far below ground", () => {
+    for (const sp of SHRUBS) {
+      const b = bbox(geos[sp]);
+      expect(b.max.y, sp).toBeGreaterThan(0.5);
+      expect(b.max.y, sp).toBeLessThan(1);
+      expect(b.min.y, sp).toBeGreaterThanOrEqual(-0.5);
+      expect(Math.max(-b.min.x, b.max.x, -b.min.z, b.max.z), sp).toBeLessThanOrEqual(1.0001);
+    }
+  });
+
+  it("has thin tall reed clumps", () => {
+    for (const sp of REEDS) {
+      const b = bbox(geos[sp]);
+      expect(b.max.y, sp).toBeCloseTo(1, 1);
+      expect(b.max.x - b.min.x, sp).toBeLessThan(0.6);
+    }
   });
 
   it("makes a vertex-coloured flat-shaded standard material", () => {

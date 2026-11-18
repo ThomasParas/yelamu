@@ -29,12 +29,12 @@ const chunkMesh = () => new THREE.Mesh(new THREE.BufferGeometry(), new THREE.Mes
 const veg = (m: THREE.Object3D) => m.children.filter((c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh);
 
 describe("VegetationLayer", () => {
-  it("builds up to three instanced meshes per chunk as children of the chunk mesh", () => {
+  it("builds one instanced mesh per species per chunk as children of the chunk mesh", () => {
     const layer = new VegetationLayer(options());
     const west = chunkMesh();
     layer.attach(west, PLANS[0]);
     const kids = veg(west);
-    expect(kids.map((k) => k.name).sort()).toEqual(["vegetation-shrub", "vegetation-tree"]);
+    expect(kids.map((k) => k.name).sort()).toEqual(["vegetation-coyote-brush", "vegetation-oak"]);
     for (const k of kids) {
       expect(k.count).toBeGreaterThan(0);
       expect(k.frustumCulled).toBe(false);
@@ -43,7 +43,7 @@ describe("VegetationLayer", () => {
     }
     const east = chunkMesh();
     layer.attach(east, PLANS[1]);
-    expect(veg(east).map((k) => k.name)).toEqual(["vegetation-reed"]);
+    expect(veg(east).map((k) => k.name)).toEqual(["vegetation-tule"]);
     const s = layer.stats();
     expect(s.meshes).toBe(3);
     expect(s.instances).toBe([...veg(west), ...veg(east)].reduce((n, k) => n + k.count, 0));
@@ -54,7 +54,7 @@ describe("VegetationLayer", () => {
     const layer = new VegetationLayer(options({ exaggeration: 3, sizeBoost: 1 }));
     const m = chunkMesh();
     layer.attach(m, PLANS[0]);
-    const tree = veg(m).find((k) => k.name === "vegetation-tree")!;
+    const tree = veg(m).find((k) => k.name === "vegetation-oak")!;
     const mat = new THREE.Matrix4();
     const p = new THREE.Vector3();
     const q = new THREE.Quaternion();
@@ -76,7 +76,7 @@ describe("VegetationLayer", () => {
       const layer = new VegetationLayer(options({ sizeBoost: boost }));
       const m = chunkMesh();
       layer.attach(m, PLANS[0]);
-      const tree = veg(m).find((k) => k.name === "vegetation-tree")!;
+      const tree = veg(m).find((k) => k.name === "vegetation-oak")!;
       const mat = new THREE.Matrix4();
       tree.getMatrixAt(0, mat);
       const s = new THREE.Vector3();

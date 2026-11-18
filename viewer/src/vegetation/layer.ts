@@ -18,13 +18,8 @@ import {
   tintFor,
   type VegetationGeometries,
 } from "./geometry";
-import {
-  chunkSeed,
-  groupNameForClass,
-  placeChunkVegetation,
-  type VegInstance,
-  type VegKind,
-} from "./placement";
+import { chunkSeed, groupNameForClass, placeChunkVegetation, type VegInstance, type VegSpec } from "./placement";
+import { SPECIES, speciesTables, type Species } from "./species";
 
 export interface VegetationLayerOptions {
   size: GridSize;
@@ -53,8 +48,6 @@ export const DEFAULT_VEGETATION_SEED = 0x59454c41; // "YELA"
 export const DEFAULT_MAX_INSTANCES_PER_CHUNK = 1500;
 export const DEFAULT_SIZE_BOOST = 1.5;
 
-const KINDS: readonly VegKind[] = ["tree", "shrub", "reed"];
-
 interface Built {
   meshes: THREE.InstancedMesh[];
   instances: number;
@@ -64,6 +57,8 @@ export class VegetationLayer {
   private readonly geometries: VegetationGeometries;
   private readonly material: THREE.MeshStandardMaterial;
   private readonly groupOfClass: (id: number) => string;
+  private readonly speciesFor: (classId: number, u: number) => Species | null;
+  private readonly specForClass: (classId: number) => VegSpec | undefined;
   private readonly seed: number;
   private readonly maxInstances: number;
   private readonly sizeBoost: number;
@@ -87,6 +82,7 @@ export class VegetationLayer {
     this.geometries = makeVegetationGeometries();
     this.material = makeVegetationMaterial();
     this.groupOfClass = groupNameForClass(opts.classes);
+    ({ speciesFor: this.speciesFor, specForClass: this.specForClass } = speciesTables(opts.classes));
     this.seed = opts.seed ?? DEFAULT_VEGETATION_SEED;
     this.maxInstances = opts.maxInstancesPerChunk ?? DEFAULT_MAX_INSTANCES_PER_CHUNK;
     this.sizeBoost = opts.sizeBoost ?? DEFAULT_SIZE_BOOST;
@@ -172,17 +168,28 @@ export class VegetationLayer {
       waterLevelM: o.waterLevelM,
       seed: this.seed,
       maxInstances: this.maxInstances,
+      specForClass: this.specForClass,
     });
     const tintRng = mulberry32(chunkSeed(this.seed, plan.cx, plan.cy) ^ 0x7f4a7c15);
-    const byKind: Record<VegKind, VegInstance[]> = { tree: [], shrub: [], reed: [] };
-    for (const v of list) byKind[v.kind].push(v);
+    // A separate stream for the species draw, so tints do not shift when a mix changes.
+    const speciesRng = mulberry32(chunkSeed(this.seed, plan.cx, plan.cy) ^ 0x2545f491);
+    const bySpecies = new Map<Species, VegInstance[]>();
+    let placed = 0;
+    for (const v of list) {
+      const sp = this.speciesFor(v.classId, speciesRng());
+      if (!sp) continue;
+      let items = bySpecies.get(sp);
+      if (!items) bySpecies.set(sp, (items = []));
+      items.push(v);
+      placed++;
+    }
 
     const meshes: THREE.InstancedMesh[] = [];
-    for (const kind of KINDS) {
-      const items = byKind[kind];
-      if (items.length === 0) continue;
-      const im = new THREE.InstancedMesh(this.geometries[kind], this.material, items.length);
-      im.name = `vegetation-${kind}`;
+    for (const sp of SPECIES) {
+      const items = bySpecies.get(sp);
+      if (!items) continue;
+      const im = new THREE.InstancedMesh(this.geometries[sp], this.material, items.length);
+      im.name = `vegetation-${sp}`;
       // The parent chunk is already culled by its own bounds and hidden when out of view.
       im.frustumCulled = false;
       // Positions are world coordinates and chunks sit at the origin: nothing to update.
@@ -201,6 +208,6 @@ export class VegetationLayer {
       mesh.add(im);
       meshes.push(im);
     }
-    this.built.set(mesh, { meshes, instances: list.length });
+    this.built.set(mesh, { meshes, instances: placed });
   }
 }

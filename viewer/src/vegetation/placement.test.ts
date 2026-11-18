@@ -159,6 +159,25 @@ describe("placeChunkVegetation", () => {
     expect(rel(p1, c1)).not.toEqual(rel(p0, c0));
   });
 
+  it("records each plant's habitat class id", () => {
+    const g = grid(129, 129, () => 50, (x) => (x < 64 ? 5 : 9));
+    const list = place(g, full);
+    expect(new Set(list.map((v) => v.classId))).toEqual(new Set([5, 9]));
+    for (const v of list) expect(v.classId).toBe(v.group === "woodland" ? 5 : 9);
+  });
+
+  it("uses a per-class spec override in place of the group's spec", () => {
+    const wet = grid(129, 129, () => 50, () => 10);
+    expect(place(wet, full).every((v) => v.kind === "reed")).toBe(true);
+    const override = { kind: "tree" as const, perHectare: 20, minScale: 5, maxScale: 6 };
+    const list = place(wet, full, { specForClass: (id) => (id === 10 ? override : undefined) });
+    expect(list.length).toBeGreaterThan(0);
+    expect(list.every((v) => v.kind === "tree" && v.scale >= 5 && v.scale <= 6)).toBe(true);
+    // Other classes still use their group's spec.
+    const mixed = place(woodland, full, { specForClass: (id) => (id === 10 ? override : undefined) });
+    expect(mixed).toEqual(place(woodland, full));
+  });
+
   it("reaches the expected density on a big woodland patch (within 15%)", () => {
     const list = place(woodland, full);
     const hectares = (128 * 10 * 128 * 10) / 10_000;

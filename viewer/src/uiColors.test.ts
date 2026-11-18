@@ -33,6 +33,7 @@ import {
 import { SCENE_BACKGROUND } from "./theme";
 import { VEG_COLORS } from "./vegetation/geometry";
 import { VEGETATION_BY_GROUP } from "./vegetation/placement";
+import { SPECIES_BY_CLASS, SPECIES_BY_GROUP, type Species } from "./vegetation/species";
 
 // Read the real stylesheet (vitest replaces CSS imports with an empty string).
 const css = readFileSync(new URL("./ui/ui.css", import.meta.url), "utf8");
@@ -264,11 +265,26 @@ describe("street lines (a faint orientation aid, not text)", () => {
 describe("vegetation shapes against their ground", () => {
   // Not WCAG: a rough check that a plant is told apart from the colour it stands on.
   it("each plant colour differs from the ground of every group it grows in", () => {
-    const colorOf = { tree: VEG_COLORS.canopy, shrub: VEG_COLORS.shrub, reed: VEG_COLORS.reed };
+    const colorOf: Record<Species, number> = {
+      oak: VEG_COLORS.oak,
+      bay: VEG_COLORS.bay,
+      willow: VEG_COLORS.willow,
+      "coyote-brush": VEG_COLORS.coyoteBrush,
+      lupine: VEG_COLORS.lupine,
+      tule: VEG_COLORS.tule,
+      "marsh-reed": VEG_COLORS.reed,
+    };
+    const check = (sp: Species, group: string) => {
+      const ratio = contrastRatio(colorOf[sp], GROUP_COLORS[group]);
+      expect(ratio, `${sp} on ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.3);
+    };
     for (const [group, spec] of Object.entries(VEGETATION_BY_GROUP)) {
       if (!spec) continue;
-      const ratio = contrastRatio(colorOf[spec.kind], GROUP_COLORS[group]);
-      expect(ratio, `${spec.kind} on ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.3);
+      for (const [sp] of SPECIES_BY_GROUP[group]) check(sp, group);
     }
+    // Class-level mixes: bay grows in woodland, willow in wetland (SFEI groups those classes so).
+    for (const [sp] of SPECIES_BY_CLASS["California Bay Woodland"]) check(sp, "woodland");
+    for (const [sp] of SPECIES_BY_CLASS["Willow grove"]) check(sp, "wetland");
   });
+
 });

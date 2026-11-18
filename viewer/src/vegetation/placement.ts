@@ -54,6 +54,8 @@ export interface VegInstance {
   rotation: number;
   kind: VegKind;
   group: string;
+  /** Habitat class id of the sample the plant belongs to (species.ts picks its shape). */
+  classId: number;
 }
 
 /** Ground steeper than this (degrees, from neighbouring heights) gets no plants. */
@@ -115,6 +117,8 @@ export interface PlaceArgs {
   seed: number;
   /** Hard cap for this chunk; more candidates are thinned uniformly. */
   maxInstances: number;
+  /** Per-class placement override; undefined (or no function) = the group's spec. */
+  specForClass?: (classId: number) => VegSpec | undefined;
 }
 
 /**
@@ -126,7 +130,7 @@ export interface PlaceArgs {
  * 35 degrees, or where the group grows nothing.
  */
 export function placeChunkVegetation(args: PlaceArgs): VegInstance[] {
-  const { chunk, size, heights, habitat, groupOfClass, waterLevelM, seed, maxInstances } = args;
+  const { chunk, size, heights, habitat, groupOfClass, waterLevelM, seed, maxInstances, specForClass } = args;
   const { width, height, cell_m } = size;
   if (heights.length !== width * height) {
     throw new Error(`heights has ${heights.length} samples, expected ${width * height}`);
@@ -150,7 +154,7 @@ export function placeChunkVegetation(args: PlaceArgs): VegInstance[] {
     if (spec === undefined) {
       const group = groupOfClass(id);
       groupCache[id] = group;
-      spec = vegetationForGroup(group);
+      spec = specForClass?.(id) ?? vegetationForGroup(group);
       specCache[id] = spec;
     }
     return spec;
@@ -195,6 +199,7 @@ export function placeChunkVegetation(args: PlaceArgs): VegInstance[] {
           rotation,
           kind: spec.kind,
           group: groupCache[id]!,
+          classId: id,
         });
       }
     }
