@@ -71,12 +71,12 @@
    "id": "alameda",
    "name": "Alameda",
    "kind": "town",
-   "lon": -122.2744,
-   "lat": 37.7561,
-   "x": 13707.2,
-   "z": 1447.2,
-   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
-   "ground_m": 0.6
+   "lon": -122.2416,
+   "lat": 37.7652,
+   "x": 16588.4,
+   "z": 414.6,
+   "source": "Downtown (Park Street) position; the Wikipedia infobox gives a point mid-island, about 3 km away, at sea level",
+   "ground_m": 9.7
   },
   {
    "id": "san-leandro",
@@ -181,12 +181,12 @@
    "id": "south-san-francisco",
    "name": "South San Francisco",
    "kind": "town",
-   "lon": -122.3762,
-   "lat": 37.6551,
-   "x": 4814.4,
-   "z": 12717.6,
-   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
-   "ground_m": 0.5
+   "lon": -122.4077,
+   "lat": 37.6547,
+   "x": 2036.1,
+   "z": 12780.0,
+   "source": "Downtown (Grand Avenue) position; the Wikipedia infobox gives a point on the bay shore, about 2.8 km away",
+   "ground_m": 5.6
   },
   {
    "id": "san-bruno",
