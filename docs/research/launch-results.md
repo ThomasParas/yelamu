@@ -47,3 +47,13 @@ The grey modern surround (spec `docs/superpowers/specs/2026-11-17-surrounding-te
 The refresh rate caps these at 60 fps, so they show the phone keeps up, not how much headroom it has. Not tested: an older or low-end phone, an iPhone, a long session (heat), battery drain (not recorded). If an older phone struggles, the surround's `cell_m` in `pipeline/regions/full-city.json` can go from 60 to 90 (rebuild with `scripts/build_context.py`).
 
 **Known limits.** The East Bay, peninsula bayshore and Marin shores in the grey surround are modern (including fill). Alameda and South San Francisco labels are at downtown positions because Wikipedia's points are at sea level. The Legend note and Sources entry would still describe the surround on a dataset that has one but fails to load it (unlikely). Towns are listed under "Landmarks" in search and Places.
+
+## C3. Screen reader and keyboard pass (2026-11-17)
+
+On the final production build (after the grey surround), served locally.
+
+**Keyboard, checked by the agent in a real browser:** the page title reads correctly; the About dialog opens by itself on a first visit with focus inside it, keeps focus inside while Tab is pressed, and closes with Esc; the page has a skip link, a main landmark, a header and the dialog; Tab order is skip link, map, hotspot buttons, search, Places, Legend, Sources, About, the layer toggles, Reset view; arrow keys pan, plus and minus zoom, E rotates, H resets, `/` focuses search, `?` opens About; a shared link to a ring town at high zoom still shows its label. axe-core 4.10.3 found 0 violations with the page, About, Legend, Sources and Places each open.
+
+**VoiceOver, run by the owner:** title, About dialog, map label, hotspots, search ("Selected: ..." announcement), Places, Legend and Sources were listened to; the owner reported **"It was fine"**, no problems to fix.
+
+**Not tested:** other screen readers (NVDA, TalkBack), VoiceOver on iPhone, Windows high-contrast mode. Known design note: the hotspot buttons come before the search box in Tab order (the "Skip to search" link is the way past them).

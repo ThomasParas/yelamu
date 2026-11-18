@@ -704,3 +704,7 @@ The owner ran the on-screen benchmark (`?bench`, `353e59a`) on an Android phone 
 ## Surrounding terrain inserted before Task C3 (2026-11-17)
 
 The owner asked for the surroundings (Marin, the East Bay, the peninsula to Linda Mar) to be filled in, even as a grey modern fill, because San Francisco floating in empty sea was disconcerting. Done as a grey ring (plan `docs/superpowers/plans/2026-11-17-surrounding-terrain.md`); results and decisions in `docs/research/launch-results.md`. Effects on this plan: the phone measurement in C2 is superseded by the five-scenario run recorded there (all pass); the Legend and About wording gate was passed again for the new text; **C3 (VoiceOver) now tests the final page**, and the axe-core check was re-run with About, Legend, Sources and Places open (0 violations). The 1850s shore stages follow after launch. Remaining: C3, C6 (DNS), C7 (make public, enable Pages), C8 (verify live).
+
+## Task C3 executed (2026-11-17)
+
+Keyboard checks by the agent and the VoiceOver pass by the owner on the final build (with the grey surround): no problems found. Details in `docs/research/launch-results.md`. **C3 is satisfied.** Remaining: C6 (Hostinger DNS record), C7 (make public, enable Pages), C8 (verify live).
