@@ -22,6 +22,7 @@ from typing import Sequence
 
 BASE = "https://services1.arcgis.com/8V9ShUQ1DGYVLtOg/arcgis/rest/services"
 PAGE = 2000  # the services' maxRecordCount
+DEST = Path(__file__).resolve().parent.parent / "data" / "raw" / "sfei-creeks"
 
 
 @dataclass(frozen=True)
@@ -57,12 +58,24 @@ def fetch(source: Source, dest_dir: Path) -> Path:
     offset = 0
     while True:
         with urllib.request.urlopen(query_url(source, offset=offset), timeout=60) as resp:  # noqa: S310
-            page = json.load(resp)
+            try:
+                page = json.load(resp)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{source.name}: the service did not return valid JSON ({exc})") from exc
+        if not isinstance(page, dict):
+            raise ValueError(f"{source.name}: the service did not return a JSON object")
+        if "error" in page:
+            raise ValueError(f"{source.name}: the service reported an error: {page['error']}")
         batch = page.get("features", [])
         features.extend(batch)
-        if len(batch) < PAGE and not page.get("exceededTransferLimit"):
+        # An empty page ends the loop even if the service claims there is more: asking again
+        # for the same offset would never finish.
+        if not batch or (len(batch) < PAGE and not page.get("exceededTransferLimit")):
             break
         offset += PAGE
+    if not features:
+        # Never replace a good download with an empty one.
+        raise ValueError(f"{source.name}: the service returned no features; nothing written")
     dest_dir.mkdir(parents=True, exist_ok=True)
     out = dest_dir / source.out_file
     out.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
@@ -74,13 +87,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("which", choices=("mapped", "modelled", "both"))
     args = parser.parse_args(argv)
-    dest = Path(__file__).resolve().parent.parent / "data" / "raw" / "sfei-creeks"
+    dest = DEST
     try:
         if args.which in ("mapped", "both"):
             fetch(MAPPED, dest)
         if args.which in ("modelled", "both"):
             fetch(MODELLED, dest)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # a network failure, or a reply that is not what we expect
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0

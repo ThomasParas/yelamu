@@ -668,7 +668,9 @@ def test_build_creeks_reports_a_missing_meta_clearly(tmp_path, grid):
         build_creeks(tmp_path, tmp_path / "x.geojson", None)
 
 
-def test_fetch_query_urls():
+def _fetch_module(tmp_path=None):
+    """The fetch script as a module. Pass `tmp_path` whenever a test could reach main(): the
+    download folder is the real, shared pipeline/data/raw one otherwise."""
     import importlib.util
     import sys
     from pathlib import Path
@@ -678,6 +680,95 @@ def test_fetch_query_urls():
     mod = importlib.util.module_from_spec(spec)
     sys.modules["fetch_creeks"] = mod  # a dataclass in the script looks its module up by name
     spec.loader.exec_module(mod)
+    if tmp_path is not None:
+        mod.DEST = tmp_path
+    return mod
+
+
+class _FakeResponse:
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self, *args):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _serve(monkeypatch, mod, pages):
+    """Make urlopen return the given bodies in turn (str or dict); returns the list of URLs asked for."""
+    asked: list[str] = []
+    queue = list(pages)
+
+    def fake_urlopen(url, timeout=None):
+        asked.append(url)
+        assert queue, "the loop asked for more pages than the test gave it"
+        body = queue.pop(0)
+        return _FakeResponse((body if isinstance(body, str) else json.dumps(body)).encode())
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+    return asked
+
+
+def _page(n, exceeded=False):
+    return {"features": [{"type": "Feature", "properties": {}, "geometry": None}] * n,
+            "exceededTransferLimit": exceeded}
+
+
+def test_fetch_pages_until_a_short_page(monkeypatch, tmp_path):
+    mod = _fetch_module()
+    asked = _serve(monkeypatch, mod, [_page(mod.PAGE, True), _page(3, False)])
+    out = mod.fetch(mod.MAPPED, tmp_path)
+    assert len(json.loads(out.read_text())["features"]) == mod.PAGE + 3
+    assert len(asked) == 2 and "resultOffset=0" in asked[0] and f"resultOffset={mod.PAGE}" in asked[1]
+
+
+def test_fetch_stops_on_an_empty_page_even_when_the_service_says_there_is_more(monkeypatch, tmp_path):
+    mod = _fetch_module()
+    asked = _serve(monkeypatch, mod, [_page(mod.PAGE, True), _page(0, True)])  # a third request would fail
+    out = mod.fetch(mod.MODELLED, tmp_path)
+    assert len(json.loads(out.read_text())["features"]) == mod.PAGE
+    assert len(asked) == 2
+
+
+def test_fetch_main_reports_invalid_json_as_an_error_not_a_traceback(monkeypatch, capsys, tmp_path):
+    mod = _fetch_module(tmp_path)
+    _serve(monkeypatch, mod, ["<html>Service unavailable</html>"])
+    assert mod.main(["mapped"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "JSON" in err and "Traceback" not in err
+
+
+def test_fetch_main_reports_a_service_error_and_a_network_failure(monkeypatch, capsys, tmp_path):
+    mod = _fetch_module(tmp_path)
+    _serve(monkeypatch, mod, [{"error": {"code": 400, "message": "Invalid query"}}])
+    assert mod.main(["mapped"]) == 1
+    assert "Invalid query" in capsys.readouterr().err
+
+    def boom(url, timeout=None):
+        raise OSError("network is down")
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", boom)
+    assert mod.main(["modelled"]) == 1
+    assert "network is down" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []  # nothing was written
+
+
+def test_fetch_never_replaces_a_download_with_an_empty_one(monkeypatch, capsys, tmp_path):
+    mod = _fetch_module(tmp_path)
+    (tmp_path / mod.MAPPED.out_file).write_text("kept")
+    _serve(monkeypatch, mod, [_page(0, False)])
+    assert mod.main(["mapped"]) == 1
+    assert "no features" in capsys.readouterr().err
+    assert (tmp_path / mod.MAPPED.out_file).read_text() == "kept"
+
+
+def test_fetch_query_urls():
+    mod = _fetch_module()
     url = mod.query_url(mod.MAPPED, offset=0)
     assert url.startswith("https://services1.arcgis.com/8V9ShUQ1DGYVLtOg/arcgis/rest/services/San_Francisco_Historical_Creeks/FeatureServer/0/query?")
     assert "outSR=4326" in url and "f=geojson" in url and "resultOffset=0" in url
