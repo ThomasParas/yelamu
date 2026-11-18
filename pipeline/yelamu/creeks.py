@@ -7,7 +7,8 @@ docs/superpowers/specs/2026-11-18-creeks-design.md):
 * "San Francisco Historical Creeks": 26 hand-mapped lines for the north and centre of the city,
   with names, a "well located" flag and cited sources.
 * "MYHL_HistoricStreams": stream channels computed from a historical elevation model for the
-  south. Only Strahler order 3 and up are kept, merged end to end into channels.
+  whole city. Only Strahler order 3 and up are kept, merged end to end into channels, and pieces
+  within 100 m of a hand-mapped creek are left out (the hand-mapped line draws that creek).
 
 The result is written as `creeks.json` next to `heightmap.u16`, and `meta.json` gains
 `creeks_file`, `creeks_mapped`, `creeks_modelled` and two `hand_sources` rows. A city rebuild
@@ -26,7 +27,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString
+from shapely.ops import unary_union
+from shapely.prepared import prep
 
 from yelamu.export import CONFIDENCE_LEVELS
 from yelamu.geo import Grid
@@ -53,6 +56,9 @@ SIMPLIFY_TOLERANCE_M = 3.0
 MIN_RUN_LENGTH_M = 30.0
 # Segments of the modelled network are joined when their end points agree to this many metres.
 JOIN_KEY_M = 0.1
+# Modelled channel pieces closer than this to a hand-mapped creek are not drawn, so each creek is
+# drawn once, by the hand-mapped line (owner, 2026-11-18). 0 turns the rule off.
+OVERLAP_BUFFER_M = 100.0
 
 # Habitat classes (meta.habitat_classes names) where a creek line must stop: open bay and ocean.
 # Ponds, lagoons, marsh and tidal flat are NOT here: creeks run into those.
@@ -159,6 +165,43 @@ def simplify_line(points: Sequence[XZ], tolerance_m: float) -> list[XZ]:
     return [(float(x), float(z)) for x, z in simple.coords]
 
 
+# ------------------------------------------------------------------- near hand-mapped lines
+
+
+def remove_near(
+    runs: Sequence[Sequence[XZ]],
+    mapped_lines: Sequence[Sequence[XZ]],
+    buffer_m: float,
+) -> list[list[XZ]]:
+    """The pieces of each run that lie outside the union of `mapped_lines` buffered by `buffer_m`.
+    A run that crosses the buffer comes back as several pieces, in the run's order and direction;
+    a run wholly outside comes back unchanged. Pieces with fewer than two points are dropped. With
+    `buffer_m` of 0 or less, or no mapped lines, every run is returned as it is. The inputs are
+    not modified."""
+    plain = [[(float(x), float(z)) for x, z in r] for r in runs]
+    lines = [m for m in mapped_lines if len(m) >= 2]
+    if buffer_m <= 0 or not lines:
+        return plain
+    zone = unary_union([LineString(m) for m in lines]).buffer(buffer_m)
+    fast = prep(zone)
+    out: list[list[XZ]] = []
+    for run in plain:
+        if len(run) < 2:
+            continue
+        line = LineString(run)
+        if not fast.intersects(line):
+            out.append(run)
+            continue
+        rest = line.difference(zone)
+        if rest.is_empty:
+            continue
+        parts = list(rest.geoms) if isinstance(rest, MultiLineString) else [rest]
+        for part in parts:
+            if isinstance(part, LineString) and len(part.coords) >= 2:
+                out.append([(float(c[0]), float(c[1])) for c in part.coords])
+    return out
+
+
 # ----------------------------------------------------------------------------- chaining
 
 
@@ -214,7 +257,7 @@ MAPPED_SOURCE_NOTE = (
 )
 MODELLED_SOURCE_NOTE = (
     "Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), "
-    "Strahler order 3 and up. Computed, not observed."
+    "Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed."
 )
 
 
@@ -250,9 +293,12 @@ def build_creeks_document(
     *,
     min_order: int = MIN_MODELLED_ORDER,
     tolerance_m: float = SIMPLIFY_TOLERANCE_M,
+    overlap_buffer_m: float = OVERLAP_BUFFER_M,
 ) -> tuple[dict, dict]:
     """(creeks.json document, statistics). `mapped` is read_geojson_lines output, `modelled` is
-    read_modelled_lines output, `bay` the bay/ocean mask on the city grid."""
+    read_modelled_lines output, `bay` the bay/ocean mask on the city grid. Modelled pieces within
+    `overlap_buffer_m` of a hand-mapped line (as drawn, after trimming and simplifying) are left
+    out; 0 keeps them."""
     rows, cols = bay.shape
 
     def runs_for(lonlat: Sequence[tuple[float, float]]) -> list[list[XZ]]:
@@ -260,6 +306,7 @@ def build_creeks_document(
                 for run in trim_to_land(project_line(grid, lonlat), bay, cols, rows, grid.cell)]
 
     mapped_out: list[dict] = []
+    mapped_runs: list[list[XZ]] = []
     for feature in sorted(mapped, key=lambda f: int(f["props"].get("OBJECTID", 0))):
         props = feature["props"]
         oid = int(props.get("OBJECTID", 0))
@@ -269,6 +316,7 @@ def build_creeks_document(
         for lonlat in feature["lines"]:
             for run in runs_for(lonlat):
                 k += 1
+                mapped_runs.append(run)
                 mapped_out.append({
                     "id": f"creek-{oid}" if k == 1 else f"creek-{oid}-{k}",
                     "name": name,
@@ -282,6 +330,13 @@ def build_creeks_document(
     for m in kept:
         for run in trim_to_land(project_line(grid, m["line"]), bay, cols, rows, grid.cell, min_length_m=0.0):
             segments.append((m["order"], run))
+    length_before = sum(_length(run) for _, run in segments)
+    segments = [
+        (order, piece)
+        for order, run in segments
+        for piece in remove_near([run], mapped_runs, overlap_buffer_m)
+    ]
+    dropped_m = round(length_before - sum(_length(run) for _, run in segments), 1) + 0.0
     channels = chain_segments(segments)
     modelled_out: list[dict] = []
     for order, pts in channels:
@@ -293,13 +348,15 @@ def build_creeks_document(
         "version": CREEKS_VERSION,
         "mapped": mapped_out,
         "modelled": modelled_out,
-        "processing": {"tolerance_m": float(tolerance_m), "min_order": int(min_order)},
+        "processing": {"tolerance_m": float(tolerance_m), "min_order": int(min_order),
+                       "overlap_buffer_m": float(overlap_buffer_m)},
     }
     stats = {
         "mapped": len(mapped_out),
         "modelled": len(modelled_out),
         "modelled_segments": len(kept),
         "dropped_low_order": len(modelled) - len(kept),
+        "dropped_near_mapped_m": max(dropped_m, 0.0),
     }
     return doc, stats
 
@@ -400,6 +457,7 @@ def build_creeks(
     remove: bool = False,
     min_order: int = MIN_MODELLED_ORDER,
     tolerance_m: float = SIMPLIFY_TOLERANCE_M,
+    overlap_buffer_m: float = OVERLAP_BUFFER_M,
 ) -> dict | None:
     """Write creeks.json into `assets` (the folder with the city's meta.json and habitat raster)
     and patch meta.json. `remove=True` deletes creeks.json and every creek key instead. Nothing is
@@ -427,7 +485,8 @@ def build_creeks(
 
     mapped = read_geojson_lines(mapped_path) if mapped_path is not None else []
     modelled = read_modelled_lines(modelled_path) if modelled_path is not None else []
-    doc, _ = build_creeks_document(grid, mapped, modelled, bay, min_order=min_order, tolerance_m=tolerance_m)
+    doc, _ = build_creeks_document(grid, mapped, modelled, bay, min_order=min_order,
+                                   tolerance_m=tolerance_m, overlap_buffer_m=overlap_buffer_m)
     validate_creeks_document(doc)
 
     (assets / CREEKS_FILE).write_text(json.dumps(doc, separators=(",", ":")))
@@ -454,6 +513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--modelled", type=Path, help="modelled streams GeoJSON (default: data/raw/sfei-creeks/myhl_historic_streams_order3.geojson; skipped if absent)")
     p.add_argument("--min-order", type=int, default=MIN_MODELLED_ORDER, help="lowest Strahler order drawn (default 3)")
     p.add_argument("--tolerance", type=float, default=SIMPLIFY_TOLERANCE_M, help="line simplification in metres (default 3)")
+    p.add_argument("--overlap-buffer", type=float, default=OVERLAP_BUFFER_M, help="modelled pieces within this many metres of a hand-mapped creek are left out (default 100, 0 keeps them)")
     p.add_argument("--remove", action="store_true", help="delete creeks.json and every creek key in meta.json")
     args = p.parse_args(argv)
 
@@ -476,6 +536,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             modelled if modelled.exists() else None,
             min_order=args.min_order,
             tolerance_m=args.tolerance,
+            overlap_buffer_m=args.overlap_buffer,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

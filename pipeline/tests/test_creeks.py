@@ -13,6 +13,7 @@ from yelamu.creeks import (
     MAX_MODELLED,
     MAX_NAME_CHARS,
     MAX_SOURCE_CHARS,
+    OVERLAP_BUFFER_M,
     bay_mask,
     build_creeks,
     build_creeks_document,
@@ -21,6 +22,7 @@ from yelamu.creeks import (
     patch_creeks_meta,
     project_line,
     read_geojson_lines,
+    remove_near,
     simplify_line,
     trim_to_land,
     validate_creeks_document,
@@ -218,7 +220,9 @@ def test_document_has_mapped_and_modelled_in_viewer_frame(grid):
     # order 2 dropped; the two order-4 pieces are one channel
     assert [m["order"] for m in doc["modelled"]] == [4]
     assert len(doc["modelled"][0]["points"]) == 4  # simplified to the two ends
-    assert stats == {"mapped": 2, "modelled": 1, "modelled_segments": 2, "dropped_low_order": 1}
+    assert stats == {"mapped": 2, "modelled": 1, "modelled_segments": 2, "dropped_low_order": 1,
+                     "dropped_near_mapped_m": 0.0}
+    assert doc["processing"] == {"tolerance_m": 3.0, "min_order": 3, "overlap_buffer_m": OVERLAP_BUFFER_M}
     validate_creeks_document(doc)
 
 
@@ -252,6 +256,125 @@ def test_a_mapped_line_entirely_in_the_bay_is_dropped_and_counted(grid):
     mapped = [_feature(1, _lonlat_line(grid, -400, 0, 400, 0))]
     doc, stats = build_creeks_document(grid, mapped, [], bay)
     assert doc["mapped"] == [] and stats["mapped"] == 0
+
+
+# ------------------------------------------------------- modelled pieces near a hand-mapped line
+
+MAPPED_LINE = [(-500.0, 0.0), (500.0, 0.0)]
+
+
+def _length_of(points):
+    return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:]))
+
+
+def test_overlap_buffer_default_is_100_m():
+    assert OVERLAP_BUFFER_M == 100.0
+
+
+def test_remove_near_drops_a_run_50_m_from_a_mapped_line():
+    assert remove_near([[(-200.0, 50.0), (200.0, 50.0)]], [MAPPED_LINE], 100.0) == []
+
+
+def test_remove_near_keeps_a_run_150_m_away_whole():
+    run = [(-200.0, 150.0), (0.0, 160.0), (200.0, 150.0)]
+    assert remove_near([run], [MAPPED_LINE], 100.0) == [run]
+
+
+def test_remove_near_cuts_a_crossing_run_in_two_about_100_m_from_the_line():
+    # a run that starts 300 m north, passes over the mapped line and ends 300 m south of it
+    run = [(0.0, -300.0), (0.0, 300.0)]
+    pieces = remove_near([run], [MAPPED_LINE], 100.0)
+    assert len(pieces) == 2
+    first, second = sorted(pieces, key=lambda p: p[0][1])
+    assert first[0] == pytest.approx((0.0, -300.0)) and first[-1] == pytest.approx((0.0, -100.0), abs=0.01)
+    assert second[0] == pytest.approx((0.0, 100.0), abs=0.01) and second[-1] == pytest.approx((0.0, 300.0))
+    assert _length_of(first) == pytest.approx(200.0, abs=0.01)
+
+
+def test_remove_near_keeps_the_direction_of_each_piece():
+    pieces = remove_near([[(0.0, 300.0), (0.0, -300.0)]], [MAPPED_LINE], 100.0)
+    assert len(pieces) == 2
+    assert pieces[0][0] == pytest.approx((0.0, 300.0)) and pieces[0][-1][1] == pytest.approx(100.0, abs=0.01)
+    assert pieces[1][-1] == pytest.approx((0.0, -300.0))
+
+
+def test_remove_near_with_buffer_zero_changes_nothing():
+    runs = [[(-200.0, 50.0), (200.0, 50.0)], [(0.0, -300.0), (0.0, 300.0)]]
+    assert remove_near(runs, [MAPPED_LINE], 0.0) == runs
+
+
+def test_remove_near_with_no_mapped_lines_changes_nothing():
+    runs = [[(-200.0, 50.0), (200.0, 50.0)], [(0.0, -300.0), (0.0, 300.0)]]
+    assert remove_near(runs, [], 100.0) == runs
+
+
+def test_remove_near_does_not_change_its_inputs():
+    runs = [[(0.0, -300.0), (0.0, 300.0)], [(-200.0, 50.0), (200.0, 50.0)]]
+    lines = [list(MAPPED_LINE)]
+    runs_before = [list(r) for r in runs]
+    lines_before = [list(m) for m in lines]
+    remove_near(runs, lines, 100.0)
+    assert runs == runs_before and lines == lines_before
+
+
+def test_remove_near_never_returns_a_piece_with_fewer_than_two_points():
+    runs = [[(0.0, -300.0), (0.0, 300.0)], [(-200.0, 50.0), (200.0, 50.0)], [(0.0, 99.0), (0.0, 101.0)]]
+    for piece in remove_near(runs, [MAPPED_LINE], 100.0):
+        assert len(piece) >= 2
+
+
+def _near_mapped_document(grid, buffer_m=None):
+    mapped = [_feature(1, _lonlat_line(grid, -500, 0, 500, 0), NAME1="Test Creek")]
+    modelled = [
+        {"order": 4, "line": _lonlat_line(grid, -300, 50, 300, 50)},    # 50 m away: dropped
+        {"order": 4, "line": _lonlat_line(grid, -300, 400, 300, 400)},  # 400 m away: kept
+    ]
+    kwargs = {} if buffer_m is None else {"overlap_buffer_m": buffer_m}
+    return build_creeks_document(grid, mapped, modelled, _dry(grid), **kwargs)
+
+
+def test_document_drops_modelled_channels_near_a_mapped_creek(grid):
+    doc, stats = _near_mapped_document(grid)
+    assert len(doc["modelled"]) == 1
+    assert doc["modelled"][0]["points"][1] == pytest.approx(400.0, abs=0.2)
+    assert stats["dropped_near_mapped_m"] == pytest.approx(600.0, abs=1.0)
+    assert stats["modelled"] == 1
+    assert doc["processing"]["overlap_buffer_m"] == 100.0
+    validate_creeks_document(doc)
+
+
+def test_document_buffer_zero_keeps_every_modelled_channel(grid):
+    doc, stats = _near_mapped_document(grid, 0)
+    assert len(doc["modelled"]) == 2
+    assert stats["dropped_near_mapped_m"] == 0.0
+    assert doc["processing"]["overlap_buffer_m"] == 0.0
+    validate_creeks_document(doc)
+
+
+def test_document_cuts_a_crossing_modelled_channel_into_valid_channels(grid):
+    mapped = [_feature(1, _lonlat_line(grid, -500, 0, 500, 0))]
+    modelled = [{"order": 5, "line": _lonlat_line(grid, 0, -600, 0, 600)}]
+    doc, stats = build_creeks_document(grid, mapped, modelled, _dry(grid))
+    assert len(doc["modelled"]) == 2
+    assert stats["dropped_near_mapped_m"] == pytest.approx(200.0, abs=1.0)
+    validate_creeks_document(doc)
+
+
+def test_document_without_mapped_lines_drops_nothing(grid):
+    modelled = [{"order": 4, "line": _lonlat_line(grid, -300, 50, 300, 50)}]
+    doc, stats = build_creeks_document(grid, [], modelled, _dry(grid))
+    assert len(doc["modelled"]) == 1 and stats["dropped_near_mapped_m"] == 0.0
+
+
+def test_build_creeks_passes_the_overlap_buffer_on(tmp_path, grid):
+    _write_assets(tmp_path, grid)
+    mapped_path = tmp_path / "mapped.geojson"
+    _geojson(mapped_path, [_gj_line([list(c) for c in _lonlat_line(grid, -500, 0, 500, 0)], OBJECTID=7)])
+    modelled_path = tmp_path / "modelled.geojson"
+    _geojson(modelled_path, [_gj_line([list(c) for c in _lonlat_line(grid, -300, 50, 300, 50)], StrahlerID=4)])
+    assert build_creeks(tmp_path, mapped_path, modelled_path)["modelled"] == []
+    doc = build_creeks(tmp_path, mapped_path, modelled_path, overlap_buffer_m=0)
+    assert len(doc["modelled"]) == 1 and doc["processing"]["overlap_buffer_m"] == 0.0
 
 
 def test_validate_rejects_what_the_viewer_would_reject():

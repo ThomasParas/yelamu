@@ -318,9 +318,9 @@
     },
     {
       "layer": "modelled_streams",
-      "source": "Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up. Computed, not observed.",
+      "source": "Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed.",
       "confidence": "illustrative",
-      "count": 247
+      "count": 225
     }
   ],
   "overlay_file": "overlay.json",
@@ -355,5 +355,5 @@
   },
   "creeks_file": "creeks.json",
   "creeks_mapped": 26,
-  "creeks_modelled": 247
+  "creeks_modelled": 225
 }

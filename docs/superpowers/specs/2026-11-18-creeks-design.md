@@ -15,22 +15,23 @@ Both are public ArcGIS feature services owned by SFEI's Resilient Landscapes pro
 | Item | "San Francisco Historical Creeks", id `b09c42756dd84305a919bccf46b0e88b`, tags HNSF, SFEI | "MYHL_HistoricStreams", id `6e1a2f7920c14e7e92075d3209d72573`, copyright text "SFEI-ASC 2024" |
 | Service | `services1.arcgis.com/8V9ShUQ1DGYVLtOg/.../San_Francisco_Historical_Creeks/FeatureServer`, layer 0 | `.../MYHL_HistoricStreams/FeatureServer`, layer 1 |
 | Features | 26 lines (2,015 vertices, 84 KB as GeoJSON) | 10,270 segments, Strahler order 2 to 6 |
-| Covers | north and central city, lon -122.485 to -122.403, lat 37.755 to 37.809 | south and southwest, lon -122.442 to -122.354, lat 37.692 to 37.749 |
+| Covers | north and central city, lon -122.485 to -122.403, lat 37.755 to 37.809 | the whole city and beyond, lon -122.514 to -122.380, lat 37.590 to 37.805, as measured in the downloaded file (the item page's extent, lat 37.69 to 37.749, was wrong or stale) |
 | Attributes | name (8 of 26), `stream_typ` ("well located" on 8 lines), program tag (HNSF or WLA, original or revised), digitising method, cited sources (Hoadley 1855, Goddard 1869, Hall 1870, Wheeler 1870, Warner 1847, SeepCity and others) | `StrahlerID` only |
 | Method | Mostly "historical DEM flow accumulation", checked against cited 1850s maps | Derived by SFEI from a historical elevation model, accumulation threshold 0.1 km2, order 1 dropped as "inconsistent". The description has unfilled blanks ("developed by ____") |
 
-Order counts in the modelled set: order 2 has 5,086 segments, order 3 has 2,803, order 4 has 1,765, order 5 has 586, order 6 has 30.
+Order counts in the modelled set: order 2 has 5,086 segments, order 3 has 2,803, order 4 has 1,765, order 5 has 586, order 6 has 30. The downloaded file (order 3 and up) holds 5,184 features: 2,803 of order 3, 1,765 of order 4, 586 of order 5 and 30 of order 6. One order-3 feature is a MultiLineString of two lines, so the build reads 5,185 line segments (2,804 of order 3).
 
 **Cross-check already made.** Chutchui Creek ends about 330 m from the Sitlintac village disc and passes about 500 m from the Chutchui disc. That fits the village positions read off SFEI's picture. It is a sanity check, not a measurement.
 
-**Not checked:** whether the modelled set joins the hand-mapped set at lat 37.749 to 37.755 (there is a small gap); whether either set reaches Mission Creek's lower reach (the hand-mapped extent stops at lon -122.403); how the lines sit on this project's shoreline and 1769 land mask (this is the first task of the plan).
+**Not checked:** whether either set reaches Mission Creek's lower reach (the hand-mapped extent stops at lon -122.403); how the lines sit on this project's shoreline and 1769 land mask (this is the first task of the plan).
 
 ## Decisions (owner, 2026-11-18)
 
 1. **Both datasets**, the modelled one labelled as modelled.
 2. **Ship both together.** The modelled data has no stated licence, so the SFEI email asks about creeks and their terms; if SFEI says no, the layer is removed (recipe at the end), as with the village sites.
-3. **Modelled density: order 3 and up** (5,184 segments, merged into continuous channels). Order 2 is not drawn.
+3. **Modelled density: order 3 and up** (5,184 features, 5,185 line segments, merged into continuous channels). Order 2 is not drawn.
 4. **Two toggles**, separate from Landmarks, Hotspots and Village sites.
+5. **Overlap:** modelled pieces within 100 m of a hand-mapped creek are not drawn (owner, 2026-11-18), so each creek is drawn once, by the hand-mapped line, and the modelled streams show the rest of the city. Found in the real data: the modelled file covers the whole city, so north of lat 37.755 it runs along the hand-mapped creeks.
 
 Risk the owner accepted: publishing before the licence is confirmed. Unlike the village sites this is a copyright and terms question, not a question of respect, so the plan keeps it easy to undo: all creek data lives in one file and one build script.
 
@@ -43,7 +44,7 @@ Out: culverts or "what is under the street now", flow animation, shore stages, S
 ## Data path
 
 1. `pipeline/scripts/fetch_creeks.py` downloads both services to `pipeline/data/raw/sfei-creeks/` (git-ignored). It records the URLs, the query used and the download date next to the files. **The modelled download needs the owner's approval before it runs** (the owner has approved only the 26 hand-mapped lines, already downloaded).
-2. `pipeline/yelamu/creeks.py` reads the GeoJSON, projects to the viewer frame with the same `lonlat_to_world` the overlay uses, simplifies each line (about 3 m tolerance), and for the modelled set drops order 2, then chains segments that join end to end with the same order into one polyline each. Lines that run into open bay or ocean water are trimmed where they cross the 1769 land mask (the DEM is a historical DEM, but its edges are not our shoreline).
+2. `pipeline/yelamu/creeks.py` reads the GeoJSON, projects to the viewer frame with the same `lonlat_to_world` the overlay uses, simplifies each line (about 3 m tolerance), and for the modelled set drops order 2, cuts out the pieces within 100 m of a hand-mapped line, then chains segments that join end to end with the same order into one polyline each. Lines that run into open bay or ocean water are trimmed where they cross the 1769 land mask (the DEM is a historical DEM, but its edges are not our shoreline).
 3. `pipeline/scripts/build_creeks.py` writes `viewer/public/assets/real-city/creeks.json` and adds to `meta.json`: `creeks_mapped` and `creeks_modelled` (counts) and two `hand_sources` rows. Like the village sites, a city rebuild drops the meta additions, so the README says to rerun `build_creeks.py` after `build_overlay.py` and `build_shade.py`.
 4. `creeks.json` (version 1): `mapped`: list of `{id, name (optional), confidence, basis, sources[], points}` and `modelled`: list of `{order, points}`. `points` is a flat `[x, z, ...]` array in metres, rounded to 0.1 m. Same shape discipline as `overlay.json`: sizes capped, strings capped, `parse.ts` validates everything because the file is untrusted at runtime.
 5. Raw SFEI files never enter git. The shipped `creeks.json` is derived data, so `NOTICE.md` gets a row crediting SFEI, GPL-3.0-or-later pending SFEI's reply.
@@ -65,7 +66,7 @@ New folder `viewer/src/creeks/` (`types.ts`, `parse.ts`, `geometry.ts`, `layer.t
 ## Proposed wording (shown to the owner verbatim before it ships)
 
 - Legend, "Historical creeks": "Creek lines mapped by SFEI's Hidden Nature SF from 1850s maps and a historical elevation model. Approximate; most are inferred."
-- Legend, "Modelled streams": "Stream channels computed by SFEI from a historical elevation model, for the south of the city, where no hand-mapped creeks exist yet. Larger channels only. Computed, not observed."
+- Legend, "Modelled streams": "Stream channels computed by SFEI from a historical elevation model, shown where no hand-mapped creek exists. Larger channels only. Computed, not observed."
 - Sources rows: one per layer, with the SFEI item names and the confidence above.
 - Card for a named creek: "{Name}, a historical creek as mapped by SFEI's Hidden Nature SF, after {cited sources}. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them."
 - Places panel note (still "Every hotspot and landmark on the map."): proposed "Every hotspot, village site, creek and landmark on the map." Needs approval.
