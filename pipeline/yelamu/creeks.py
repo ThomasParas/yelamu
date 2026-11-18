@@ -201,3 +201,290 @@ def chain_segments(segments: Sequence[tuple[int, Sequence[XZ]]]) -> list[tuple[i
         if not merged:
             break
     return sorted(segs.values(), key=lambda s: (s[0], s[1][0], s[1][-1]))
+
+
+# --------------------------------------------------------------------- document build
+
+MAPPED_LAYER = "creeks"
+MODELLED_LAYER = "modelled_streams"
+# Proposed wording for the Sources panel; the owner approves it verbatim before it ships.
+MAPPED_SOURCE_NOTE = (
+    "Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from "
+    "1850s maps and a historical elevation model. Approximate."
+)
+MODELLED_SOURCE_NOTE = (
+    "Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), "
+    "Strahler order 3 and up. Computed, not observed."
+)
+
+
+def _flat(points: Sequence[XZ]) -> list[float]:
+    out: list[float] = []
+    for x, z in points:
+        out.append(round(float(x), 1) + 0.0)
+        out.append(round(float(z), 1) + 0.0)
+    return out
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def read_modelled_lines(path: Path | str) -> list[dict]:
+    """[{'order': int, 'line': [(lon, lat), ...]}] from the modelled-streams GeoJSON (field StrahlerID)."""
+    out: list[dict] = []
+    for i, feature in enumerate(read_geojson_lines(path)):
+        order = feature["props"].get("StrahlerID")
+        if not isinstance(order, (int, float)) or isinstance(order, bool) or int(order) != order:
+            raise ValueError(f"{path}: feature {i}: StrahlerID must be a whole number, got {order!r}")
+        for line in feature["lines"]:
+            out.append({"order": int(order), "line": line})
+    return out
+
+
+def build_creeks_document(
+    grid: Grid,
+    mapped: Sequence[dict],
+    modelled: Sequence[dict],
+    bay: np.ndarray,
+    *,
+    min_order: int = MIN_MODELLED_ORDER,
+    tolerance_m: float = SIMPLIFY_TOLERANCE_M,
+) -> tuple[dict, dict]:
+    """(creeks.json document, statistics). `mapped` is read_geojson_lines output, `modelled` is
+    read_modelled_lines output, `bay` the bay/ocean mask on the city grid."""
+    rows, cols = bay.shape
+
+    def runs_for(lonlat: Sequence[tuple[float, float]]) -> list[list[XZ]]:
+        return [simplify_line(run, tolerance_m)
+                for run in trim_to_land(project_line(grid, lonlat), bay, cols, rows, grid.cell)]
+
+    mapped_out: list[dict] = []
+    for feature in sorted(mapped, key=lambda f: int(f["props"].get("OBJECTID", 0))):
+        props = feature["props"]
+        oid = int(props.get("OBJECTID", 0))
+        name = str(props.get("NAME1") or "").strip() or None
+        sources = _clip(str(props.get("S_Interp1") or "").strip(), MAX_SOURCE_CHARS)
+        k = 0
+        for lonlat in feature["lines"]:
+            for run in runs_for(lonlat):
+                k += 1
+                mapped_out.append({
+                    "id": f"creek-{oid}" if k == 1 else f"creek-{oid}-{k}",
+                    "name": name,
+                    "confidence": mapped_confidence(props),
+                    "sources": sources,
+                    "points": _flat(run),
+                })
+
+    kept = [m for m in modelled if m["order"] >= min_order]
+    segments: list[tuple[int, list[XZ]]] = []
+    for m in kept:
+        for run in trim_to_land(project_line(grid, m["line"]), bay, cols, rows, grid.cell, min_length_m=0.0):
+            segments.append((m["order"], run))
+    channels = chain_segments(segments)
+    modelled_out: list[dict] = []
+    for order, pts in channels:
+        simple = simplify_line(pts, tolerance_m)
+        if len(simple) >= 2 and _length(simple) >= MIN_RUN_LENGTH_M:
+            modelled_out.append({"order": order, "points": _flat(simple)})
+
+    doc = {
+        "version": CREEKS_VERSION,
+        "mapped": mapped_out,
+        "modelled": modelled_out,
+        "processing": {"tolerance_m": float(tolerance_m), "min_order": int(min_order)},
+    }
+    stats = {
+        "mapped": len(mapped_out),
+        "modelled": len(modelled_out),
+        "modelled_segments": len(kept),
+        "dropped_low_order": len(modelled) - len(kept),
+    }
+    return doc, stats
+
+
+# ------------------------------------------------------------------------- validation
+
+_ID_OK = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def _check_points(points: Any, where: str, budget: list[int]) -> None:
+    if not isinstance(points, list) or len(points) < 4 or len(points) % 2 != 0:
+        raise ValueError(f"{where}: points must be a flat [x, z, ...] list with at least 2 points")
+    budget[0] += len(points) // 2
+    if budget[0] > MAX_CREEK_POINTS:
+        raise ValueError(f"creeks hold more than {MAX_CREEK_POINTS} points in total")
+    for k, v in enumerate(points):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            raise ValueError(f"{where}: value {k} is not a finite number")
+        if abs(v) > MAX_COORD_M:
+            raise ValueError(f"{where}: value {k} is out of range (within +-1e6 metres), got {v}")
+
+
+def validate_creeks_document(doc: Any) -> None:
+    """Raise ValueError for anything the viewer's parser (viewer/src/creeks/parse.ts) would reject."""
+    if not isinstance(doc, dict) or doc.get("version") != CREEKS_VERSION:
+        raise ValueError(f"creeks: unsupported version {None if not isinstance(doc, dict) else doc.get('version')!r}")
+    mapped, modelled = doc.get("mapped"), doc.get("modelled")
+    if not isinstance(mapped, list) or len(mapped) > MAX_MAPPED:
+        raise ValueError(f"creeks: mapped must be a list of at most {MAX_MAPPED}")
+    if not isinstance(modelled, list) or len(modelled) > MAX_MODELLED:
+        raise ValueError(f"creeks: modelled must be a list of at most {MAX_MODELLED}")
+    budget = [0]
+    seen: set[str] = set()
+    for i, c in enumerate(mapped):
+        where = f"mapped[{i}]"
+        cid = c.get("id")
+        if not isinstance(cid, str) or not _ID_OK.fullmatch(cid):
+            raise ValueError(f"{where}: id {cid!r} must match [a-z0-9][a-z0-9-]*")
+        if cid in seen:
+            raise ValueError(f"{where}: duplicate id {cid!r}")
+        seen.add(cid)
+        name = c.get("name")
+        if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > MAX_NAME_CHARS):
+            raise ValueError(f"{where} ({cid}): name must be null or 1 to {MAX_NAME_CHARS} characters")
+        if c.get("confidence") not in CONFIDENCE_LEVELS:
+            raise ValueError(f"{where} ({cid}): confidence {c.get('confidence')!r} is not one of {CONFIDENCE_LEVELS}")
+        sources = c.get("sources")
+        if not isinstance(sources, str) or len(sources) > MAX_SOURCE_CHARS:
+            raise ValueError(f"{where} ({cid}): sources must be text of at most {MAX_SOURCE_CHARS} characters")
+        _check_points(c.get("points"), f"{where} ({cid})", budget)
+    for i, m in enumerate(modelled):
+        where = f"modelled[{i}]"
+        order = m.get("order")
+        if isinstance(order, bool) or not isinstance(order, int) or not MIN_ORDER <= order <= MAX_ORDER:
+            raise ValueError(f"{where}: order must be a whole number from {MIN_ORDER} to {MAX_ORDER}")
+        _check_points(m.get("points"), where, budget)
+
+
+# --------------------------------------------------------------------------- meta patch
+
+
+def patch_creeks_meta(meta: dict, doc: dict | None) -> dict:
+    """The meta.json dict with the creek keys set; returns a NEW dict, `meta` is untouched.
+
+    Sets `creeks_file`, `creeks_mapped`, `creeks_modelled` and one `hand_sources` row per layer
+    that has lines (so the Sources panel lists it). With `doc` None, or no lines at all, every
+    creek key and row is removed. Other keys and other layers' rows are kept, in order. A city
+    rebuild rewrites meta.json, so build_creeks has to be run again afterwards."""
+    out = {k: v for k, v in meta.items() if not k.startswith("creeks_")}
+    rows = [r for r in meta.get("hand_sources", []) if r.get("layer") not in (MAPPED_LAYER, MODELLED_LAYER)]
+    mapped = (doc or {}).get("mapped", [])
+    modelled = (doc or {}).get("modelled", [])
+    if mapped or modelled:
+        out["creeks_file"] = CREEKS_FILE
+        out["creeks_mapped"] = len(mapped)
+        out["creeks_modelled"] = len(modelled)
+    if mapped:
+        rows.append({"layer": MAPPED_LAYER, "source": MAPPED_SOURCE_NOTE,
+                     "confidence": lowest_confidence(c["confidence"] for c in mapped), "count": len(mapped)})
+    if modelled:
+        rows.append({"layer": MODELLED_LAYER, "source": MODELLED_SOURCE_NOTE,
+                     "confidence": "illustrative", "count": len(modelled)})
+    if rows:
+        out["hand_sources"] = rows
+    else:
+        out.pop("hand_sources", None)
+    return out
+
+
+# ------------------------------------------------------------------------------ build
+
+
+def build_creeks(
+    assets: Path | str,
+    mapped_path: Path | str | None,
+    modelled_path: Path | str | None,
+    *,
+    remove: bool = False,
+    min_order: int = MIN_MODELLED_ORDER,
+    tolerance_m: float = SIMPLIFY_TOLERANCE_M,
+) -> dict | None:
+    """Write creeks.json into `assets` (the folder with the city's meta.json and habitat raster)
+    and patch meta.json. `remove=True` deletes creeks.json and every creek key instead. Nothing is
+    written if an input is invalid. Re-running is idempotent. Returns the document (None on remove)."""
+    assets = Path(assets)
+    meta_path = assets / "meta.json"
+    if not meta_path.exists():
+        raise FileNotFoundError(f"{meta_path} not found: build the terrain assets into {assets} first")
+    meta = json.loads(meta_path.read_text())
+
+    if remove:
+        patched = patch_creeks_meta(meta, None)
+        (assets / CREEKS_FILE).unlink(missing_ok=True)
+        if patched != meta:
+            meta_path.write_text(json.dumps(patched, indent=2))
+        return None
+
+    grid = Grid(meta["west"], meta["south"], meta["east"], meta["north"], float(meta["cell_m"]))
+    if (grid.width, grid.height) != (meta["width"], meta["height"]):
+        raise ValueError(f"{meta_path}: width and height do not match the grid built from its bounds")
+    habitat = np.frombuffer((assets / meta["habitat_file"]).read_bytes(), dtype=np.uint8)
+    if habitat.size != grid.width * grid.height:
+        raise ValueError(f"{assets / meta['habitat_file']}: size does not match the {grid.width} x {grid.height} grid")
+    bay = bay_mask(habitat.reshape(grid.height, grid.width), meta.get("habitat_classes", []))
+
+    mapped = read_geojson_lines(mapped_path) if mapped_path is not None else []
+    modelled = read_modelled_lines(modelled_path) if modelled_path is not None else []
+    doc, _ = build_creeks_document(grid, mapped, modelled, bay, min_order=min_order, tolerance_m=tolerance_m)
+    validate_creeks_document(doc)
+
+    (assets / CREEKS_FILE).write_text(json.dumps(doc, separators=(",", ":")))
+    patched = patch_creeks_meta(meta, doc)
+    if patched != meta:
+        meta_path.write_text(json.dumps(patched, indent=2))
+    return doc
+
+
+# --------------------------------------------------------------------------------- CLI
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    import argparse
+    import sys
+
+    p = argparse.ArgumentParser(
+        prog="build_creeks",
+        description="Build creeks.json (hand-mapped creeks and modelled streams in viewer world "
+                    "coordinates) next to a city's built terrain assets.",
+    )
+    p.add_argument("assets", type=Path, help="viewer asset folder holding meta.json and habitat.u8")
+    p.add_argument("--mapped", type=Path, help="hand-mapped creeks GeoJSON (default: data/raw/sfei-creeks/san_francisco_historical_creeks.geojson)")
+    p.add_argument("--modelled", type=Path, help="modelled streams GeoJSON (default: data/raw/sfei-creeks/myhl_historic_streams_order3.geojson; skipped if absent)")
+    p.add_argument("--min-order", type=int, default=MIN_MODELLED_ORDER, help="lowest Strahler order drawn (default 3)")
+    p.add_argument("--tolerance", type=float, default=SIMPLIFY_TOLERANCE_M, help="line simplification in metres (default 3)")
+    p.add_argument("--remove", action="store_true", help="delete creeks.json and every creek key in meta.json")
+    args = p.parse_args(argv)
+
+    base = Path(__file__).resolve().parent.parent  # the pipeline directory
+    raw = base / "data" / "raw" / "sfei-creeks"
+    mapped = args.mapped or raw / "san_francisco_historical_creeks.geojson"
+    modelled = args.modelled or raw / "myhl_historic_streams_order3.geojson"
+    try:
+        if args.remove:
+            build_creeks(args.assets, None, None, remove=True)
+            print("creeks: removed")
+            return 0
+        if args.mapped is not None and not args.mapped.exists():
+            raise FileNotFoundError(f"mapped creeks file not found: {args.mapped}")
+        if args.modelled is not None and not args.modelled.exists():
+            raise FileNotFoundError(f"modelled streams file not found: {args.modelled}")
+        doc = build_creeks(
+            args.assets,
+            mapped if mapped.exists() else None,
+            modelled if modelled.exists() else None,
+            min_order=args.min_order,
+            tolerance_m=args.tolerance,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    assert doc is not None
+    points = sum(len(c["points"]) // 2 for c in doc["mapped"]) + sum(len(c["points"]) // 2 for c in doc["modelled"])
+    print(f"creeks: {len(doc['mapped'])} hand-mapped, {len(doc['modelled'])} modelled channels, {points} points")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
