@@ -90,3 +90,17 @@ On the final production build (after the grey surround), served locally.
 | E whole region (grey surround) | 60.0 | 17.3 ms | 3.6 ms | 2 -> 2 | 1,049,603 | 268 | 33,000 | **PASS** |
 
 Against the launch run, C has about 5% more triangles (1.47M to 1.55M) and 13 more draw calls (one mesh per plant species), and the frame gaps are unchanged. The worst single JS callback was 35.2 ms (scenario B, once, a chunk loading). Capped at 60 fps, so this shows the phone keeps up, not its headroom. Not tested: an older phone, an iPhone, a long session, battery and warmth (not recorded).
+
+## Shoreline shallows and foam on the phone (2026-11-18)
+
+Branch `shoreline-foam` (`cb05ad8`): a paler tint and a foam edge along exposed shores, drawn by the water shader from a shore field computed at load (after the first frame). Same method and phone as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 JS time per frame | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.3 ms | 3.6 ms | 2 -> 2 | 574,447 | 152 | **PASS** |
+| B close-up, vegetation off | 59.5 | 17.4 ms | 1.6 ms | 2 -> 2 | 1,039,220 | 42 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.4 ms | 2.5 ms | 2 -> 2 | 1,546,696 | 88 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.0 ms | 2.0 ms | 2 -> 2 | 1,546,696 | 88 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.4 ms | 3.3 ms | 2 -> 2 | 1,049,603 | 268 | **PASS** |
+
+Frame gaps match the run above to within 0.3 ms; the foam adds no geometry (B to E triangles and calls unchanged). The worst single JS callback was 22.9 ms (B, once, a chunk loading). Not measured: the one-off time to compute the shore field on the phone (about 110 ms on a Mac; it runs after the map first appears).
