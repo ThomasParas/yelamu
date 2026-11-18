@@ -17,7 +17,7 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string,
 export function createPlacesPanel(shell: Shell, groups: readonly PlaceGroup[], onSelect: (id: string) => void): Panel {
   const panel = shell.addPanel("places", "Places");
   const parts: Node[] = [];
-  parts.push(node("p", "panel__note", "Every hotspot and landmark on the map. Choose one to fly there."));
+  parts.push(node("p", "panel__note", "Every hotspot, village site and landmark on the map. Choose one to fly there."));
   for (const group of groups) {
     const headingId = `places-${group.title.toLowerCase().replace(/\s+/g, "-")}`;
     const heading = node("h3", "panel__subtitle", group.title);

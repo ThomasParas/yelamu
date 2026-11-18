@@ -171,5 +171,118 @@
       }
     ],
     "confidence": "documented"
+  },
+  {
+    "id": "creek-arroyo-dolores",
+    "name": "Arroyo Dolores",
+    "kind": "creek",
+    "lon": -122.432,
+    "lat": 37.761,
+    "description": "Arroyo Dolores, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Goddard 1869. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "creek-old-arroyo-dolores",
+    "name": "Old Arroyo Dolores",
+    "kind": "creek",
+    "lon": -122.4303,
+    "lat": 37.7701,
+    "description": "Old Arroyo Dolores, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Horner 1854; Seep City. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "creek-chutchui",
+    "name": "Chutchui Creek",
+    "kind": "creek",
+    "lon": -122.4214,
+    "lat": 37.7679,
+    "description": "Chutchui Creek, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Horner 1854; Goddard 1869; Seep City. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      },
+      {
+        "title": "Yelamu: the Native Peoples of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "creek-petlenuc",
+    "name": "Petlenuc Creek",
+    "kind": "creek",
+    "lon": -122.4535,
+    "lat": 37.7959,
+    "description": "Petlenuc Creek, a historical creek as mapped by SFEI's Hidden Nature SF, after Hall 1870; Wheeler 1870. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      },
+      {
+        "title": "Yelamu: the Native Peoples of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f"
+      }
+    ],
+    "confidence": "documented"
+  },
+  {
+    "id": "creek-ojo-de-agua-de-figueroa",
+    "name": "Ojo de Agua de Figueroa",
+    "kind": "creek",
+    "lon": -122.4458,
+    "lat": 37.7973,
+    "description": "Ojo de Agua de Figueroa, a historical creek as mapped by SFEI's Hidden Nature SF, after USDC 1854; Sanchez 1854; Seep City. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "creek-el-polin",
+    "name": "El Polin",
+    "kind": "creek",
+    "lon": -122.456,
+    "lat": 37.7951,
+    "description": "El Polin, a historical creek as mapped by SFEI's Hidden Nature SF, after Hall 1870; Wheeler 1870. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
+    "id": "creek-coyote-gulch",
+    "name": "Coyote Gulch",
+    "kind": "creek",
+    "lon": -122.4802,
+    "lat": 37.797,
+    "description": "Coyote Gulch, a historical creek as mapped by SFEI's Hidden Nature SF, after Seep City; Warner 1847. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.",
+    "sources": [
+      {
+        "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+        "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b"
+      }
+    ],
+    "confidence": "inferred"
   }
 ]

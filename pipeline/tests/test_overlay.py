@@ -711,7 +711,7 @@ def test_data_files_in_the_repo_are_valid():
     validate_hotspots(hotspots, region.bbox)
     validate_unique_ids(landmarks, hotspots)
     assert len(landmarks) == 37
-    assert 8 <= len(hotspots) <= 12
+    assert 8 <= len(hotspots) <= 20  # ten curated hotspots plus the seven named creeks
 
 
 # ----------------------------------------------------------------------------- villages
@@ -989,6 +989,77 @@ def test_shipped_overlay_has_the_five_villages_and_unique_ids():
     rows = [r for r in meta["hand_sources"] if r["layer"] == "villages"]
     assert rows == [{"layer": "villages", "source": VILLAGES_SOURCE_NOTE,
                      "confidence": "inferred", "count": 5}]
+
+
+# ------------------------------------------------------------------------ named creeks
+
+
+CREEK_SFEI_ITEM = {
+    "title": "SFEI, San Francisco Historical Creeks (Hidden Nature SF)",
+    "url": "https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b",
+}
+CREEK_STORY_MAP = {
+    "title": "Yelamu: the Native Peoples of San Francisco (SFEI Hidden Nature SF story map)",
+    "url": "https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f",
+}
+CREEK_CARD_TEXT = (
+    "{name}, a historical creek as mapped by SFEI's Hidden Nature SF, after {sources}. "
+    "The line is approximate: creeks moved, and later streets and sewers buried or removed "
+    "many of them."
+)
+# id: (name, cited sources, confidence, links)
+SHIPPED_CREEKS = {
+    "creek-arroyo-dolores": ("Arroyo Dolores", "Hoadley 1855; Goddard 1869", "documented",
+                             [CREEK_SFEI_ITEM]),
+    "creek-old-arroyo-dolores": ("Old Arroyo Dolores", "Hoadley 1855; Horner 1854; Seep City",
+                                 "inferred", [CREEK_SFEI_ITEM]),
+    "creek-chutchui": ("Chutchui Creek", "Hoadley 1855; Horner 1854; Goddard 1869; Seep City",
+                       "inferred", [CREEK_SFEI_ITEM, CREEK_STORY_MAP]),
+    "creek-petlenuc": ("Petlenuc Creek", "Hall 1870; Wheeler 1870", "documented",
+                       [CREEK_SFEI_ITEM, CREEK_STORY_MAP]),
+    "creek-ojo-de-agua-de-figueroa": ("Ojo de Agua de Figueroa",
+                                      "USDC 1854; Sanchez 1854; Seep City", "inferred",
+                                      [CREEK_SFEI_ITEM]),
+    "creek-el-polin": ("El Polin", "Hall 1870; Wheeler 1870", "inferred", [CREEK_SFEI_ITEM]),
+    "creek-coyote-gulch": ("Coyote Gulch", "Seep City; Warner 1847", "inferred",
+                           [CREEK_SFEI_ITEM]),
+}
+
+
+def test_shipped_hotspots_hold_the_seven_named_creek_cards():
+    from yelamu.region import load_region
+
+    root = Path(__file__).resolve().parent.parent
+    region = load_region(root / "regions" / "full-city.json")
+    hotspots = {h["id"]: h for h in json.loads((root / "data/overlay/hotspots.json").read_text())}
+    west, south, east, north = region.bbox
+    for hid, (name, sources, confidence, links) in SHIPPED_CREEKS.items():
+        assert hid in hotspots, hid
+        h = hotspots[hid]
+        assert h["name"] == name
+        assert h["kind"] == "creek"
+        assert 20 <= len(h["description"]) <= 400
+        assert h["description"] == CREEK_CARD_TEXT.format(name=name, sources=sources)
+        assert h["confidence"] == confidence
+        assert h["sources"] == links
+        assert all(s["url"].startswith(("http://", "https://")) for s in h["sources"])
+        assert west <= h["lon"] <= east and south <= h["lat"] <= north
+    assert "lobos-creek" in hotspots  # already had a card: not duplicated
+
+
+def test_shipped_overlay_carries_the_seven_named_creek_cards():
+    root = Path(__file__).resolve().parent.parent
+    assets = root.parent / "viewer/public/assets/real-city"
+    overlay = json.loads((assets / "overlay.json").read_text())
+    meta = json.loads((assets / "meta.json").read_text())
+    hotspots = {h["id"]: h for h in overlay["hotspots"]}
+    half_w, half_h = meta["width"] * meta["cell_m"] / 2, meta["height"] * meta["cell_m"] / 2
+    for hid, (name, sources, confidence, links) in SHIPPED_CREEKS.items():
+        h = hotspots[hid]
+        assert h["kind"] == "creek" and h["name"] == name and h["confidence"] == confidence
+        assert h["description"] == CREEK_CARD_TEXT.format(name=name, sources=sources)
+        assert h["sources"] == links
+        assert -half_w <= h["x"] <= half_w and -half_h <= h["z"] <= half_h
 
 
 # ------------------------------------------------------------------------------- CLI
