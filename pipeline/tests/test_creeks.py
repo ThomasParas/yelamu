@@ -167,6 +167,44 @@ def test_chain_is_deterministic_and_does_not_change_its_input():
     assert len(a[0][1]) == 9
 
 
+def _network():
+    """Two chains of order 3 and 4 meeting at a confluence, a loose chain, mixed directions."""
+    return [
+        (3, [(0.0, 0.0), (10.0, 0.0)]),
+        (3, [(20.0, 0.0), (10.0, 0.0)]),     # written the other way round
+        (3, [(20.0, 0.0), (30.0, 5.0)]),
+        (3, [(30.0, 5.0), (30.0, 25.0)]),    # a second branch ending at the confluence
+        (4, [(30.0, 5.0), (40.0, 5.0)]),
+        (4, [(40.0, 5.0), (50.0, 5.0), (60.0, 0.0)]),
+        (3, [(110.0, 110.0), (110.0, 100.0)]),
+        (3, [(100.0, 100.0), (110.0, 100.0)]),
+    ]
+
+
+def test_chain_gives_identical_output_whatever_the_input_order_and_direction():
+    segs = _network()
+    base = chain_segments(segs)
+    assert len(base) == 4  # the order-3 branches and the order-4 channel stay apart at the confluence
+    variants = {
+        "reversed list": list(reversed(segs)),
+        "rotated list": segs[3:] + segs[:3],
+        "every segment reversed": [(o, list(reversed(p))) for o, p in segs],
+        "both": [(o, list(reversed(p))) for o, p in reversed(segs)],
+    }
+    for name, variant in variants.items():
+        assert chain_segments(variant) == base, name
+
+
+def test_chain_gives_every_channel_a_first_point_that_sorts_before_its_last():
+    for order_variant in (_network(), list(reversed(_network()))):
+        for _, pts in chain_segments(order_variant):
+            assert pts[0] <= pts[-1]
+    # a channel written high-to-low is turned round, and a loop is left whole
+    assert chain_segments([(3, [(9.0, 0.0), (0.0, 0.0)])]) == [(3, [(0.0, 0.0), (9.0, 0.0)])]
+    loop = chain_segments([(3, [(0.0, 0.0), (10.0, 0.0), (0.0, 0.0)])])
+    assert loop == [(3, [(0.0, 0.0), (10.0, 0.0), (0.0, 0.0)])]
+
+
 def test_chain_ignores_a_loop_of_one_segment():
     seg = [(3, [(0.0, 0.0), (10.0, 0.0), (0.0, 0.0)])]
     assert len(chain_segments(seg)) == 1
@@ -224,6 +262,34 @@ def test_document_has_mapped_and_modelled_in_viewer_frame(grid):
                      "dropped_near_mapped_m": 0.0}
     assert doc["processing"] == {"tolerance_m": 3.0, "min_order": 3, "overlap_buffer_m": OVERLAP_BUFFER_M}
     validate_creeks_document(doc)
+
+
+def test_document_bytes_do_not_depend_on_the_input_order_or_direction(grid):
+    mapped = [
+        _feature(9, _lonlat_line(grid, -500, 0, 500, 0), NAME1="B"),
+        _feature(3, _lonlat_line(grid, -500, 100, 500, 100), NAME1="A"),
+    ]
+    modelled = [
+        {"order": 4, "line": _lonlat_line(grid, -400, 600, -200, 620)},
+        {"order": 4, "line": _lonlat_line(grid, -200, 620, 0, 600)},
+        {"order": 4, "line": _lonlat_line(grid, 0, 600, 250, 650)},
+        {"order": 5, "line": _lonlat_line(grid, 0, -600, 0, 600)},   # crosses both mapped creeks
+        {"order": 3, "line": _lonlat_line(grid, 300, 300, 300, 450)},
+    ]
+
+    def build(m, q):
+        doc, stats = build_creeks_document(grid, m, q, _dry(grid))
+        return json.dumps(doc, separators=(",", ":")), stats
+
+    base = build(mapped, modelled)
+    assert len(json.loads(base[0])["modelled"]) >= 4
+    flipped = [{"order": q["order"], "line": list(reversed(q["line"]))} for q in modelled]
+    assert build(list(reversed(mapped)), list(reversed(modelled))) == base
+    assert build(mapped, flipped) == base
+    assert build(list(reversed(mapped)), list(reversed(flipped))) == base
+    for channel in json.loads(base[0])["modelled"]:
+        pts = channel["points"]
+        assert (pts[0], pts[1]) <= (pts[-2], pts[-1])
 
 
 def test_points_are_rounded_to_a_tenth_of_a_metre(grid):

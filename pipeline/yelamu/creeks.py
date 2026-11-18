@@ -212,8 +212,9 @@ def _key(p: XZ) -> tuple[int, int]:
 def chain_segments(segments: Sequence[tuple[int, Sequence[XZ]]]) -> list[tuple[int, list[XZ]]]:
     """Merge segments into channels. Two segments are joined where exactly two segment ends meet
     at a point and both have the same Strahler order. A confluence (three or more ends) or a
-    change of order keeps the segments separate. The input is not modified. The result is sorted
-    by (order, first point), so it does not depend on the input order."""
+    change of order keeps the segments separate. The input is not modified. Each channel runs from
+    its lower end to its higher one and the result is sorted by (order, points), so neither the
+    order nor the direction of the input segments shows in it."""
     segs: dict[int, tuple[int, list[XZ]]] = {
         i: (order, [(float(x), float(z)) for x, z in pts]) for i, (order, pts) in enumerate(segments)
     }
@@ -237,13 +238,18 @@ def chain_segments(segments: Sequence[tuple[int, Sequence[XZ]]]) -> list[tuple[i
                 pa.reverse()  # make `a` finish at the node
             if end_b == 1:
                 pb.reverse()  # make `b` start at the node
-            segs[a] = (segs[a][0], pa + pb[1:])
+            # Both ends agree to JOIN_KEY_M; keep the lower one so the result does not depend on
+            # which of the two segments came first.
+            segs[a] = (segs[a][0], pa[:-1] + [min(pa[-1], pb[0])] + pb[1:])
             del segs[b]
             touched.update((a, b))
             merged = True
         if not merged:
             break
-    return sorted(segs.values(), key=lambda s: (s[0], s[1][0], s[1][-1]))
+    # Each channel runs from its lower end to its higher one (a loop is turned the same way by
+    # comparing the whole run), so neither the direction nor the order of the input shows.
+    channels = [(order, pts[::-1] if pts[::-1] < pts else pts) for order, pts in segs.values()]
+    return sorted(channels, key=lambda c: (c[0], c[1]))
 
 
 # --------------------------------------------------------------------- document build
@@ -342,7 +348,12 @@ def build_creeks_document(
     for order, pts in channels:
         simple = simplify_line(pts, tolerance_m)
         if len(simple) >= 2 and _length(simple) >= MIN_RUN_LENGTH_M:
-            modelled_out.append({"order": order, "points": _flat(simple)})
+            # Orient on the numbers that are written (0.1 m): two ends that differ only below
+            # that would otherwise decide the direction by noise.
+            written = [(round(x, 1) + 0.0, round(z, 1) + 0.0) for x, z in simple]
+            if written[::-1] < written:
+                written.reverse()
+            modelled_out.append({"order": order, "points": _flat(written)})
 
     doc = {
         "version": CREEKS_VERSION,
