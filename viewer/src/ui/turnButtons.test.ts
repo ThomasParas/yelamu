@@ -1,5 +1,5 @@
 /**
- * The round turn buttons in the bottom corners (phones and tablets). The test runner has no
+ * The turn buttons in the bottom corners (every screen size). The test runner has no
  * DOM, so this checks the stylesheet rules and the shell wiring as text; their colours are
  * checked in uiColors.test.ts.
  */
@@ -9,17 +9,6 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync(new URL("./ui.css", import.meta.url), "utf8");
 const shell = readFileSync(new URL("./shell.ts", import.meta.url), "utf8");
 
-/** The body of the @media block that starts with `query`, braces balanced. */
-function mediaBlock(query: string): string {
-  const start = css.indexOf(`@media ${query} {`);
-  expect(start, `@media ${query}`).toBeGreaterThanOrEqual(0);
-  let depth = 0;
-  for (let i = css.indexOf("{", start); i < css.length; i++) {
-    if (css[i] === "{") depth++;
-    else if (css[i] === "}" && --depth === 0) return css.slice(css.indexOf("{", start) + 1, i);
-  }
-  throw new Error("unbalanced braces");
-}
 function rule(block: string, selector: string): string {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const m = new RegExp(`(?:^|[\\s}])${esc}\\s*\\{([^}]*)\\}`).exec(block);
@@ -29,12 +18,16 @@ function rule(block: string, selector: string): string {
 const px = (body: string, prop: string) => Number(new RegExp(`(?:^|[;\\s])${prop}:\\s*(\\d+)px`).exec(body)![1]);
 
 describe("turn buttons: stylesheet", () => {
-  const touch = mediaBlock("(max-width: 640px), (pointer: coarse)");
-  const btn = rule(touch, ".turn__btn");
+  const btn = rule(css, ".turn__btn");
 
-  it("are hidden by default (wide mouse screens) and shown on narrow or touch screens", () => {
-    expect(rule(css, ".turn")).toMatch(/display:\s*none/);
-    expect(rule(touch, ".turn")).toMatch(/display:\s*block/);
+  it("are shown at every screen size, not tucked into a media query", () => {
+    expect(rule(css, ".turn")).toMatch(/display:\s*block/);
+    expect(css).not.toMatch(/\.turn\s*\{[^}]*display:\s*none/);
+  });
+
+  it("grow a little under a mouse pointer (hover only where hover exists)", () => {
+    const hover = /@media \(hover: hover\)\s*\{([\s\S]*?)\n\}/.exec(css)![1];
+    expect(rule(hover, ".turn__btn:hover")).toMatch(/transform:\s*scale\(1\.\d+\)/);
   });
 
   it("are round thumb targets of at least 44 px", () => {
@@ -53,12 +46,12 @@ describe("turn buttons: stylesheet", () => {
   });
 
   it("take the bottom-left and bottom-right corners", () => {
-    expect(rule(touch, ".turn__btn--left")).toMatch(/left:/);
-    expect(rule(touch, ".turn__btn--right")).toMatch(/right:/);
+    expect(rule(css, ".turn__btn--left")).toMatch(/left:/);
+    expect(rule(css, ".turn__btn--right")).toMatch(/right:/);
   });
 
   it("step aside while a panel or bottom sheet is open", () => {
-    expect(rule(touch, '.ui-root[data-panel-open="true"] .turn__btn')).toMatch(/display:\s*none/);
+    expect(rule(css, '.ui-root[data-panel-open="true"] .turn__btn')).toMatch(/display:\s*none/);
   });
 
   it("do not trigger double-tap zoom", () => {

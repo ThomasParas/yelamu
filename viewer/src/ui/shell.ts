@@ -172,9 +172,9 @@ export function createShell(root: HTMLElement): Shell {
   let lastAnnouncement = "";
   const toastEl = el("div", "toast", { role: "status", "aria-live": "polite" });
   const panelHost = el("div", "panels");
-  // Big thumb-sized turn buttons in the bottom corners, for phones and tablets, where the
-  // toolbar's own rotate buttons sit inside the Menu disclosure. ui.css shows them only on
-  // narrow or touch screens and hides them while a panel (bottom sheet) is open.
+  // Big thumb-sized turn buttons in the bottom corners, at every screen size (on phones the
+  // toolbar's own rotate buttons sit inside the Menu disclosure). ui.css hides them while a
+  // panel (bottom sheet) is open.
   const turn = el("div", "turn", { role: "group", "aria-label": "Turn the map" });
   const turnLeftBtn = actionButton("turn__btn turn__btn--left", "↺", "Rotate left", "Rotate left (Q)", true);
   const turnRightBtn = actionButton("turn__btn turn__btn--right", "↻", "Rotate right", "Rotate right (E)", true);
