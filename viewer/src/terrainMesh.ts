@@ -42,9 +42,11 @@ export function buildTerrainGeometry(
  * Vertices sit on sample columns x0 + min(i * stride, w) and rows y0 + min(j * stride, h),
  * so the last vertex always lands exactly on the chunk border (even when w is not a
  * multiple of stride) and neighbouring chunks share identical border vertices.
- * Positions use the same world coordinates as buildTerrainGeometry. No normals are
- * produced: pair it with a flat-shaded material. `colorAt` receives the sample's cell
- * index (row * width + col) and its height in metres (before exaggeration).
+ * Positions use the same world coordinates as buildTerrainGeometry. Normals are smooth and
+ * come from the WHOLE grid (central differences `stride` samples either side, clamped at the
+ * grid edge), so two chunks at the same stride get identical normals on their shared border
+ * and no seam shows. `colorAt` receives the sample's cell index (row * width + col) and its
+ * height in metres (before exaggeration).
  */
 export function buildChunkGeometry(
   heights: Float32Array,
@@ -69,6 +71,7 @@ export function buildChunkGeometry(
   const cz = (height - 1) / 2;
 
   const positions = new Float32Array(count * 3);
+  const normals = new Float32Array(count * 3);
   const colors = colorAt ? new Float32Array(count * 3) : null;
   let v = 0;
   for (let j = 0; j < ny; j++) {
@@ -80,6 +83,17 @@ export function buildChunkGeometry(
       positions[v * 3] = (sx - cx) * cell_m;
       positions[v * 3 + 1] = heightM * exaggeration;
       positions[v * 3 + 2] = (sy - cz) * cell_m;
+      // Smooth normal: slope across the neighbours `stride` samples away (fewer at the edge).
+      const xl = Math.max(sx - stride, 0);
+      const xr = Math.min(sx + stride, width - 1);
+      const yu = Math.max(sy - stride, 0);
+      const yd = Math.min(sy + stride, height - 1);
+      const gx = xr > xl ? ((heights[sy * width + xr] - heights[sy * width + xl]) * exaggeration) / ((xr - xl) * cell_m) : 0;
+      const gz = yd > yu ? ((heights[yd * width + sx] - heights[yu * width + sx]) * exaggeration) / ((yd - yu) * cell_m) : 0;
+      const inv = 1 / Math.sqrt(gx * gx + 1 + gz * gz);
+      normals[v * 3] = -gx * inv;
+      normals[v * 3 + 1] = inv;
+      normals[v * 3 + 2] = -gz * inv;
       if (colors) {
         const c = colorAt!(cell, heightM);
         colors[v * 3] = c[0];
@@ -111,6 +125,7 @@ export function buildChunkGeometry(
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   if (colors) geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingBox();

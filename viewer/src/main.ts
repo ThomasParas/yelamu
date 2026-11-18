@@ -5,7 +5,7 @@ import type { AppContext } from "./appContext";
 import { decodeState, encodeState, type AppState } from "./appState";
 import { attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, paletteToLinear, shadeByDepth } from "./habitat";
-import { loadHabitat, loadHeightmap } from "./heightmap";
+import { loadHabitat, loadHeightmap, loadShadeBytes, type HeightmapMeta } from "./heightmap";
 import { datasetFromSearch } from "./dataset";
 import { loadFailureMessage } from "./loadError";
 import { createHashSync } from "./hashSync";
@@ -23,9 +23,8 @@ import "./ui/ui.css";
 import { VegetationLayer } from "./vegetation/layer";
 import { ViewRig, unitsPerPixel } from "./viewRig";
 import { createWaterMaterial } from "./water/waterMaterial";
+import { SUN_DIRECTION, VERTICAL_EXAGGERATION, makeTerrainShade, shadeProblem, withShade } from "./terrainShade";
 
-// Real hills are gentle at this scale; a diorama needs them exaggerated to read.
-const VERTICAL_EXAGGERATION = 3;
 // Ground below the water surface darkens down to this depth (metres, real scale).
 const MAX_SHADE_DEPTH_M = 6;
 // Ground colour for datasets without a habitat raster (the old flat tan).
@@ -68,24 +67,25 @@ async function start() {
   scene.background = new THREE.Color(SCENE_BACKGROUND);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 0.7));
   const sun = new THREE.DirectionalLight(0xfff3d6, 2.6);
-  sun.position.set(-1, 1.2, 0.6);
+  sun.position.set(...SUN_DIRECTION); // the baked ground shading assumes this direction
   scene.add(sun);
 
   const { meta, heights } = await loadHeightmap(ASSET_BASE);
-  const habitat = await loadHabitat(ASSET_BASE, meta);
+  const [habitat, shadeBytes] = await Promise.all([loadHabitat(ASSET_BASE, meta), loadShadeBytes(ASSET_BASE, meta)]);
 
   // Palette entries are sRGB; vertex colours are read as linear by three.js.
   const palette = paletteToLinear(buildPalette(habitat ? (meta.habitat_classes ?? []) : []));
   // With a habitat raster a class id missing from the legend is "unmapped" grey, never a
   // guessed ground tan; the tan is only for datasets without any habitat data.
   const fallback = new THREE.Color(habitat ? GROUP_COLORS.unmapped : FALLBACK_GROUND); // linear
-  const colorAt = makeColorAt(
+  const baseColorAt = makeColorAt(
     palette,
     habitat,
     meta.water_level_m,
     MAX_SHADE_DEPTH_M,
     [fallback.r, fallback.g, fallback.b],
   );
+  const colorAt = withGroundShade(baseColorAt, meta, shadeBytes);
 
   const widthM = meta.width * meta.cell_m;
   const depthM = meta.height * meta.cell_m;
@@ -122,7 +122,9 @@ async function start() {
     meta,
     VERTICAL_EXAGGERATION,
     colorAt,
-    new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true }),
+    // Smooth: the chunks carry whole-grid normals (flat shading drew every 10 m cell as two
+    // differently lit triangles, a diagonal hatching on all slopes).
+    new THREE.MeshStandardMaterial({ vertexColors: true }),
     {
       switchZoom,
       hooks: vegetation
@@ -392,3 +394,23 @@ start().catch((err) => {
   console.error(err);
   shell.setStatus(loadFailureMessage(err, DEBUG));
 });
+
+/** The terrain colour function with the baked ground shading applied, when there is a usable bake. */
+function withGroundShade(
+  colorAt: (cellIndex: number, heightM: number) => [number, number, number],
+  meta: HeightmapMeta,
+  bytes: Uint8Array | null,
+): (cellIndex: number, heightM: number) => [number, number, number] {
+  if (!meta.shade || !bytes) return colorAt;
+  const problem = shadeProblem(meta.shade, meta);
+  if (problem) {
+    console.warn(`ground shading ignored: ${problem}`);
+    return colorAt;
+  }
+  try {
+    return withShade(colorAt, makeTerrainShade(meta.shade, meta, bytes), meta.water_level_m);
+  } catch (err) {
+    console.warn("ground shading ignored", err);
+    return colorAt;
+  }
+}

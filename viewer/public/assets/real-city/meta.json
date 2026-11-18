@@ -313,5 +313,32 @@
   ],
   "overlay_file": "overlay.json",
   "context_file": "context.json",
-  "overlay_villages": 5
+  "overlay_villages": 5,
+  "shade": {
+    "file": "shade.u8",
+    "format": "uint8 0..255 = multiplier 0..1, row-major",
+    "cols": 886,
+    "rows": 783,
+    "stride": 2,
+    "exaggeration": 3.0,
+    "sun": [
+      -1.0,
+      1.2,
+      0.6
+    ],
+    "params": {
+      "shadow_strength": 0.5,
+      "penumbra": 0.25,
+      "ao_strength": 0.8,
+      "ao_distances_m": [
+        20,
+        40,
+        70,
+        110,
+        170,
+        260,
+        400
+      ]
+    }
+  }
 }

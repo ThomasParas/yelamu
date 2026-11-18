@@ -1,4 +1,5 @@
 import type { HabitatClass } from "./habitat";
+import type { ShadeMeta } from "./terrainShade";
 
 export type Confidence = "documented" | "inferred" | "illustrative";
 
@@ -40,6 +41,8 @@ export interface HeightmapMeta {
   ponds_file?: string;
   /** File name of the grey surrounding terrain description next to the heightmap. */
   context_file?: string;
+  /** Baked ground shading (sun shadows + occlusion) next to the heightmap; see terrainShade.ts. */
+  shade?: ShadeMeta;
   /** Hand-drawn and sculpted provenance, shown on the Sources panel (see handSourceRows). */
   hand_sources?: HandSource[];
   /** Pipeline parameters, shown on the Sources panel (see provenanceData.ts). */
@@ -109,4 +112,21 @@ export async function loadHabitat(
     );
   }
   return new Uint8Array(buffer);
+}
+
+/**
+ * The baked ground shading bytes, or null when the dataset has none. Unlike the heightmap this
+ * is optional decoration: a missing or broken file is reported and the map goes on without it.
+ */
+export async function loadShadeBytes(
+  baseUrl: string,
+  meta: Pick<HeightmapMeta, "shade">,
+): Promise<Uint8Array | null> {
+  if (!meta.shade) return null;
+  try {
+    return new Uint8Array(await (await fetchChecked(`${baseUrl}/${meta.shade.file}`)).arrayBuffer());
+  } catch (err) {
+    console.warn("ground shading not loaded", err);
+    return null;
+  }
 }

@@ -56,9 +56,17 @@ describe("buildChunkGeometry", () => {
     expect(g4.getIndex()!.count).toBe(2 * 2 * 6);
   });
 
-  it("has no normal attribute and computes bounds", () => {
+  it("has unit smooth normals that tilt away from the uphill side, and computes bounds", () => {
     const g = buildChunkGeometry(bigHeights, big, plan[0], 1, 1);
-    expect(g.getAttribute("normal")).toBeUndefined();
+    const n = g.getAttribute("normal");
+    expect(n.count).toBe(g.getAttribute("position").count);
+    // h = x + 100y on a 10 m grid: slope 0.1 east, 10 south, so normals lean west and north.
+    const i = 4 * 9 + 4; // an interior vertex
+    const [nx, ny, nz] = [n.getX(i), n.getY(i), n.getZ(i)];
+    expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1, 6);
+    expect(nx).toBeCloseTo(-0.1 / Math.hypot(0.1, 1, 10), 6);
+    expect(nz).toBeCloseTo(-10 / Math.hypot(0.1, 1, 10), 6);
+    expect(ny).toBeGreaterThan(0);
     expect(g.boundingSphere).not.toBeNull();
     expect(g.boundingBox).not.toBeNull();
     expect(g.boundingBox!.max.y).toBeCloseTo(8 + 800);
@@ -114,6 +122,21 @@ describe("buildChunkGeometry", () => {
       // East border of chunk 0 == west border of chunk 1.
       expect(a[j * n + (n - 1)]).toEqual(b[j * n]);
       // South border of chunk 0 == north border of chunk 2.
+      expect(a[(n - 1) * n + j]).toEqual(c[j]);
+    }
+  });
+
+  it.each([1, 2, 4])("gives neighbouring chunks identical border normals at stride %i (no seam)", (stride) => {
+    let seed = 7;
+    const bumpy = bigHeights.map(() => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 40);
+    const normals = (k: number) => {
+      const n = buildChunkGeometry(bumpy, big, plan[k], stride, 3).getAttribute("normal");
+      return Array.from({ length: n.count }, (_, i) => [n.getX(i), n.getY(i), n.getZ(i)]);
+    };
+    const [a, b, c] = [normals(0), normals(1), normals(2)];
+    const n = Math.ceil(8 / stride) + 1;
+    for (let j = 0; j < n; j++) {
+      expect(a[j * n + (n - 1)]).toEqual(b[j * n]);
       expect(a[(n - 1) * n + j]).toEqual(c[j]);
     }
   });
