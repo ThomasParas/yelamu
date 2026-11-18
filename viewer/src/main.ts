@@ -34,6 +34,9 @@ const FALLBACK_GROUND = 0xa89f78;
 // would be more than this many screen pixels apart. See switchZoomFor in chunks.ts.
 const MAX_COARSE_SPACING_PX = 6;
 
+// The sea and sea floor planes must reach past the grey ring (about 34 km east of the city centre).
+const SEA_PLANE_FACTOR = 6;
+
 // Which dataset folder under public/assets/ to load: the real city unless `?data=<name>` asks
 // for another (`slice`, or the synthetic `city-synth` from npm run make:city-synth).
 const params = new URLSearchParams(location.search);
@@ -134,7 +137,7 @@ async function start() {
   const extent = Math.max(meta.width, meta.height) * meta.cell_m;
   // The same translucent blue as before; moving ripples are switched on by the effects module.
   const waterFx = createWaterMaterial();
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(extent * 4, extent * 4).rotateX(-Math.PI / 2), waterFx.material);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(extent * SEA_PLANE_FACTOR, extent * SEA_PLANE_FACTOR).rotateX(-Math.PI / 2), waterFx.material);
   water.position.y = meta.water_level_m * VERTICAL_EXAGGERATION;
   scene.add(water);
 
@@ -144,7 +147,7 @@ async function start() {
   const deep = new THREE.Color(GROUP_COLORS.water); // linear working space
   const [fr, fg, fb] = shadeByDepth([deep.r, deep.g, deep.b], meta.min_m, meta.water_level_m, MAX_SHADE_DEPTH_M);
   const seaFloor = new THREE.Mesh(
-    new THREE.PlaneGeometry(extent * 4, extent * 4).rotateX(-Math.PI / 2),
+    new THREE.PlaneGeometry(extent * SEA_PLANE_FACTOR, extent * SEA_PLANE_FACTOR).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: new THREE.Color(fr, fg, fb) }),
   );
   seaFloor.position.y = (meta.min_m - 0.5) * VERTICAL_EXAGGERATION;

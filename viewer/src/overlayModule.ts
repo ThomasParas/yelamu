@@ -80,7 +80,7 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
       (h): LabelItem => ({ id: h.id, text: h.name, x: h.x, z: h.z, y: groundY(h.x, h.z), kind: "hotspot", priority: HOTSPOT_PRIORITY }),
     ),
     ...ctx.extraPlaces.map(
-      (p): LabelItem => ({ id: p.id, text: p.name, x: p.x, z: p.z, y: p.groundM * exaggeration, kind: "region", priority: REGION_PRIORITY }),
+      (p): LabelItem => ({ id: p.id, text: p.name, x: p.x, z: p.z, y: Math.max(p.groundM, ctx.meta.water_level_m) * exaggeration, kind: "region", priority: REGION_PRIORITY }),
     ),
   ];
 
