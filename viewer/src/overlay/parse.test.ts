@@ -394,6 +394,17 @@ describe.skipIf(shipped.length === 0)("shipped real-city overlay", () => {
     expect(o.villages.map((v) => v.name).sort()).toEqual(["Amuctac", "Chutchui", "Petlenuc", "Sitlintac", "Tubsinte"]);
     expect(o.villages.every((v) => v.radius_m === 530 && v.confidence === "inferred")).toBe(true);
   });
+
+  // The toggle, discs and labels follow the overlay's village list; the Legend and About text
+  // follow meta.overlay_villages. A city rebuild drops the meta count until build_overlay.py is
+  // rerun, so the two must be checked together or the About text could deny what the map shows.
+  it("has the same number of villages as meta.overlay_villages", () => {
+    const metas = Object.values(
+      import.meta.glob("../../public/assets/real-city/meta.json", { eager: true, import: "default" }),
+    ) as Array<{ overlay_villages?: number }>;
+    expect(metas).toHaveLength(1);
+    expect(metas[0].overlay_villages).toBe(parseOverlay(shipped[0]).villages.length);
+  });
 });
 
 // The generated synthetic dataset (npm run make:overlay-synth) must satisfy the parser.
