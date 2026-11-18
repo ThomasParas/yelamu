@@ -104,3 +104,17 @@ Branch `shoreline-foam` (`cb05ad8`): a paler tint and a foam edge along exposed 
 | E whole region (grey surround) | 60.0 | 17.4 ms | 3.3 ms | 2 -> 2 | 1,049,603 | 268 | **PASS** |
 
 Frame gaps match the run above to within 0.3 ms; the foam adds no geometry (B to E triangles and calls unchanged). The worst single JS callback was 22.9 ms (B, once, a chunk loading). Not measured: the one-off time to compute the shore field on the phone (about 110 ms on a Mac; it runs after the map first appears).
+
+## Waterline notch fix on the phone (2026-11-18)
+
+Branch `waterline-notches` (`022d659`): above the water surface the habitat shader no longer blends in sea colours, and pixels on steep banks take their colour from the nearest land cells (a ring lookup that only those pixels pay for). Same method and phone as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 JS time per frame | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 60.0 | 17.5 ms | 3.5 ms | 2 -> 2 | 531,585 | 132 | **PASS** |
+| B close-up, vegetation off | 59.7 | 17.4 ms | 1.8 ms | 2 -> 2 | 842,612 | 36 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.3 ms | 2.2 ms | 2 -> 2 | 1,546,696 | 88 | **PASS** |
+| D close-up, vegetation + water | 60.0 | 17.1 ms | 2.4 ms | 2 -> 2 | 1,531,615 | 86 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.3 ms | 3.1 ms | 2 -> 2 | 1,049,603 | 268 | **PASS** |
+
+Frame gaps match the shoreline run to within 0.2 ms, and JS time per frame to within 0.4 ms. The fix is shader-only. The lower triangle counts in A, B and D come from how many chunks had streamed in when each scenario was sampled; this change adds no geometry.
