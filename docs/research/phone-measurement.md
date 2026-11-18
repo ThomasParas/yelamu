@@ -11,7 +11,7 @@ panning at full-resolution terrain (LOD 0) with vegetation on.
 Open the production build with `?bench` on the phone, for example `http://<computer address>:4173/?bench`
 (serve it with `cd viewer && npm run build:site && npx vite preview --host --port 4173`; both devices
 on the same Wi-Fi). Close the About dialog, tap **Run the benchmark** and leave the phone alone for
-about 50 seconds. It runs scenarios A to D below by itself and prints PASS or FAIL per scenario
+about 50 seconds. It runs scenarios A to E below by itself and prints PASS or FAIL per scenario
 (at least 30 fps, p95 frame gap under 50 ms, quality level not dropped) with the figures. Take a
 screenshot of the box, and note the battery percentage before and after and whether the phone felt
 warm. Use sections 1 to 3 only if you need the full detail; section 5 (idle battery cost of the

@@ -36,13 +36,28 @@ export const contextModule: AppModule = async (ctx: AppContext) => {
     return;
   }
 
+  // Build the terrain first, so that if it throws nothing below has been changed yet.
+  const exaggeration = ctx.verticalExaggeration;
+  let layer;
+  try {
+    layer = new ContextLayer(doc, heights, {
+      exaggeration,
+      // At or below the sea floor plane (main.ts puts it at meta.min_m - 0.5), so the skirt never
+      // shows a gap even where the ring dips deeper than the city.
+      floorY: (Math.min(ctx.meta.min_m, doc.min_m) - 0.5) * exaggeration,
+      colorAt: makeRingColorAt(doc.water_level_m),
+    });
+  } catch (err) {
+    console.warn("Surrounding terrain could not be built; continuing without it.", err);
+    return;
+  }
+
   // (c) the towns, for the overlay module (it runs after this one)
   for (const p of doc.places) {
     ctx.extraPlaces.push({ id: p.id, name: p.name, kind: p.kind, x: p.x, z: p.z, lon: p.lon, lat: p.lat, groundM: p.ground_m });
   }
 
   // (d) wider camera limits, kept right as the window is resized
-  const exaggeration = ctx.verticalExaggeration;
   const originalMinZoom = ctx.rig.getLimits().minZoom;
   const cityW = ctx.meta.width * ctx.meta.cell_m;
   const cityD = ctx.meta.height * ctx.meta.cell_m;
@@ -77,13 +92,6 @@ export const contextModule: AppModule = async (ctx: AppContext) => {
   window.addEventListener("resize", widen);
 
   // (e) the terrain itself
-  const layer = new ContextLayer(doc, heights, {
-    exaggeration,
-    // At or below the sea floor plane (main.ts puts it at meta.min_m - 0.5), so the skirt never
-    // shows a gap even where the ring dips deeper than the city.
-    floorY: (Math.min(ctx.meta.min_m, doc.min_m) - 0.5) * exaggeration,
-    colorAt: makeRingColorAt(doc.water_level_m),
-  });
   ctx.scene.add(layer.object);
   ctx.requestRender();
 };
