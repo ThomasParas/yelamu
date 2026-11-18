@@ -473,3 +473,70 @@ describe("ViewRig user input during a rotation", () => {
     expect(rig.isAnimating()).toBe(false);
   });
 });
+
+describe("clampTarget with a centre offset", () => {
+  const off = { halfWidth: 1000, halfDepth: 500, centerX: 3000, centerZ: -400 };
+  it("clamps around the centre, not the origin", () => {
+    expect(clampTarget(10_000, 10_000, off, 100)).toEqual([4100, 200]);
+    expect(clampTarget(-10_000, -10_000, off, 100)).toEqual([1900, -1000]);
+    expect(clampTarget(3000, -400, off, 100)).toEqual([3000, -400]);
+  });
+  it("sends non-finite input to the centre", () => {
+    expect(clampTarget(Number.NaN, Number.POSITIVE_INFINITY, off, 0)).toEqual([3000, -400]);
+  });
+});
+
+describe("ViewRig limits", () => {
+  const make = () => {
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1e5, 1e5);
+    return new ViewRig(camera, { bounds: BOUNDS, margin: 0, minZoom: 0.8, maxZoom: 40, reducedMotion: () => true });
+  };
+  it("reports the current limits as a copy", () => {
+    const rig = make();
+    const limits = rig.getLimits();
+    expect(limits).toEqual({ bounds: BOUNDS, minZoom: 0.8 });
+    limits.bounds.halfWidth = 1;
+    expect(rig.getLimits().bounds.halfWidth).toBe(1000);
+  });
+  it("widening lets the view go further out and further away", () => {
+    const rig = make();
+    rig.setState({ x: 5000, zoom: 0.3 });
+    expect(rig.getState().x).toBe(1000);
+    expect(rig.getState().zoom).toBe(0.8);
+    rig.setLimits({ bounds: { halfWidth: 9000, halfDepth: 500, centerX: 5000 }, minZoom: 0.2 });
+    rig.setState({ x: 5000, zoom: 0.3 });
+    expect(rig.getState().x).toBe(5000);
+    expect(rig.getState().zoom).toBe(0.3);
+  });
+  it("narrowing clamps the current view", () => {
+    const rig = make();
+    rig.setState({ x: 900, zoom: 1 });
+    rig.setLimits({ bounds: { halfWidth: 100, halfDepth: 100 }, minZoom: 2 });
+    expect(rig.getState().x).toBe(100);
+    expect(rig.getState().zoom).toBe(2);
+  });
+  it("ignores a non-positive or non-finite minZoom", () => {
+    const rig = make();
+    rig.setLimits({ minZoom: 0 });
+    rig.setLimits({ minZoom: Number.NaN });
+    expect(rig.getLimits().minZoom).toBe(0.8);
+  });
+  it("notifies listeners when the new limits clamp the view, and not when it is already inside", () => {
+    const { rig } = harness({ margin: 0 });
+    rig.setState({ x: 900, zoom: 1 });
+    let n = 0;
+    rig.onChange(() => n++);
+    // Wider bounds and a lower minimum zoom: the view at x=900, zoom 1 is still inside both.
+    rig.setLimits({ bounds: { halfWidth: 5000, halfDepth: 5000 }, minZoom: 0.5 });
+    expect(n).toBe(0);
+    expect(rig.getState().x).toBe(900);
+    // Narrower bounds: x=900 is outside, so the view is clamped and listeners hear about it once.
+    rig.setLimits({ bounds: { halfWidth: 100, halfDepth: 100 } });
+    expect(n).toBe(1);
+    expect(rig.getState().x).toBe(100);
+    // A raised minimum zoom clamps the zoom: one more notification.
+    rig.setLimits({ minZoom: 2 });
+    expect(n).toBe(2);
+    expect(rig.getState().zoom).toBe(2);
+  });
+});

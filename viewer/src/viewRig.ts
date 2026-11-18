@@ -15,9 +15,12 @@ export function azimuthFor(rot: number): number {
 }
 
 export interface MapBounds {
-  /** Half the map extent east-west / north-south, in metres, about the origin. */
+  /** Half the map extent east-west / north-south, in metres, about the centre. */
   halfWidth: number;
   halfDepth: number;
+  /** Centre of the rectangle in world metres; default 0 (the origin, the city's centre). */
+  centerX?: number;
+  centerZ?: number;
 }
 
 /** Keep the target inside the map rectangle expanded by `margin` metres on every side. */
@@ -27,10 +30,12 @@ export function clampTarget(
   bounds: MapBounds,
   margin: number,
 ): [number, number] {
+  const ox = bounds.centerX ?? 0;
+  const oz = bounds.centerZ ?? 0;
   const mx = bounds.halfWidth + margin;
   const mz = bounds.halfDepth + margin;
-  const cx = Number.isFinite(x) ? Math.min(mx, Math.max(-mx, x)) : 0;
-  const cz = Number.isFinite(z) ? Math.min(mz, Math.max(-mz, z)) : 0;
+  const cx = Number.isFinite(x) ? Math.min(ox + mx, Math.max(ox - mx, x)) : ox;
+  const cz = Number.isFinite(z) ? Math.min(oz + mz, Math.max(oz - mz, z)) : oz;
   return [cx, cz];
 }
 
@@ -128,6 +133,24 @@ export class ViewRig {
 
   getState(): ViewState {
     return { x: this.x, z: this.z, zoom: this.zoom, rot: normalizeRot(this.rotTarget) };
+  }
+
+  /** The current pan bounds (a copy) and minimum zoom. */
+  getLimits(): { bounds: MapBounds; minZoom: number } {
+    return { bounds: { ...this.options.bounds }, minZoom: this.options.minZoom };
+  }
+
+  /**
+   * Change the pan bounds and/or the minimum zoom, then clamp the current view to them.
+   * Ends in setState, so x, z and zoom are all re-clamped and listeners are notified (once,
+   * and only if the view actually moved). Like any setState it cancels a running animation.
+   */
+  setLimits(limits: { bounds?: MapBounds; minZoom?: number }): void {
+    if (limits.bounds) this.options.bounds = { ...limits.bounds };
+    if (limits.minZoom !== undefined && Number.isFinite(limits.minZoom) && limits.minZoom > 0) {
+      this.options.minZoom = limits.minZoom;
+    }
+    this.setState({ zoom: this.zoom });
   }
 
   /** Current (possibly mid-animation) camera azimuth in radians. */
