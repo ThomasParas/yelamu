@@ -700,3 +700,7 @@ The owner reviewed the launch review sheet and decided each item; all were appli
 
 The owner ran the on-screen benchmark (`?bench`, `353e59a`) on an Android phone (Chrome 157, 60 Hz) over Tailscale. **All four scenarios passed at about 60 fps** (59.5 to 59.7), p95 frame gap 17.2 to 17.5 ms, quality unchanged (2 to 2); scenario D, the gate, had 1.4 M triangles and 32,999 plants with water animation on. Full table and caveats (one recent phone, 40 s, battery and warmth not recorded, no iPhone or older phone) in `docs/research/launch-results.md`. **C2 is satisfied.** Remaining: C3 (VoiceOver), C6, C7, C8.
 
+
+## Surrounding terrain inserted before Task C3 (2026-11-17)
+
+The owner asked for the surroundings (Marin, the East Bay, the peninsula to Linda Mar) to be filled in, even as a grey modern fill, because San Francisco floating in empty sea was disconcerting. Done as a grey ring (plan `docs/superpowers/plans/2026-11-17-surrounding-terrain.md`); results and decisions in `docs/research/launch-results.md`. Effects on this plan: the phone measurement in C2 is superseded by the five-scenario run recorded there (all pass); the Legend and About wording gate was passed again for the new text; **C3 (VoiceOver) now tests the final page**, and the axe-core check was re-run with About, Legend, Sources and Places open (0 violations). The 1850s shore stages follow after launch. Remaining: C3, C6 (DNS), C7 (make public, enable Pages), C8 (verify live).
