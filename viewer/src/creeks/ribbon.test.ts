@@ -52,11 +52,39 @@ describe("buildRibbons", () => {
     expect(Math.max(...m.indices)).toBe(m.positions.length / 3 - 1);
   });
 
-  it("copes with a bend, a repeated point and a line of two identical points", () => {
-    const bend = buildRibbons([[0, 0, 50, 0, 50, 50]], opts());
-    expect(bend.positions.every(Number.isFinite)).toBe(true);
+  /** The horizontal distance between the left and right vertex of every point pair. */
+  const pairWidths = (positions: Float32Array): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i + 5 < positions.length; i += 6) {
+      out.push(Math.hypot(positions[i] - positions[i + 3], positions[i + 2] - positions[i + 5]));
+    }
+    return out;
+  };
+
+  it("offsets a bend vertex along the AVERAGED direction of its two segments", () => {
+    // (0,0) -> (50,0) -> (50,50), one draped point per vertex: the corner at (50,0) sees the
+    // two segments' mean direction (1,1)/sqrt(2), so its pair sits half a width either side of
+    // the corner along the perpendicular (-1,1)/sqrt(2), not straight across the first segment.
+    const m = buildRibbons([[0, 0, 50, 0, 50, 50]], opts({ stepM: 1000 }));
+    const p = m.positions;
+    expect(p.length / 3).toBe(6);
+    const off = 5 / Math.SQRT2;
+    expect([p[6], p[8]]).toEqual([expect.closeTo(50 - off, 4), expect.closeTo(off, 4)]);
+    expect([p[9], p[11]]).toEqual([expect.closeTo(50 + off, 4), expect.closeTo(-off, 4)]);
+    for (const w of pairWidths(p)) expect(w).toBeCloseTo(10, 4);
+  });
+
+  it("copes with a repeated point: no zero-width pair, every pair is a full width", () => {
     const repeat = buildRibbons([[0, 0, 0, 0, 50, 0]], opts());
     expect(repeat.positions.every(Number.isFinite)).toBe(true);
+    const widths = pairWidths(repeat.positions);
+    expect(widths.length).toBeGreaterThan(2);
+    for (const w of widths) expect(w).toBeCloseTo(10, 4);
+    // the repeat makes no extra pair: same vertex count as the line without it
+    expect(repeat.positions.length).toBe(buildRibbons([[0, 0, 50, 0]], opts()).positions.length);
+  });
+
+  it("copes with a line of two identical points", () => {
     expect(buildRibbons([[5, 5, 5, 5]], opts()).positions.length).toBe(0);
   });
 
