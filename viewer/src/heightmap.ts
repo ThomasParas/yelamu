@@ -11,7 +11,7 @@ export interface LayerInfo {
 
 /** One row of `meta.hand_sources`: hand-drawn or sculpted features and where they come from. */
 export interface HandSource {
-  /** Pipeline layer: "hand_water", "landforms" or "ponds" (others are shown humanised). */
+  /** Pipeline layer: "hand_water", "landforms", "ponds" or "villages" (others are shown humanised). */
   layer: string;
   source: string;
   confidence: Confidence;
@@ -34,6 +34,8 @@ export interface HeightmapMeta {
   habitat_classes?: HabitatClass[];
   /** File name of the overlay (streets, landmarks, hotspots) next to the heightmap. */
   overlay_file?: string;
+  /** How many village sites the overlay holds; the Legend and About text read it. Absent on older datasets. */
+  overlay_villages?: number;
   /** File name of the freshwater ponds (flat water surfaces) next to the heightmap. */
   ponds_file?: string;
   /** File name of the grey surrounding terrain description next to the heightmap. */

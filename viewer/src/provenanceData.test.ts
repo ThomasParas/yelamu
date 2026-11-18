@@ -101,6 +101,16 @@ describe("handSourceRows", () => {
     ]);
   });
 
+  it("labels the villages layer after ponds, with singular and plural counts", () => {
+    const rows = handSourceRows([
+      hs({ layer: "villages", source: "SFEI", count: 5 }),
+      hs({ layer: "ponds", source: "Pond file", count: 1 }),
+    ]);
+    expect(rows.map((r) => r.layer)).toEqual(["ponds", "villages"]);
+    expect(rows[1]).toMatchObject({ label: "Village sites", countText: "5 villages" });
+    expect(handSourceRows([hs({ layer: "villages", count: 1 })])[0].countText).toBe("1 village");
+  });
+
   it("uses singular and plural correctly, including zero", () => {
     expect(handSourceRows([hs({ count: 1 })])[0].countText).toBe("1 polygon");
     expect(handSourceRows([hs({ count: 0 })])[0].countText).toBe("0 polygons");

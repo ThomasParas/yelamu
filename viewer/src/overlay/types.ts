@@ -70,9 +70,19 @@ export interface Hotspot {
   confidence: Confidence;
 }
 
+/**
+ * A general village location, drawn as a soft disc of `radius_m` metres around (x, z). Same
+ * card fields as a hotspot, but with no kind: a village is its own layer.
+ */
+export interface Village extends Omit<Hotspot, "kind"> {
+  radius_m: number;
+}
+
 export interface Overlay {
   version: 1;
   streets: Street[];
   landmarks: Landmark[];
   hotspots: Hotspot[];
+  /** Optional in overlay.json; always present (possibly empty) after parseOverlay. */
+  villages: Village[];
 }

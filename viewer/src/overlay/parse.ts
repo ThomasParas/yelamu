@@ -9,6 +9,7 @@ import {
   type Landmark,
   type Overlay,
   type Street,
+  type Village,
 } from "./types";
 
 /** Protective caps: a hostile or broken file must not be able to exhaust memory. */
@@ -25,6 +26,12 @@ export const MAX_SOURCES = 20;
 export const MAX_COORD_M = 1e6;
 export const DESCRIPTION_MIN = 20;
 export const DESCRIPTION_MAX = 400;
+/**
+ * Village disc radius, metres. The pipeline allows 100 to 2000; the viewer is deliberately a
+ * little more tolerant so a slightly larger future value does not break the whole overlay.
+ */
+export const VILLAGE_RADIUS_MIN_M = 100;
+export const VILLAGE_RADIUS_MAX_M = 3000;
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -68,7 +75,7 @@ function section(raw: Record<string, unknown>, key: string, max: number): unknow
   return v;
 }
 
-/** Ids must be unique across landmarks AND hotspots: the viewer keys places by id alone. */
+/** Ids must be unique across landmarks, hotspots AND villages: the viewer keys places by id alone. */
 function placeId(v: unknown, where: string, seen: Map<string, string>): string {
   if (typeof v !== "string" || !ID.test(v)) {
     fail(where, `id ${JSON.stringify(v)} must match ${ID.source}`);
@@ -77,6 +84,23 @@ function placeId(v: unknown, where: string, seen: Map<string, string>): string {
   if (first !== undefined) fail(where, `duplicate id "${v}" (already used by ${first})`);
   seen.set(v, where);
   return v;
+}
+
+/** The card text shared by hotspots and villages: 20 to 400 characters. */
+function description(v: unknown, label: string): string {
+  if (typeof v !== "string" || v.length < DESCRIPTION_MIN || v.length > DESCRIPTION_MAX) {
+    const len = typeof v === "string" ? v.length : "not a string";
+    fail(label, `description must be ${DESCRIPTION_MIN} to ${DESCRIPTION_MAX} characters (got ${len})`);
+  }
+  return v;
+}
+
+function villageRadius(v: unknown, label: string): number {
+  const n = finite(v, label, "radius_m");
+  if (n < VILLAGE_RADIUS_MIN_M || n > VILLAGE_RADIUS_MAX_M) {
+    fail(label, `radius_m must be ${VILLAGE_RADIUS_MIN_M} to ${VILLAGE_RADIUS_MAX_M} metres, got ${n}`);
+  }
+  return n;
 }
 
 function parseStreets(raw: Record<string, unknown>): Street[] {
@@ -162,15 +186,7 @@ function parseHotspots(raw: Record<string, unknown>, seen: Map<string, string>):
     if (!isRecord(h)) fail(where, "must be an object");
     const id = placeId(h.id, where, seen);
     const label = `${where} (${id})`;
-    const description = h.description;
-    if (
-      typeof description !== "string" ||
-      description.length < DESCRIPTION_MIN ||
-      description.length > DESCRIPTION_MAX
-    ) {
-      const len = typeof description === "string" ? description.length : "not a string";
-      fail(label, `description must be ${DESCRIPTION_MIN} to ${DESCRIPTION_MAX} characters (got ${len})`);
-    }
+    const text = description(h.description, label);
     return {
       id,
       name: name(h.name, label),
@@ -179,9 +195,34 @@ function parseHotspots(raw: Record<string, unknown>, seen: Map<string, string>):
       z: worldCoord(h.z, label, "z"),
       lon: finite(h.lon, label, "lon"),
       lat: finite(h.lat, label, "lat"),
-      description,
+      description: text,
       sources: parseSources(h.sources, label),
       confidence: oneOf(h.confidence, CONFIDENCES, label, "confidence"),
+    };
+  });
+}
+
+/** `villages` is optional (older datasets have none): absent means an empty list. */
+function parseVillages(raw: Record<string, unknown>, seen: Map<string, string>): Village[] {
+  if (raw.villages === undefined) return [];
+  const list = section(raw, "villages", MAX_PLACES);
+  return list.map((v, i) => {
+    const where = `villages[${i}]`;
+    if (!isRecord(v)) fail(where, "must be an object");
+    const id = placeId(v.id, where, seen);
+    const label = `${where} (${id})`;
+    const text = description(v.description, label);
+    return {
+      id,
+      name: name(v.name, label),
+      x: worldCoord(v.x, label, "x"),
+      z: worldCoord(v.z, label, "z"),
+      lon: finite(v.lon, label, "lon"),
+      lat: finite(v.lat, label, "lat"),
+      radius_m: villageRadius(v.radius_m, label),
+      description: text,
+      sources: parseSources(v.sources, label),
+      confidence: oneOf(v.confidence, CONFIDENCES, label, "confidence"),
     };
   });
 }
@@ -201,6 +242,7 @@ export function parseOverlay(raw: unknown): Overlay {
     streets: parseStreets(raw),
     landmarks: parseLandmarks(raw, ids),
     hotspots: parseHotspots(raw, ids),
+    villages: parseVillages(raw, ids),
   };
 }
 

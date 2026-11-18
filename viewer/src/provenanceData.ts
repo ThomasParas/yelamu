@@ -104,6 +104,7 @@ const HAND_LAYERS: ReadonlyArray<readonly [string, { label: string; one: string;
   ["hand_water", { label: "Hand-drawn water", one: "polygon", many: "polygons" }],
   ["landforms", { label: "Sculpted landforms", one: "landform", many: "landforms" }],
   ["ponds", { label: "Ponds", one: "pond", many: "ponds" }],
+  ["villages", { label: "Village sites", one: "village", many: "villages" }],
 ];
 const MAX_LAYER_CHARS = 60;
 

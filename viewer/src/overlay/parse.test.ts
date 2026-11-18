@@ -36,6 +36,19 @@ const hotspot = (over: Record<string, unknown> = {}) => ({
   confidence: "documented",
   ...over,
 });
+const village = (over: Record<string, unknown> = {}) => ({
+  id: "village-sitlintac",
+  name: "Sitlintac",
+  x: 10,
+  z: 20,
+  lon: -122.41,
+  lat: 37.76,
+  radius_m: 530,
+  description: "General location of a Yelamu village site, approximate.",
+  sources: [{ title: "SFEI Hidden Nature SF", url: "https://storymaps.arcgis.com/stories/x" }],
+  confidence: "inferred",
+  ...over,
+});
 const doc = (over: Record<string, unknown> = {}) => ({
   version: 1,
   streets: [street()],
@@ -309,6 +322,77 @@ describe("loadOverlay", () => {
     for (const f of ["../x.json", "a/b.json", "/etc/passwd", "..", "a..b/c", "https://evil.example/x.json"]) {
       await expect(loadOverlay("/a", { overlay_file: f }, ok(doc()))).rejects.toThrow(/unsupported overlay_file/);
     }
+  });
+});
+
+describe("parseOverlay: villages", () => {
+  const withVillages = (...v: unknown[]) => doc({ villages: v });
+
+  it("treats a missing villages key as an empty list (older datasets)", () => {
+    expect(parseOverlay(doc()).villages).toEqual([]);
+    expect(parseOverlay(doc({ villages: [] })).villages).toEqual([]);
+  });
+
+  it("accepts a village and returns a clean copy without kind or unknown fields", () => {
+    const o = parseOverlay(withVillages({ ...village(), kind: "creek", junk: 1 }));
+    expect(o.villages).toEqual([village()]);
+    expect(o.villages[0]).not.toHaveProperty("kind");
+    expect(o.villages[0]).not.toHaveProperty("junk");
+  });
+
+  it("rejects a non-array villages value", () => {
+    for (const v of [{}, "x", 5, null]) {
+      expect(() => parseOverlay(doc({ villages: v }))).toThrow(/villages: must be an array/);
+    }
+  });
+
+  it("requires radius_m: a finite number from 100 to 3000", () => {
+    for (const radius_m of [undefined, "530", NaN, Infinity, -5, 0, 99, 3001, null]) {
+      expect(() => parseOverlay(withVillages(village({ radius_m })))).toThrow(/villages\[0\] \(village-sitlintac\): radius_m/);
+    }
+    parseOverlay(withVillages(village({ radius_m: 100 })));
+    parseOverlay(withVillages(village({ radius_m: 3000 })));
+  });
+
+  it("applies the hotspot description, sources and confidence rules", () => {
+    expect(() => parseOverlay(withVillages(village({ description: "x".repeat(19) })))).toThrow(/20 to 400 characters \(got 19\)/);
+    expect(() => parseOverlay(withVillages(village({ description: "x".repeat(401) })))).toThrow(/got 401/);
+    expect(() => parseOverlay(withVillages(village({ description: 5 })))).toThrow(/not a string/);
+    expect(() => parseOverlay(withVillages(village({ sources: [] })))).toThrow(/sources must be a non-empty array/);
+    expect(() => parseOverlay(withVillages(village({ sources: [{ title: "t", url: "javascript:alert(1)" }] })))).toThrow(
+      /http or https/,
+    );
+    expect(() => parseOverlay(withVillages(village({ confidence: "certain" })))).toThrow(/confidence "certain"/);
+  });
+
+  it("validates id, name and coordinates like the other places", () => {
+    expect(() => parseOverlay(withVillages(village({ id: "Bad Id" })))).toThrow(/villages\[0\]: id/);
+    expect(() => parseOverlay(withVillages(village({ name: " " })))).toThrow(/name must be a non-empty string/);
+    expect(() => parseOverlay(withVillages(village({ x: NaN })))).toThrow(/x must be a finite/);
+    expect(() => parseOverlay(withVillages(village({ z: 2e6 })))).toThrow(/z must be within/);
+    expect(() => parseOverlay(withVillages(village({ lon: "1" })))).toThrow(/lon must be a finite/);
+  });
+
+  it("requires ids to be unique across landmarks, hotspots and villages", () => {
+    expect(() =>
+      parseOverlay(doc({ landmarks: [landmark({ id: "same" })], villages: [village({ id: "same" })] })),
+    ).toThrow(/villages\[0\]: duplicate id "same".*landmarks\[0\]/);
+    expect(() =>
+      parseOverlay(doc({ hotspots: [hotspot({ id: "same" })], villages: [village({ id: "same" })] })),
+    ).toThrow(/villages\[0\]: duplicate id "same".*hotspots\[0\]/);
+    expect(() => parseOverlay(withVillages(village(), village()))).toThrow(/villages\[1\]: duplicate id/);
+  });
+});
+
+// The shipped real-city overlay carries the five primary Yelamu village sites.
+const shipped = Object.values(
+  import.meta.glob("../../public/assets/real-city/overlay.json", { eager: true, import: "default" }),
+);
+describe.skipIf(shipped.length === 0)("shipped real-city overlay", () => {
+  it("parses with the five village sites", () => {
+    const o = parseOverlay(shipped[0]);
+    expect(o.villages.map((v) => v.name).sort()).toEqual(["Amuctac", "Chutchui", "Petlenuc", "Sitlintac", "Tubsinte"]);
+    expect(o.villages.every((v) => v.radius_m === 530 && v.confidence === "inferred")).toBe(true);
   });
 });
 

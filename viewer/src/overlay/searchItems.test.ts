@@ -65,6 +65,7 @@ describe("overlaySearchItems", () => {
           confidence: "inferred",
         },
       ],
+      villages: [],
     };
     const items = overlaySearchItems(overlay);
     expect(items.map((i) => [i.group, i.id])).toEqual([

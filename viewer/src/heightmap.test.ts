@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeHeights } from "./heightmap";
+import { decodeHeights, type HeightmapMeta } from "./heightmap";
 
 describe("decodeHeights", () => {
   it("maps the range floor and ceiling to min_m and max_m", () => {
@@ -21,5 +21,22 @@ describe("decodeHeights", () => {
     expect(() => decodeHeights([0], { width: 2, height: 2, min_m: 0, max_m: 1 })).toThrow(
       /expected 4 values/,
     );
+  });
+});
+
+describe("HeightmapMeta overlay_villages", () => {
+  it("is an optional count, and the shipped real-city meta carries it", () => {
+    // Compile-time check: the field exists on the type and is optional.
+    const without: Pick<HeightmapMeta, "overlay_villages"> = {};
+    const withCount: Pick<HeightmapMeta, "overlay_villages"> = { overlay_villages: 5 };
+    expect(without.overlay_villages).toBeUndefined();
+    expect(withCount.overlay_villages).toBe(5);
+
+    const shipped = Object.values(
+      import.meta.glob("../public/assets/real-city/meta.json", { eager: true, import: "default" }),
+    ) as HeightmapMeta[];
+    expect(shipped).toHaveLength(1);
+    expect(shipped[0].overlay_villages).toBe(5);
+    expect(shipped[0].hand_sources?.filter((h) => h.layer === "villages")).toHaveLength(1);
   });
 });
