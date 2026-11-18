@@ -41,6 +41,16 @@ export function buildPalette(classes: HabitatClass[]): Float32Array {
   return palette;
 }
 
+/**
+ * Ids of the classes that are the sea: the "water" group minus the freshwater ponds and
+ * lakes (`pondClasses`, by name, as in meta.processing.pond_classes), which lie above sea
+ * level. The habitat material keeps these colours off ground that rises above the water.
+ */
+export function seaClassIds(classes: HabitatClass[], pondClasses: unknown): number[] {
+  const ponds = new Set(Array.isArray(pondClasses) ? pondClasses.filter((n) => typeof n === "string") : []);
+  return classes.filter((c) => c.group === "water" && !ponds.has(c.name)).map((c) => c.id);
+}
+
 export function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }

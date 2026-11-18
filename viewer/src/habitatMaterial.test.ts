@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { makeShadeFactorAt, shadeByDepth } from "./habitat";
 import {
+  DRY_BAND_M,
   FRAGMENT_COLOR,
   FRAGMENT_PARS,
   VERTEX_BODY,
@@ -34,6 +35,7 @@ describe("patchHabitatShaders", () => {
   it("patches three's real standard shader at every anchor", () => {
     const s = compile(createHabitatMaterial(options()).material);
     expect(s.vertexShader).toContain("varying vec2 vHabitatXZ;");
+    expect(s.vertexShader).toContain("varying float vHabitatY;");
     expect(s.vertexShader).toContain(VERTEX_BODY.trim());
     // the world position is computed after `transformed` exists
     expect(s.vertexShader.indexOf(VERTEX_BODY.trim())).toBeGreaterThan(s.vertexShader.indexOf("#include <project_vertex>"));
@@ -70,7 +72,25 @@ describe("createHabitatMaterial", () => {
   it("keeps vertex colours on and gets its own program cache key", () => {
     const { material } = createHabitatMaterial(options());
     expect(material.vertexColors).toBe(true);
-    expect(material.customProgramCacheKey()).toBe("yelamu-habitat-v1");
+    expect(material.customProgramCacheKey()).toBe("yelamu-habitat-v2");
+  });
+
+  it("binds the water surface, the dry band in world units and the shore colour", () => {
+    const s = compile(
+      createHabitatMaterial({ ...options(), seaIds: [1], waterY: 1.8, exaggeration: 3, shoreColor: [0.5, 0.4, 0.3] }).material,
+    );
+    expect(s.uniforms.uWaterY.value).toBe(1.8);
+    expect(s.uniforms.uDryBand.value).toBeCloseTo(DRY_BAND_M * 3, 6);
+    expect((s.uniforms.uShoreColor.value as THREE.Vector3).toArray()).toEqual([0.5, 0.4, 0.3]);
+    const palette = (s.uniforms.uPalette.value as THREE.DataTexture).image.data as Float32Array;
+    expect(palette[1 * 4 + 3]).toBe(1); // id 1 is sea
+    expect(palette[0 * 4 + 3]).toBe(0);
+  });
+
+  it("keeps sea colours off dry ground in the shader, with a land fallback", () => {
+    expect(FRAGMENT_PARS).toContain("smoothstep( uWaterY, uWaterY + uDryBand, worldY )");
+    expect(FRAGMENT_PARS).toContain("habLandNear");
+    expect(FRAGMENT_COLOR).toContain("vHabitatY");
   });
 
   it("refuses a raster that does not match its size", () => {
@@ -83,9 +103,15 @@ describe("paletteTextureData", () => {
     const o = options();
     const data = paletteTextureData(o.palette, o.fallback);
     expect(data.length).toBe(256 * 4);
-    expect(Array.from(data.slice(0, 8))).toEqual(Array.from(Float32Array.from([0.1, 0.2, 0.3, 1, 0.4, 0.5, 0.6, 1])));
-    expect(Array.from(data.slice(8, 12))).toEqual(Array.from(Float32Array.from([0.9, 0.8, 0.7, 1])));
-    expect(Array.from(data.slice(255 * 4))).toEqual(Array.from(Float32Array.from([0.9, 0.8, 0.7, 1])));
+    expect(Array.from(data.slice(0, 8))).toEqual(Array.from(Float32Array.from([0.1, 0.2, 0.3, 0, 0.4, 0.5, 0.6, 0])));
+    expect(Array.from(data.slice(8, 12))).toEqual(Array.from(Float32Array.from([0.9, 0.8, 0.7, 0])));
+    expect(Array.from(data.slice(255 * 4))).toEqual(Array.from(Float32Array.from([0.9, 0.8, 0.7, 0])));
+  });
+
+  it("marks the sea classes in alpha", () => {
+    const o = options();
+    const data = paletteTextureData(o.palette, o.fallback, [1, 7]);
+    expect([data[3], data[7], data[7 * 4 + 3], data[8 * 4 + 3]]).toEqual([0, 1, 1, 0]);
   });
 });
 

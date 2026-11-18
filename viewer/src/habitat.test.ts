@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildPalette,
   GROUP_COLORS,
   makeColorAt,
   paletteToLinear,
+  seaClassIds,
   shadeByDepth,
   srgbToLinear,
   type HabitatClass,
@@ -168,5 +170,31 @@ describe("loadHabitat", () => {
   it("throws on a size mismatch", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(Uint8Array.from([1, 2, 3]))));
     await expect(loadHabitat("/assets/x", meta)).rejects.toThrow(/expected 4 bytes/);
+  });
+});
+
+describe("seaClassIds", () => {
+  const classes: HabitatClass[] = [
+    { id: 1, name: "Open bay", group: "water" },
+    { id: 4, name: "Pond (hand-drawn)", group: "water" },
+    { id: 6, name: "Beach", group: "beach" },
+    { id: 13, name: "Deep ocean/bay", group: "water" },
+  ];
+
+  it("keeps the water classes that are not ponds", () => {
+    expect(seaClassIds(classes, ["Pond (hand-drawn)"])).toEqual([1, 13]);
+  });
+
+  it("treats a missing or malformed pond list as no ponds", () => {
+    expect(seaClassIds(classes, undefined)).toEqual([1, 4, 13]);
+    expect(seaClassIds(classes, "Pond (hand-drawn)")).toEqual([1, 4, 13]);
+  });
+
+  it("never picks a pond class from the shipped map as sea", () => {
+    const city = JSON.parse(readFileSync(new URL("../public/assets/real-city/meta.json", import.meta.url), "utf8"));
+    const sea = seaClassIds(city.habitat_classes, city.processing.pond_classes);
+    const names = city.habitat_classes.filter((c: HabitatClass) => sea.includes(c.id)).map((c: HabitatClass) => c.name);
+    expect(names.length).toBeGreaterThan(0);
+    for (const pond of city.processing.pond_classes) expect(names).not.toContain(pond);
   });
 });
