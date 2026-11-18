@@ -57,3 +57,20 @@ On the final production build (after the grey surround), served locally.
 **VoiceOver, run by the owner:** title, About dialog, map label, hotspots, search ("Selected: ..." announcement), Places, Legend and Sources were listened to; the owner reported **"It was fine"**, no problems to fix.
 
 **Not tested:** other screen readers (NVDA, TalkBack), VoiceOver on iPhone, Windows high-contrast mode. Known design note: the hotspot buttons come before the search box in Tab order (the "Skip to search" link is the way past them).
+
+## C6 to C8. DNS, going public, and the live site (2026-11-17)
+
+**C6 DNS.** The owner added `CNAME yelamu -> thomasparas.github.io` at Hostinger (thomasparas.com uses Hostinger's nameservers `byte.dns-parking.com` / `pixel.dns-parking.com`; no CAA records, no conflicting record). Confirmed on the authoritative server and on 8.8.8.8, resolving to GitHub's four Pages addresses; other resolvers lagged briefly.
+
+**C7 launch (owner approved "Go public now").** Repository `ThomasParas/yelamu` made public; GitHub Pages enabled with the Actions source; custom domain `yelamu.thomasparas.com` set; the Let's Encrypt certificate was approved within minutes (expires 2027-02-15); "Enforce HTTPS" turned on; the workflow was run by hand (`workflow_dispatch`): pipeline, viewer and **deploy all succeeded**.
+
+**C8 live checks.** `https://yelamu.thomasparas.com/` returns 200 over HTTP/2; `https://thomasparas.github.io/yelamu/` redirects (301) to it; `meta.json`, `context.json`, `og.png`, `favicon.svg`, `robots.txt` all served; in a real browser: correct title, About opens on a first visit, canonical and og:image point at the custom domain, the ring is drawn (59 tiles), 19 ring places loaded, camera limits widened, console empty (0 errors, 0 warnings).
+
+**Also done before launch.** The sharing image (`og.png`) was regenerated from the new view (it showed the old floating island with a stray east-edge sliver).
+
+**Open after launch.**
+- `http://yelamu.thomasparas.com/` still answered 200 without redirecting to HTTPS a few minutes after "Enforce HTTPS" was switched on; GitHub applies it with a delay. Recheck within the hour.
+- The unsent introduction to the Association of Ramaytush Ohlone (`docs/research/aro-outreach-draft.md`) is public in the repository now; send it soon.
+- Thank the SFEI contact (Pete) and ask whether the Data terms wording is right.
+- The git backup of the pre-rewrite history at `~/Documents/yelamu-git-backup-before-rewrite-2026-11-17.tar.gz` contains the personal email address; delete it when sure.
+- The 1850s shore stages (East Bay, peninsula bayshore, Marin) each need their own plan.

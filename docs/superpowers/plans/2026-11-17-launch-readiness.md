@@ -708,3 +708,7 @@ The owner asked for the surroundings (Marin, the East Bay, the peninsula to Lind
 ## Task C3 executed (2026-11-17)
 
 Keyboard checks by the agent and the VoiceOver pass by the owner on the final build (with the grey surround): no problems found. Details in `docs/research/launch-results.md`. **C3 is satisfied.** Remaining: C6 (Hostinger DNS record), C7 (make public, enable Pages), C8 (verify live).
+
+## Tasks C6 to C8 executed (2026-11-17)
+
+DNS record added by the owner; repository made public, Pages and the custom domain `yelamu.thomasparas.com` set up with HTTPS, deploy succeeded, live site verified. **The site is live at https://yelamu.thomasparas.com/.** Details and open items in `docs/research/launch-results.md`.
