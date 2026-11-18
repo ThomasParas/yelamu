@@ -18,5 +18,10 @@
   "marsh_classes": ["Tidal coastal lagoon"],
   "landforms": "data/full-city/landforms.json",
   "checks": "data/full-city/checks.json",
+  "context": {
+    "bbox": [-122.60, 37.58, -122.05, 37.93],
+    "cell_m": 60,
+    "places": "data/overlay/context_places.json"
+  },
   "out": "../viewer/public/assets/real-city"
 }

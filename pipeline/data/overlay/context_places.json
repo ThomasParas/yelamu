@@ -1,0 +1,21 @@
+[
+  {"id": "oakland", "name": "Oakland", "kind": "town", "lon": -122.2711, "lat": 37.8044, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "berkeley", "name": "Berkeley", "kind": "town", "lon": -122.2727, "lat": 37.8716, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "emeryville", "name": "Emeryville", "kind": "town", "lon": -122.2852, "lat": 37.8313, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "alameda", "name": "Alameda", "kind": "town", "lon": -122.2744, "lat": 37.7561, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "san-leandro", "name": "San Leandro", "kind": "town", "lon": -122.1561, "lat": 37.7249, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "hayward", "name": "Hayward", "kind": "town", "lon": -122.0808, "lat": 37.6688, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "sausalito", "name": "Sausalito", "kind": "town", "lon": -122.4853, "lat": 37.8590, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "tiburon", "name": "Tiburon", "kind": "town", "lon": -122.4575, "lat": 37.8735, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "angel-island", "name": "Angel Island", "kind": "town", "lon": -122.4313, "lat": 37.8607, "source": "Approximate island-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "mill-valley", "name": "Mill Valley", "kind": "town", "lon": -122.5450, "lat": 37.9060, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "mount-tamalpais", "name": "Mount Tamalpais", "kind": "peak", "lon": -122.5778, "lat": 37.9291, "source": "Approximate summit position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "daly-city", "name": "Daly City", "kind": "town", "lon": -122.4702, "lat": 37.6879, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "brisbane", "name": "Brisbane", "kind": "town", "lon": -122.4192, "lat": 37.6808, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "south-san-francisco", "name": "South San Francisco", "kind": "town", "lon": -122.3762, "lat": 37.6551, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "san-bruno", "name": "San Bruno", "kind": "town", "lon": -122.4150, "lat": 37.6250, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "sfo", "name": "San Francisco International Airport", "kind": "airport", "lon": -122.3790, "lat": 37.6213, "source": "Approximate airport position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "millbrae", "name": "Millbrae", "kind": "town", "lon": -122.4014, "lat": 37.6008, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "pacifica", "name": "Pacifica", "kind": "town", "lon": -122.4856, "lat": 37.6228, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "linda-mar", "name": "Linda Mar", "kind": "town", "lon": -122.4948, "lat": 37.5925, "source": "Approximate neighbourhood position (Wikipedia infobox / USGS GNIS); within about 500 m"}
+]

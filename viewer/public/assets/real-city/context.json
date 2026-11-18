@@ -1,0 +1,257 @@
+{
+ "version": 1,
+ "crs": "EPSG:32610",
+ "heights_file": "context.u16",
+ "heights_format": "uint16-le",
+ "cols": 814,
+ "rows": 656,
+ "x0": -15090.0,
+ "z0": -18066.896551724138,
+ "dx": 60.0,
+ "dz": 59.923371647509576,
+ "hole": {
+  "i0": 104,
+  "i1": 399,
+  "j0": 171,
+  "j1": 432
+ },
+ "min_m": -3.0,
+ "max_m": 785.0,
+ "water_level_m": 0.6,
+ "bay_floor_m": -3.0,
+ "bbox": [
+  -122.6,
+  37.58,
+  -122.05,
+  37.93
+ ],
+ "layers": [
+  {
+   "id": "context",
+   "source": "USGS 3DEP elevation data: modern terrain and shoreline, resampled to about 60 m. Shown for orientation only; not a reconstruction of 1769.",
+   "confidence": "illustrative",
+   "attribution": "USGS 3DEP; this project"
+  }
+ ],
+ "places": [
+  {
+   "id": "oakland",
+   "name": "Oakland",
+   "kind": "town",
+   "lon": -122.2711,
+   "lat": 37.8044,
+   "x": 13956.2,
+   "z": -3914.0,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 12.9
+  },
+  {
+   "id": "berkeley",
+   "name": "Berkeley",
+   "kind": "town",
+   "lon": -122.2727,
+   "lat": 37.8716,
+   "x": 13757.2,
+   "z": -11368.8,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 51.7
+  },
+  {
+   "id": "emeryville",
+   "name": "Emeryville",
+   "kind": "town",
+   "lon": -122.2852,
+   "lat": 37.8313,
+   "x": 12692.1,
+   "z": -6888.9,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 8.1
+  },
+  {
+   "id": "alameda",
+   "name": "Alameda",
+   "kind": "town",
+   "lon": -122.2744,
+   "lat": 37.7561,
+   "x": 13707.2,
+   "z": 1447.2,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 0.6
+  },
+  {
+   "id": "san-leandro",
+   "name": "San Leandro",
+   "kind": "town",
+   "lon": -122.1561,
+   "lat": 37.7249,
+   "x": 24159.4,
+   "z": 4821.4,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 17.1
+  },
+  {
+   "id": "hayward",
+   "name": "Hayward",
+   "kind": "town",
+   "lon": -122.0808,
+   "lat": 37.6688,
+   "x": 30856.4,
+   "z": 10983.3,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 32.1
+  },
+  {
+   "id": "sausalito",
+   "name": "Sausalito",
+   "kind": "town",
+   "lon": -122.4853,
+   "lat": 37.859,
+   "x": -4933.5,
+   "z": -9846.4,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 4.2
+  },
+  {
+   "id": "tiburon",
+   "name": "Tiburon",
+   "kind": "town",
+   "lon": -122.4575,
+   "lat": 37.8735,
+   "x": -2497.4,
+   "z": -11469.0,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 5.4
+  },
+  {
+   "id": "angel-island",
+   "name": "Angel Island",
+   "kind": "town",
+   "lon": -122.4313,
+   "lat": 37.8607,
+   "x": -184.5,
+   "z": -10062.6,
+   "source": "Approximate island-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 192.9
+  },
+  {
+   "id": "mill-valley",
+   "name": "Mill Valley",
+   "kind": "town",
+   "lon": -122.545,
+   "lat": 37.906,
+   "x": -10210.5,
+   "z": -15033.8,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 24.8
+  },
+  {
+   "id": "mount-tamalpais",
+   "name": "Mount Tamalpais",
+   "kind": "peak",
+   "lon": -122.5778,
+   "lat": 37.9291,
+   "x": -13105.6,
+   "z": -17583.2,
+   "source": "Approximate summit position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 772.3
+  },
+  {
+   "id": "daly-city",
+   "name": "Daly City",
+   "kind": "town",
+   "lon": -122.4702,
+   "lat": 37.6879,
+   "x": -3497.7,
+   "z": 9129.6,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 53.2
+  },
+  {
+   "id": "brisbane",
+   "name": "Brisbane",
+   "kind": "town",
+   "lon": -122.4192,
+   "lat": 37.6808,
+   "x": 1003.8,
+   "z": 9890.6,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 223.8
+  },
+  {
+   "id": "south-san-francisco",
+   "name": "South San Francisco",
+   "kind": "town",
+   "lon": -122.3762,
+   "lat": 37.6551,
+   "x": 4814.4,
+   "z": 12717.6,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 0.5
+  },
+  {
+   "id": "san-bruno",
+   "name": "San Bruno",
+   "kind": "town",
+   "lon": -122.415,
+   "lat": 37.625,
+   "x": 1412.8,
+   "z": 16079.2,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 14.3
+  },
+  {
+   "id": "sfo",
+   "name": "San Francisco International Airport",
+   "kind": "airport",
+   "lon": -122.379,
+   "lat": 37.6213,
+   "x": 4592.2,
+   "z": 16469.3,
+   "source": "Approximate airport position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 1.9
+  },
+  {
+   "id": "millbrae",
+   "name": "Millbrae",
+   "kind": "town",
+   "lon": -122.4014,
+   "lat": 37.6008,
+   "x": 2630.0,
+   "z": 18756.5,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 23.5
+  },
+  {
+   "id": "pacifica",
+   "name": "Pacifica",
+   "kind": "town",
+   "lon": -122.4856,
+   "lat": 37.6228,
+   "x": -4815.9,
+   "z": 16359.7,
+   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 17.2
+  },
+  {
+   "id": "linda-mar",
+   "name": "Linda Mar",
+   "kind": "town",
+   "lon": -122.4948,
+   "lat": 37.5925,
+   "x": -5609.7,
+   "z": 19725.8,
+   "source": "Approximate neighbourhood position (Wikipedia infobox / USGS GNIS); within about 500 m",
+   "ground_m": 9.7
+  }
+ ],
+ "processing": {
+  "cell_target_m": 60.0,
+  "dx_m": 60.0,
+  "dz_m": 59.923,
+  "resampling": "average",
+  "open_water_max_m": 0.5,
+  "bay_floor_m": -3.0,
+  "hand_bay_files": [],
+  "hand_marsh_files": []
+ }
+}
