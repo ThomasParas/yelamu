@@ -93,3 +93,16 @@ export function makeColorAt(
     return shadeByDepth(base, heightM, waterLevelM, maxDepthM);
   };
 }
+
+/**
+ * Per-vertex colour function for terrain drawn with the habitat material: no colour of its
+ * own, only the darkening factor (1 above water, falling with depth below it, as in
+ * shadeByDepth), returned as a grey that multiplies the per-pixel habitat colour.
+ */
+export function makeShadeFactorAt(
+  waterLevelM: number,
+  maxDepthM: number,
+): (cellIndex: number, heightM: number) => [number, number, number] {
+  const white: [number, number, number] = [1, 1, 1];
+  return (_cellIndex, heightM) => shadeByDepth(white, heightM, waterLevelM, maxDepthM);
+}

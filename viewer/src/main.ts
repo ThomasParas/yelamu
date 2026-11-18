@@ -4,7 +4,8 @@ import { switchZoomFor } from "./chunks";
 import type { AppContext } from "./appContext";
 import { decodeState, encodeState, type AppState } from "./appState";
 import { attachKeyboard, attachPointerControls } from "./controls";
-import { GROUP_COLORS, buildPalette, makeColorAt, paletteToLinear, shadeByDepth } from "./habitat";
+import { GROUP_COLORS, buildPalette, makeColorAt, makeShadeFactorAt, paletteToLinear, shadeByDepth } from "./habitat";
+import { createHabitatMaterial } from "./habitatMaterial";
 import { loadHabitat, loadHeightmap, loadShadeBytes, type HeightmapMeta } from "./heightmap";
 import { datasetFromSearch } from "./dataset";
 import { loadFailureMessage } from "./loadError";
@@ -78,13 +79,22 @@ async function start() {
   // With a habitat raster a class id missing from the legend is "unmapped" grey, never a
   // guessed ground tan; the tan is only for datasets without any habitat data.
   const fallback = new THREE.Color(habitat ? GROUP_COLORS.unmapped : FALLBACK_GROUND); // linear
-  const baseColorAt = makeColorAt(
-    palette,
-    habitat,
-    meta.water_level_m,
-    MAX_SHADE_DEPTH_M,
-    [fallback.r, fallback.g, fallback.b],
-  );
+  // With a habitat raster the colours are painted per pixel by the habitat material (soft
+  // edges) and the vertex colour only carries the darkening (depth under water, baked shade).
+  // Without one the old per-vertex colours are used.
+  const habitatMaterial = habitat
+    ? createHabitatMaterial({
+        habitat,
+        width: meta.width,
+        height: meta.height,
+        cellM: meta.cell_m,
+        palette,
+        fallback: [fallback.r, fallback.g, fallback.b],
+      })
+    : null;
+  const baseColorAt = habitatMaterial
+    ? makeShadeFactorAt(meta.water_level_m, MAX_SHADE_DEPTH_M)
+    : makeColorAt(palette, habitat, meta.water_level_m, MAX_SHADE_DEPTH_M, [fallback.r, fallback.g, fallback.b]);
   const colorAt = withGroundShade(baseColorAt, meta, shadeBytes);
 
   const widthM = meta.width * meta.cell_m;
@@ -124,7 +134,7 @@ async function start() {
     colorAt,
     // Smooth: the chunks carry whole-grid normals (flat shading drew every 10 m cell as two
     // differently lit triangles, a diagonal hatching on all slopes).
-    new THREE.MeshStandardMaterial({ vertexColors: true }),
+    habitatMaterial?.material ?? new THREE.MeshStandardMaterial({ vertexColors: true }),
     {
       switchZoom,
       hooks: vegetation
