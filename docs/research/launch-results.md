@@ -164,3 +164,17 @@ Branch `ground-variation` (`a25ebce`, on main `5d52e46`): land colours vary in s
 | E whole region (grey surround) | 59.7 | 17.4 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
 
 Against the contact-shadows run: frame gaps within 0.2 ms, p95 render time equal or up to 0.2 ms lower. The change adds no geometry; C had fewer chunks streamed in when sampled (D matches the shadows run's C exactly). The phone is capped at 60 Hz, so this shows it keeps up, not its GPU headroom. Not measured: battery and warmth, an older phone, an iPhone, a long session.
+
+## Tone mapping on the phone (2026-11-18)
+
+Branch `tone-mapping` (`36cb8b1`, built on main `dc5de3a`, before the zoom-dependent creek width `56dc697`): three's NeutralToneMapping at exposure 1.4 (`viewer/src/toneMapping.ts`). Colours about a third richer, relief deeper, scene 5-10% brighter; clipping unchanged (it was already under 0.5% of pixels). Same method and phone as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.1 ms | 3.5 ms | 2 -> 2 | 611,784 | 167 | **PASS** |
+| B close-up, vegetation off | 59.2 | 17.4 ms | 2.0 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.5 ms | 2.7 ms | 2 -> 2 | 1,353,714 | 98 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.2 ms | 2.5 ms | 2 -> 2 | 1,617,404 | 112 | **PASS** |
+| E whole region (grey surround) | 59.7 | 17.3 ms | 3.2 ms | 2 -> 2 | 1,167,035 | 281 | **PASS** |
+
+Against the ground-variation run: frame gaps within 0.2 ms, p95 render time within 0.3 ms either way. Tone mapping adds no geometry; the higher triangle and call counts in A and E come from more chunks having streamed in when sampled. Desktop bench A-E unchanged at ~120 fps. Not measured: battery and warmth, an older phone, an iPhone, a long session, and this exact build with the zoom-dependent creek width.
