@@ -4,11 +4,76 @@ import { SHORE_DEPTH_RANGE_M, SHORE_DIST_SCALE } from "./shoreField";
 /** The old static look: translucent blue plane. */
 export const WATER_COLOR = 0x3f7fa6;
 export const WATER_OPACITY = 0.8;
-/** Tilt (dimensionless slope) of the animated normal; 0.18 is about 10 degrees at most. */
-export const WAVE_SLOPE = 0.18;
+/**
+ * Largest tilt (dimensionless slope) of the animated normal, reached only where every wave
+ * peaks together; 0.24 is about 13.5 degrees. Typical tilts are a third of that.
+ */
+export const WAVE_SLOPE = 0.24;
+
+/** One travelling sine wave of the ripple pattern. */
+export interface Wave {
+  /** Direction of travel in the world XZ plane, degrees from +X towards +Z. */
+  angleDeg: number;
+  lengthM: number;
+  /** Share of WAVE_SLOPE (the shares add up to 1). */
+  weight: number;
+  /** Phase at the origin, radians, so the crests do not all line up at (0, 0). */
+  phase: number;
+}
+
+/**
+ * The swell: long waves that only shade the water (a few per cent lighter on slopes facing
+ * the sun). The first version tilted the lit normal with two crossed waves, which added up
+ * to a repeating egg-crate lattice: three's broad specular and the sun glint picked it out
+ * as a grid of pale blobs. Four waves with unrelated directions and lengths, crests bent by
+ * a little noise, and only a faint shade, do not read as a pattern.
+ */
+export const WAVES: readonly Wave[] = [
+  { angleDeg: 29, lengthM: 97, weight: 0.33, phase: 0 },
+  { angleDeg: 71, lengthM: 61, weight: 0.25, phase: 1.7 },
+  { angleDeg: -13, lengthM: 43, weight: 0.22, phase: 4.1 },
+  { angleDeg: 118, lengthM: 131, weight: 0.2, phase: 2.6 },
+];
+
+/** One octave of the chop: drifting smooth noise whose slope makes the glitter. */
+export interface ChopOctave {
+  /** Noise cell size, metres. */
+  scaleM: number;
+  /** Rotation of the noise grid, degrees (so the octaves' grids do not line up). */
+  angleDeg: number;
+  /** Drift, metres per second, in world X and Z. */
+  drift: readonly [number, number];
+  /** Share of the chop slope (the shares add up to 1). */
+  weight: number;
+}
+
+/**
+ * The chop: noise, not sines, because any small set of sine waves repeats, and at map zoom
+ * the glint turned that into a grid or stripes. Each octave fades out once its cells are
+ * under about 8 pixels.
+ */
+export const CHOP: readonly ChopOctave[] = [
+  { scaleM: 24, angleDeg: 17, drift: [1.1, 0.6], weight: 0.5 },
+  { scaleM: 11, angleDeg: 61, drift: [-0.5, 0.9], weight: 0.3 },
+  { scaleM: 5, angleDeg: -38, drift: [0.7, -0.4], weight: 0.2 },
+];
+/** How far (metres) the noise bends the crests. */
+export const WAVE_WARP_M = 24;
+/** Scale of that noise, metres per noise cell. */
+export const WAVE_WARP_SCALE_M = 180;
+const GRAVITY = 9.81;
+
+/** Angular frequency (rad/s) of a deep-water wave of this length: omega = sqrt(g * 2 pi / L). */
+export function waveOmega(lengthM: number): number {
+  return Math.sqrt((GRAVITY * 2 * Math.PI) / lengthM);
+}
 /** Sharpness and strength of the sun glint (only while animated). */
-export const GLINT_POWER = 18;
+export const GLINT_POWER = 300;
 export const GLINT_STRENGTH = 0.55;
+/** Chop slope per unit of noise gradient (times WAVE_SLOPE): how far the glitter facets tilt. */
+export const CHOP_GAIN = 0.7;
+/** How much the ripples' sun-facing slopes lighten (and the others darken) the water. */
+export const WAVE_SHADE = 0.6;
 
 /** Water shallower than this (metres) blends toward the shallow colour. */
 export const SHALLOW_DEPTH_M = 2;
@@ -58,34 +123,106 @@ export const FRAGMENT_PARS = /* glsl */ `
 uniform float uTime; // seconds
 uniform float uAmp;  // wave slope; 0 = static plane
 varying vec2 vWaterXZ;
+const vec3 WAVE_SUN = vec3( -0.5976, 0.7171, 0.3586 ); // normalize( -1, 1.2, 0.6 ), the scene's sun
+float waveHash( vec2 p ) {
+	return fract( sin( dot( p, vec2( 269.5, 183.3 ) ) ) * 43758.5453 );
+}
+// Smooth value noise in 0..1.
+// Gradient of waveNoise (analytic, from the same four corners), in -1.5..1.5 per cell.
+vec2 waveNoiseGrad( vec2 p ) {
+	vec2 i = floor( p );
+	vec2 u = fract( p );
+	vec2 du = 6.0 * u * ( 1.0 - u );
+	u = u * u * ( 3.0 - 2.0 * u );
+	float a = waveHash( i );
+	float b = waveHash( i + vec2( 1.0, 0.0 ) );
+	float c = waveHash( i + vec2( 0.0, 1.0 ) );
+	float d = waveHash( i + vec2( 1.0, 1.0 ) );
+	return du * vec2( b - a + ( a - b - c + d ) * u.y, c - a + ( a - b - c + d ) * u.x );
+}
+float waveNoise( vec2 p ) {
+	vec2 i = floor( p );
+	vec2 u = fract( p );
+	u = u * u * ( 3.0 - 2.0 * u );
+	return mix( mix( waveHash( i ), waveHash( i + vec2( 1.0, 0.0 ) ), u.x ),
+		mix( waveHash( i + vec2( 0.0, 1.0 ) ), waveHash( i + vec2( 1.0, 1.0 ) ), u.x ), u.y );
+}
 `;
+/** GLSL for one chop octave: adds its noise slope (per metre, times the cell size) to chop. */
+function chopGlsl(o: ChopOctave): string {
+  const a = (o.angleDeg * Math.PI) / 180;
+  const c = Math.cos(a);
+  const sn = Math.sin(a);
+  // rotate world XZ into the octave's noise grid, then scale to cells
+  const m = [c / o.scaleM, sn / o.scaleM, -sn / o.scaleM, c / o.scaleM];
+  return `
+	{
+		vec2 d = vWaterXZ - uTime * vec2( ${f(o.drift[0])}, ${f(o.drift[1])} );
+		vec2 g = waveNoiseGrad( vec2( dot( d, vec2( ${f(m[0])}, ${f(m[1])} ) ), dot( d, vec2( ${f(m[2])}, ${f(m[3])} ) ) ) );
+		// back to world axes (the inverse rotation); the gradient is per cell, a dimensionless slope scale
+		chop += ${f(o.weight)} * ( 1.0 - smoothstep( ${f(o.scaleM * 0.06)}, ${f(o.scaleM * 0.125)}, mpp ) )
+			* vec2( g.x * ${f(c)} - g.y * ${f(sn)}, g.x * ${f(sn)} + g.y * ${f(c)} );
+	}`;
+}
+
+/** GLSL for one wave: adds its slope to `slope`, faded out once it is under a few pixels. */
+function waveGlsl(w: Wave): string {
+  const a = (w.angleDeg * Math.PI) / 180;
+  const dx = Math.cos(a);
+  const dz = Math.sin(a);
+  const k = (2 * Math.PI) / w.lengthM;
+  return `
+	swell += ${f(w.weight)} * ( 1.0 - smoothstep( ${f(w.lengthM * 0.06)}, ${f(w.lengthM * 0.125)}, mpp ) )
+		* cos( dot( p, vec2( ${f(dx * k)}, ${f(dz * k)} ) ) - uTime * ${f(waveOmega(w.lengthM))} + ${f(w.phase)} )
+		* vec2( ${f(dx)}, ${f(dz)} );`;
+}
+
 /**
- * Added after #include <normal_fragment_maps>. Two crossed travelling sine waves in
- * world XZ (wavelengths ~100 m and ~90 m, at roughly right angles); the slope of their
- * sum tilts the world-space up vector, which is then rotated into view space. With
- * uAmp = 0 the branch is skipped and the normal is the plane's own.
+ * Added after #include <normal_fragment_maps>. The waves of WAVES, travelling across world
+ * XZ at deep-water speeds, over a position bent by smooth noise; the slope of their sum
+ * tilts the world-space up vector into waveNormal (view space). A wave fades out when
+ * zoomed so far out that it would be under about 8 pixels long (it would only shimmer).
+ *
+ * three's own lighting keeps the flat normal: its broad specular sheen turned every
+ * tilted patch into a large pale blob that changed with the view angle (the old "grid").
+ * The ripples show only through the glint and the gentle sun-side shade below.
+ * With uAmp = 0 the branch is skipped and waveNormal is the plane's own.
  */
 export const FRAGMENT_NORMAL = /* glsl */ `
+vec3 waveNormal = normal;
+float waveShade = 0.0;
 if ( uAmp > 0.0 ) {
-	float w1 = dot( vWaterXZ, vec2( 0.055, 0.030 ) ) + uTime * 0.9;
-	float w2 = dot( vWaterXZ, vec2( -0.034, 0.061 ) ) + uTime * 1.3;
-	// cos() is the derivative of sin(); the vec2s are the unit directions of the two waves
-	vec2 slope = uAmp * 0.5 * ( cos( w1 ) * vec2( 0.878, 0.479 ) + cos( w2 ) * vec2( -0.487, 0.874 ) );
-	vec3 nWorld = normalize( vec3( -slope.x, 1.0, -slope.y ) );
-	normal = normalize( ( viewMatrix * vec4( nWorld, 0.0 ) ).xyz );
+	float mpp = length( fwidth( vWaterXZ ) ); // metres per pixel
+	vec2 q = vWaterXZ / ${f(WAVE_WARP_SCALE_M)};
+	vec2 p = vWaterXZ + ${f(WAVE_WARP_M * 2)} * ( vec2( waveNoise( q ), waveNoise( q + vec2( 31.7, 11.3 ) ) ) - 0.5 );
+	vec2 swell = vec2( 0.0 );
+	vec2 chop = vec2( 0.0 );${WAVES.map(waveGlsl).join("")}${CHOP.map(chopGlsl).join("")}
+	// The swell shades: a Lambert ratio against flat water, sun-facing slopes a little lighter.
+	vec3 swellN = normalize( vec3( -swell.x * uAmp, 1.0, -swell.y * uAmp ) );
+	waveShade = dot( swellN, WAVE_SUN ) / WAVE_SUN.y - 1.0;
+	// The chop glints: scattered facets that catch the sun.
+	vec2 c = chop * uAmp * ${f(CHOP_GAIN)};
+	waveNormal = normalize( ( viewMatrix * vec4( normalize( vec3( -c.x, 1.0, -c.y ) ), 0.0 ) ).xyz );
 }
 `;
 /**
- * Added before #include <opaque_fragment>: a soft glint where the perturbed normal faces
+ * Added before #include <opaque_fragment>: the ripple shade, then a glint where the wave normal faces
  * the half vector between the sun (same direction as the scene's DirectionalLight) and
  * the viewer. Only while animated, so the static plane is unchanged.
  */
 export const FRAGMENT_GLINT = /* glsl */ `
 if ( uAmp > 0.0 ) {
-	const vec3 SUN_WORLD = vec3( -0.5976, 0.7171, 0.3586 ); // normalize( -1, 1.2, 0.6 )
-	vec3 sunView = normalize( ( viewMatrix * vec4( SUN_WORLD, 0.0 ) ).xyz );
+	outgoingLight *= 1.0 + ${f(WAVE_SHADE)} * waveShade;
+	vec3 sunView = normalize( ( viewMatrix * vec4( WAVE_SUN, 0.0 ) ).xyz );
 	vec3 halfV = normalize( sunView + geometryViewDir );
-	float glint = pow( max( dot( normal, halfV ), 0.0 ), ${f(GLINT_POWER)} );
+	// Only what the ripples add over flat water: looking towards the sun the flat plane itself
+	// lines up with the sun, and an absolute glint washed the whole sea out pale, with the
+	// tilted slopes showing as dark rows.
+	// Also calmer the more the whole view faces the sun, or that angle is a dazzle of patches.
+	vec3 upView = normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
+	float flatGlint = pow( max( dot( upView, halfV ), 0.0 ), ${f(GLINT_POWER)} );
+	float glint = max( pow( max( dot( waveNormal, halfV ), 0.0 ), ${f(GLINT_POWER)} ) - flatGlint, 0.0 )
+		* ( 1.0 - 0.6 * flatGlint );
 	outgoingLight += vec3( 1.0, 0.96, 0.85 ) * glint * ${f(GLINT_STRENGTH)};
 }
 `;

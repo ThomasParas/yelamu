@@ -1,6 +1,17 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { WATER_COLOR, WATER_OPACITY, WAVE_SLOPE, createShoreTexture, createWaterMaterial, patchWaterShaders } from "./waterMaterial";
+import {
+  CHOP,
+  FRAGMENT_NORMAL,
+  WATER_COLOR,
+  WATER_OPACITY,
+  WAVES,
+  WAVE_SLOPE,
+  createShoreTexture,
+  createWaterMaterial,
+  patchWaterShaders,
+  waveOmega,
+} from "./waterMaterial";
 
 /** Run the material's onBeforeCompile on three's real standard-material shader text. */
 function compile(m: ReturnType<typeof createWaterMaterial>) {
@@ -64,16 +75,16 @@ describe("createWaterMaterial", () => {
     expect(s.fragmentShader).toContain("uniform float uTime;");
     expect(s.fragmentShader).toContain("uniform float uAmp;");
     const iNormal = s.fragmentShader.indexOf("#include <normal_fragment_maps>");
-    const iPerturb = s.fragmentShader.indexOf("vec3 nWorld");
+    const iPerturb = s.fragmentShader.indexOf("vec3 waveNormal");
     const iGlint = s.fragmentShader.indexOf("float glint");
     const iOutput = s.fragmentShader.indexOf("#include <opaque_fragment>");
     expect(iNormal).toBeGreaterThan(-1);
     expect(iNormal).toBeLessThan(iPerturb);
     expect(iPerturb).toBeLessThan(iGlint);
     expect(iGlint).toBeLessThan(iOutput);
-    // two crossed waves
-    expect(s.fragmentShader).toContain("float w1");
-    expect(s.fragmentShader).toContain("float w2");
+    // one term per swell wave and per chop octave
+    expect(s.fragmentShader.split("swell += ").length - 1).toBe(WAVES.length);
+    expect(s.fragmentShader.split("chop += ").length - 1).toBe(CHOP.length);
     // the shared source is untouched
     expect(original.fragmentShader).not.toContain("uAmp");
     expect(original.vertexShader).not.toContain("vWaterXZ");
@@ -81,10 +92,10 @@ describe("createWaterMaterial", () => {
 
   it("each patched section is applied exactly once", () => {
     const s = compile(createWaterMaterial());
-    for (const needle of ["varying vec2 vWaterXZ;", "uniform float uAmp;", "float glint =", "vec3 nWorld"]) {
+    for (const needle of ["varying vec2 vWaterXZ;", "uniform float uAmp;", "float glint =", "vec3 waveNormal"]) {
       expect(s.vertexShader.split(needle).length - 1 + s.fragmentShader.split(needle).length - 1).toBeLessThanOrEqual(2);
     }
-    expect(s.fragmentShader.split("vec3 nWorld").length - 1).toBe(1);
+    expect(s.fragmentShader.split("vec3 waveNormal").length - 1).toBe(1);
     expect(s.fragmentShader.split("float glint =").length - 1).toBe(1);
   });
 
@@ -143,5 +154,34 @@ describe("shore effects", () => {
     expect(t.unpackAlignment).toBe(2);
     expect(t.colorSpace).toBe(THREE.NoColorSpace);
     expect(() => createShoreTexture({ ...shore(), width: 4 })).toThrow(/expected 16/);
+  });
+});
+
+describe("ripples", () => {
+  it("has swell and chop shares that each add up to 1", () => {
+    expect(WAVES.reduce((t, w) => t + w.weight, 0)).toBeCloseTo(1, 6);
+    expect(CHOP.reduce((t, o) => t + o.weight, 0)).toBeCloseTo(1, 6);
+  });
+
+  it("uses no two swell waves with the same length or direction (that is what made the lattice)", () => {
+    expect(new Set(WAVES.map((w) => w.lengthM)).size).toBe(WAVES.length);
+    expect(new Set(WAVES.map((w) => w.angleDeg)).size).toBe(WAVES.length);
+  });
+
+  it("moves swell at deep-water speed: longer waves travel faster", () => {
+    expect(waveOmega(100)).toBeCloseTo(Math.sqrt((9.81 * 2 * Math.PI) / 100), 9);
+    const speed = (l: number) => waveOmega(l) / ((2 * Math.PI) / l); // phase speed, m/s
+    expect(speed(131)).toBeGreaterThan(speed(43));
+  });
+
+  it("leaves three's lit normal flat, so its broad specular cannot draw the ripples as blobs", () => {
+    expect(FRAGMENT_NORMAL).not.toMatch(/(^|[^a-zA-Z])normal\s*=/m);
+    expect(FRAGMENT_NORMAL).toContain("waveNormal = normalize");
+  });
+
+  it("glints only beyond what flat water would, and from the wave normal", () => {
+    const s = compile(createWaterMaterial()).fragmentShader;
+    expect(s).toContain("dot( waveNormal, halfV )");
+    expect(s).toContain("- flatGlint");
   });
 });
