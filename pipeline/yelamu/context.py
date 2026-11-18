@@ -212,12 +212,18 @@ def sample_lattice(heights: np.ndarray, lat: Lattice, x: float, z: float) -> flo
 
 # ------------------------------------------------------------------ places
 
-PLACE_KINDS = ("town", "peak", "airport")
-# keep in sync with viewer/src/context/parse.ts
+PLACE_KINDS = ("town", "peak", "airport", "island")
+# keep in sync with viewer/src/context/parse.ts and MAX_PLACE_ID_CHARS in viewer/src/appState.ts
 MAX_PLACES = 200
+MAX_ID_CHARS = 48
 MAX_NAME_CHARS = 120
 MAX_SOURCE_CHARS = 300
 _ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def _utf16_len(s: str) -> int:
+    """Length as JavaScript's String.length counts it (UTF-16 code units)."""
+    return len(s.encode("utf-16-le")) // 2
 
 
 def _is_number(v: Any) -> bool:
@@ -245,15 +251,18 @@ def load_places(
         if not isinstance(item, dict):
             raise ValueError(f"{label}: must be an object")
         pid = item.get("id")
-        if not isinstance(pid, str) or not _ID_RE.fullmatch(pid):
-            raise ValueError(f"{label}: id must be lower-case letters, digits and hyphens, got {pid!r}")
+        if not isinstance(pid, str) or not _ID_RE.fullmatch(pid) or len(pid) > MAX_ID_CHARS:
+            raise ValueError(
+                f"{label}: id must be lower-case letters, digits and hyphens, "
+                f"at most {MAX_ID_CHARS} characters, got {pid!r}"
+            )
         if pid in seen:
             raise ValueError(f"{label}: duplicate id {pid!r}")
         if pid in taken:
             raise ValueError(f"{label}: id {pid!r} is already used by an overlay landmark or hotspot")
         seen.add(pid)
         name = item.get("name")
-        if not isinstance(name, str) or not name.strip() or len(name) > MAX_NAME_CHARS:
+        if not isinstance(name, str) or not name.strip() or _utf16_len(name) > MAX_NAME_CHARS:
             raise ValueError(f"{label} ({pid}): name must be 1 to {MAX_NAME_CHARS} characters")
         if item.get("kind") not in PLACE_KINDS:
             raise ValueError(f"{label} ({pid}): kind must be one of {PLACE_KINDS}, got {item.get('kind')!r}")
@@ -264,7 +273,7 @@ def load_places(
         if not (west < lon < east and south < lat < north):
             raise ValueError(f"{label} ({pid}): ({lon}, {lat}) is outside the ring bbox {list(bbox)}")
         source = item.get("source")
-        if not isinstance(source, str) or not source.strip() or len(source) > MAX_SOURCE_CHARS:
+        if not isinstance(source, str) or not source.strip() or _utf16_len(source) > MAX_SOURCE_CHARS:
             raise ValueError(f"{label} ({pid}): source must be 1 to {MAX_SOURCE_CHARS} characters")
         x, z = world_of_lonlat(grid, lon, lat)
         out.append({

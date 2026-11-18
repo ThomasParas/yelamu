@@ -125,7 +125,7 @@
   {
    "id": "angel-island",
    "name": "Angel Island",
-   "kind": "town",
+   "kind": "island",
    "lon": -122.4313,
    "lat": 37.8607,
    "x": -184.5,
@@ -170,12 +170,12 @@
    "id": "brisbane",
    "name": "Brisbane",
    "kind": "town",
-   "lon": -122.4192,
+   "lon": -122.3999,
    "lat": 37.6808,
-   "x": 1003.8,
-   "z": 9890.6,
-   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
-   "ground_m": 223.8
+   "x": 2705.6,
+   "z": 9879.9,
+   "source": "Downtown position; the Wikipedia infobox gives a city centroid on the hills, about 1.7 km west",
+   "ground_m": 36.7
   },
   {
    "id": "south-san-francisco",
@@ -214,12 +214,12 @@
    "id": "millbrae",
    "name": "Millbrae",
    "kind": "town",
-   "lon": -122.4014,
-   "lat": 37.6008,
-   "x": 2630.0,
-   "z": 18756.5,
-   "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m",
-   "ground_m": 23.5
+   "lon": -122.3872,
+   "lat": 37.5985,
+   "x": 3885.1,
+   "z": 19003.6,
+   "source": "Downtown position; the Wikipedia infobox gives a city centroid on the hills, about 1.2 km west",
+   "ground_m": 9.1
   },
   {
    "id": "pacifica",

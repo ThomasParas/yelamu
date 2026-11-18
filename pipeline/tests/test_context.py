@@ -229,6 +229,9 @@ def test_load_places_adds_world_coordinates(tmp_path):
     "item, message",
     [
         (_place(id="Bad Id"), "id"),
+        (_place(id="a" * 49), "id"),
+        (_place(name="\U0001F600" * 61), "name"),
+        (_place(source="\U0001F600" * 151), "source"),
         (_place(name="  "), "name"),
         (_place(name="x" * 121), "name"),
         (_place(kind="city"), "kind"),
@@ -240,6 +243,15 @@ def test_load_places_adds_world_coordinates(tmp_path):
 def test_load_places_rejects_bad_items(tmp_path, item, message):
     with pytest.raises(ValueError, match=message):
         load_places(_places_file(tmp_path, [item]), RING, CITY)
+
+
+def test_load_places_accepts_limit_sized_strings_and_the_island_kind(tmp_path):
+    items = [
+        _place(id="a" * 48, name="x" * 120, source="y" * 300),
+        _place(id="isle", kind="island", name="\U0001F600" * 60),  # 120 UTF-16 units
+    ]
+    places = load_places(_places_file(tmp_path, items), RING, CITY)
+    assert [p["kind"] for p in places] == ["town", "island"]
 
 
 def test_load_places_rejects_duplicate_and_taken_ids(tmp_path):

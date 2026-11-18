@@ -99,7 +99,7 @@ Project coverage is from catalogue titles only; each stage first downloads and c
 
 These refine the design above; where they differ, they win.
 
-1. **Own file, not a meta block.** The ring is described by `context.json` and `context.u16`, discovered through a new `meta.json` key `context_file` (patched in by `scripts/build_context.py`, like `overlay_file`), and listed in `meta.layers` as the layer `context`. A city rebuild therefore never loses the ring description, and a dataset without the key simply has no ring.
+1. **Own file, not a meta block.** The ring is described by `context.json` and `context.u16`, discovered through a new `meta.json` key `context_file` (patched in by `scripts/build_context.py`, like `overlay_file`), and listed in `meta.layers` as the layer `context`. A city rebuild rewrites meta.json and drops `context_file` and the layer entry, so run `scripts/build_context.py` again after any city rebuild (the README says so); the ring's own files are never touched by a city rebuild. A dataset without the key simply has no ring.
 2. **Vertex lattice with explicit hole indices.** `context.json` stores the lattice origin, spacings (`dx` 60 m, `dz` 59.92 m for the real city), vertex counts and the hole as integer cell indices (`i0, i1, j0, j1`), so the viewer needs no floating-point alignment test. The hole is the city mesh rectangle, 17,700 x 15,640 m.
 3. **City-edge heights.** The ring's vertices on the hole boundary take the city heightmap's values (bilinear along the edge), so the two surfaces meet at the same height; skirts hide the small remaining gaps.
 4. **Open water is flattened.** Ring vertices at or below 0.5 m become the bay floor (-3 m), so the ring's water shades like the city's bay.

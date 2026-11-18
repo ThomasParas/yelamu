@@ -7,15 +7,15 @@
   {"id": "hayward", "name": "Hayward", "kind": "town", "lon": -122.0808, "lat": 37.6688, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "sausalito", "name": "Sausalito", "kind": "town", "lon": -122.4853, "lat": 37.8590, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "tiburon", "name": "Tiburon", "kind": "town", "lon": -122.4575, "lat": 37.8735, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
-  {"id": "angel-island", "name": "Angel Island", "kind": "town", "lon": -122.4313, "lat": 37.8607, "source": "Approximate island-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "angel-island", "name": "Angel Island", "kind": "island", "lon": -122.4313, "lat": 37.8607, "source": "Approximate island-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "mill-valley", "name": "Mill Valley", "kind": "town", "lon": -122.5450, "lat": 37.9060, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "mount-tamalpais", "name": "Mount Tamalpais", "kind": "peak", "lon": -122.5778, "lat": 37.9291, "source": "Approximate summit position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "daly-city", "name": "Daly City", "kind": "town", "lon": -122.4702, "lat": 37.6879, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
-  {"id": "brisbane", "name": "Brisbane", "kind": "town", "lon": -122.4192, "lat": 37.6808, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "brisbane", "name": "Brisbane", "kind": "town", "lon": -122.3999, "lat": 37.6808, "source": "Downtown position; the Wikipedia infobox gives a city centroid on the hills, about 1.7 km west"},
   {"id": "south-san-francisco", "name": "South San Francisco", "kind": "town", "lon": -122.4077, "lat": 37.6547, "source": "Downtown (Grand Avenue) position; the Wikipedia infobox gives a point on the bay shore, about 2.8 km away"},
   {"id": "san-bruno", "name": "San Bruno", "kind": "town", "lon": -122.4150, "lat": 37.6250, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "sfo", "name": "San Francisco International Airport", "kind": "airport", "lon": -122.3790, "lat": 37.6213, "source": "Approximate airport position (Wikipedia infobox / USGS GNIS); within about 500 m"},
-  {"id": "millbrae", "name": "Millbrae", "kind": "town", "lon": -122.4014, "lat": 37.6008, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "millbrae", "name": "Millbrae", "kind": "town", "lon": -122.3872, "lat": 37.5985, "source": "Downtown position; the Wikipedia infobox gives a city centroid on the hills, about 1.2 km west"},
   {"id": "pacifica", "name": "Pacifica", "kind": "town", "lon": -122.4856, "lat": 37.6228, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "linda-mar", "name": "Linda Mar", "kind": "town", "lon": -122.4948, "lat": 37.5925, "source": "Approximate neighbourhood position (Wikipedia infobox / USGS GNIS); within about 500 m"}
 ]
