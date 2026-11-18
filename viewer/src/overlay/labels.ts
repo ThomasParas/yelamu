@@ -49,8 +49,12 @@ export function declutter(items: readonly DeclutterItem[], padding: number): Set
 
 /** Declutter priority of a landmark label by kind (hotspots use HOTSPOT_PRIORITY). */
 export const HOTSPOT_PRIORITY = 100;
-/** Village names rank with hotspots, so they win over every landmark. */
-export const VILLAGE_PRIORITY = HOTSPOT_PRIORITY;
+/**
+ * Village names rank just above hotspots, so they win over every landmark and every hotspot
+ * marker they overlap (a tie would go to whichever id sorts first, and Petlenuc's name was
+ * hidden by the Mountain Lake marker at the opening view). There are only five of them.
+ */
+export const VILLAGE_PRIORITY = HOTSPOT_PRIORITY + 1;
 const LANDMARK_PRIORITY: Record<LandmarkKind, number> = {
   hill: 60,
   park: 56,

@@ -105,11 +105,16 @@ describe("landmarkPriority", () => {
 });
 
 describe("village label priority", () => {
-  it("equals the hotspot priority, so village names win over every landmark", () => {
-    expect(VILLAGE_PRIORITY).toBe(HOTSPOT_PRIORITY);
+  it("is above the hotspot priority, so village names win over every hotspot and landmark", () => {
+    expect(VILLAGE_PRIORITY).toBeGreaterThan(HOTSPOT_PRIORITY);
     for (const kind of ["hill", "park", "bridge", "neighborhood", "fort", "beach", "water", "building", "other", "region"]) {
       expect(VILLAGE_PRIORITY).toBeGreaterThan(landmarkPriority(kind));
     }
+  });
+
+  it("declutter keeps a village label over an overlapping hotspot even when the hotspot id sorts first", () => {
+    const kept = declutter([item("lobos-creek", 0, 0, HOTSPOT_PRIORITY), item("village-petlenuc", 10, 3, VILLAGE_PRIORITY)], 4);
+    expect([...kept]).toEqual(["village-petlenuc"]);
   });
 
   it("declutter keeps a village label over an overlapping landmark label", () => {

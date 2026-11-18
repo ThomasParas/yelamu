@@ -38,7 +38,19 @@ SFEI's point data was requested from SFEI by the owner; none is published.
 
 Rebuilding the overlay changed `overlay.json` only by the new `villages` array (streets, landmarks, hotspots and processing are identical to the previous build) and `meta.json` only by `overlay_villages` and one new `hand_sources` row (the seven earlier rows are untouched).
 
-**Not checked here:** the circles against SFEI's picture on the rendered map, the viewer, the wording on screen, and performance. Those are the later tasks of the plan.
+## Viewer and browser results (2026-11-18)
+
+Checked in a real browser (Playwright, desktop 1400 x 900 and phone width 390 x 844) against the production build.
+
+- **Circles in the right places.** The five disc centres, projected through the viewer's own camera, land exactly on the drawn circles. On the map Chutchui sits just south-west of City Hall beside the Mission Dolores area, Sitlintac north-east of it near the Mission Bay and Mission Creek marsh hotspot, Amuctac and Tubsinte around Visitacion Valley with Amuctac to the north-east, and Petlenuc in the Presidio. This agrees with SFEI's picture (Amuctac north-east of Tubsinte, the two Mission Creek villages overlapping). It is a visual agreement, not a measurement: the circles were read from that picture to begin with.
+- **A bug found in the browser, fixed.** The first build put the village name labels in the wrong places: `.village-label { position: relative }` beat the `.labels > *` absolute rule, so the label buttons flowed in a row and each was shifted by the widths of the labels before it. The unit tests could not see it (no DOM tests). The circles were right; only the labels were wrong. Fixed in `9556a44`, with a test that the village label leaves its positioning to `.labels > *` (it fails if the rule comes back). An independent reviewer found the same defect at the same time.
+- **Petlenuc's name was hidden at the opening view, fixed.** Village labels first ranked equal to hotspots, and a tie goes to the id that sorts first, so every hotspot beat every village; the Mountain Lake and Lobos Creek markers hid the Petlenuc label. Villages now rank one step above hotspots (`VILLAGE_PRIORITY`), with a test. All five names show at the opening view. The cost: the Lobos Creek hotspot marker is hidden at that zoom (it appears when the visitor zooms in).
+- **Text on screen.** The Legend row, the About sentence and the Sources row ("Village sites", Inferred, "5 villages") match the owner-approved wording exactly. The village card opens from a label click, a search result and a `p=village-...` link, with kind "Village site", the card text, the Inferred badge and both sources; it works as a bottom sheet at phone width. Esc closes it.
+- **Toggle.** "Village sites" is on by default and separate from Landmarks and Hotspots.
+- **Benchmark A to E** (production build, desktop Mac, Chrome 157 in Playwright): all PASS at 60 fps, p95 frame gap 18.5 to 18.6 ms, quality 2 to 2. Opening view A: 822,293 triangles, 251 draw calls. Scenario E (whole surround): 1,278,941 triangles, 283 calls. The village discs add about 10,000 triangles in total. Not run on a phone.
+- **Tests:** viewer 710 passed (2 skipped), pipeline 728 passed (5 skipped), `tsc` clean, `vite build` clean.
+
+**Not checked:** an automated accessibility scan (axe) was not re-run for this change, because loading it into the page was blocked in this session; the accessibility tree shows the labels as buttons named "Village site: <name>", the panel headings are unchanged, and a reviewer read the markup. A phone run of `?bench`. Reduced motion (the discs are static). The ring-width and outline contrast against the fill, which is slightly different from the bare-ground figures in `uiColors.test.ts` (still above 1.5 to 1). A shared link made before this layer existed that carries an explicit `l=` list will not show villages until the visitor turns them on. The Places panel note still reads "Every hotspot and landmark on the map." (wording awaiting the owner).
 
 ## Removing the layer
 
