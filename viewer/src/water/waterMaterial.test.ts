@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { WATER_COLOR, WATER_OPACITY, WAVE_SLOPE, createWaterMaterial, patchWaterShaders } from "./waterMaterial";
+import { WATER_COLOR, WATER_OPACITY, WAVE_SLOPE, createShoreTexture, createWaterMaterial, patchWaterShaders } from "./waterMaterial";
 
 /** Run the material's onBeforeCompile on three's real standard-material shader text. */
 function compile(m: ReturnType<typeof createWaterMaterial>) {
@@ -96,5 +96,52 @@ describe("createWaterMaterial", () => {
     const a = createWaterMaterial().material;
     const b = createWaterMaterial().material;
     expect(a.customProgramCacheKey()).toBe(b.customProgramCacheKey());
+  });
+});
+
+describe("shore effects", () => {
+  const shore = () => ({ field: new Uint8Array(3 * 2 * 2), width: 3, height: 2, cellM: 10 });
+
+  it("adds the shallows and foam after three's colour chunk", () => {
+    const s = compile(createWaterMaterial());
+    const iColor = s.fragmentShader.indexOf("#include <color_fragment>");
+    const iShore = s.fragmentShader.indexOf("uShoreOn > 0.5");
+    expect(iColor).toBeGreaterThan(-1);
+    expect(iShore).toBeGreaterThan(iColor);
+    expect(s.fragmentShader).toContain("uniform sampler2D uShore;");
+  });
+
+  it("is off until a shore field is set, so the water first looks as before", () => {
+    const m = createWaterMaterial();
+    const s = compile(m) as unknown as { uniforms: Record<string, { value: unknown }> };
+    expect(s.uniforms.uShoreOn.value).toBe(0);
+    m.setShore(shore());
+    expect(s.uniforms.uShoreOn.value).toBe(1);
+    expect((s.uniforms.uShoreGrid.value as THREE.Vector2).toArray()).toEqual([3, 2]);
+    expect(s.uniforms.uShoreCellM.value).toBe(10);
+  });
+
+  it("gives ponds the same motion but never the sea's shore", () => {
+    const m = createWaterMaterial();
+    const sea = compile(m) as unknown as { uniforms: Record<string, { value: unknown }> };
+    const pond = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+    m.pondMaterial.onBeforeCompile(pond as unknown as THREE.WebGLProgramParametersWithUniforms, undefined as never);
+    m.setShore(shore());
+    m.setAnimated(true);
+    m.setTime(3);
+    expect(pond.uniforms.uShoreOn.value).toBe(0);
+    expect(pond.uniforms.uTime).toBe(sea.uniforms.uTime);
+    expect(pond.uniforms.uAmp).toBe(sea.uniforms.uAmp);
+    expect(m.pondMaterial.customProgramCacheKey()).toBe(m.material.customProgramCacheKey());
+  });
+
+  it("uploads the field as a linear-filtered two-channel data texture, row 0 north", () => {
+    const t = createShoreTexture(shore());
+    expect(t.format).toBe(THREE.RGFormat);
+    expect(t.magFilter).toBe(THREE.LinearFilter);
+    expect(t.flipY).toBe(false);
+    expect(t.unpackAlignment).toBe(2);
+    expect(t.colorSpace).toBe(THREE.NoColorSpace);
+    expect(() => createShoreTexture({ ...shore(), width: 4 })).toThrow(/expected 16/);
   });
 });

@@ -17,7 +17,7 @@ export type PondsHost = Pick<AppContext, "scene" | "verticalExaggeration" | "req
  */
 export function pondMaterial(host: Partial<Pick<AppContext, "water">>): THREE.Material {
   return (
-    host.water?.material ??
+    host.water?.pondMaterial ??
     new THREE.MeshStandardMaterial({ color: WATER_COLOR, transparent: true, opacity: WATER_OPACITY })
   );
 }

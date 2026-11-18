@@ -11,9 +11,9 @@ const ponds = (...rings: number[][][]): Ponds => ({
 });
 
 describe("pondMaterial", () => {
-  it("uses the sea's water material when there is one", () => {
+  it("uses the sea's pond material (same look and motion, no shore effects) when there is one", () => {
     const water = createWaterMaterial();
-    expect(pondMaterial({ water })).toBe(water.material);
+    expect(pondMaterial({ water })).toBe(water.pondMaterial);
   });
 
   it("falls back to a plain translucent water-coloured material", () => {
@@ -38,7 +38,7 @@ describe("mountPonds", () => {
     expect(renders).toBe(1);
     const meshes = layer.object.children as THREE.Mesh[];
     expect(meshes).toHaveLength(2);
-    for (const m of meshes) expect(m.material).toBe(water.material);
+    for (const m of meshes) expect(m.material).toBe(water.pondMaterial);
     expect(meshes[0].geometry.getAttribute("position").getY(0)).toBeCloseTo((4 + 0.05) * 3, 4);
   });
 

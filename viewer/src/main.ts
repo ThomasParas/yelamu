@@ -23,6 +23,7 @@ import { createShell } from "./ui/shell";
 import "./ui/ui.css";
 import { VegetationLayer } from "./vegetation/layer";
 import { ViewRig, unitsPerPixel } from "./viewRig";
+import { computeShoreField } from "./water/shoreField";
 import { createWaterMaterial } from "./water/waterMaterial";
 import { SUN_DIRECTION, VERTICAL_EXAGGERATION, makeTerrainShade, shadeProblem, withShade } from "./terrainShade";
 
@@ -251,6 +252,17 @@ async function start() {
     schedule();
   };
   const requestIdleRender = () => schedule();
+  // Shallows and foam need a shore field (~0.1 s to compute): do it after the first frame so
+  // it never delays the map appearing; the shoreline fills in a moment later.
+  requestAnimationFrame(() =>
+    setTimeout(() => {
+      const t0 = performance.now();
+      const field = computeShoreField(heights, meta.width, meta.height, meta.water_level_m);
+      waterFx.setShore({ field, width: meta.width, height: meta.height, cellM: meta.cell_m });
+      console.info(`shore field: ${(performance.now() - t0).toFixed(0)} ms`);
+      requestIdleRender();
+    }, 0),
+  );
   const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const halfWidth = widthM / 2;
   const halfDepth = depthM / 2;
