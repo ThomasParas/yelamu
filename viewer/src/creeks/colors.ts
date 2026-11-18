@@ -11,10 +11,14 @@ export const CREEK_OPACITY = 0.95;
 export const MODELLED_COLOR = 0x153f5e;
 export const MODELLED_OPACITY = 0.7;
 
-/** Ribbon widths, metres. A creek must stay visible at the opening zoom, so these are wider than a street. */
-export const CREEK_WIDTH_M = 12;
+/**
+ * Ribbon widths, metres. A creek must stay visible at the opening zoom (about 38 px per km across
+ * the city there, so 26 m is one pixel), which makes these far wider than a real creek and wider than
+ * a street. They look heavy only at the closest zoom (about 12 px at zoom 12). Looked at in a browser, 2026-11-18.
+ */
+export const CREEK_WIDTH_M = 26;
 /** Modelled channels by Strahler order: order 3, order 4, order 5 and up. */
-export const MODELLED_WIDTH_M = { 3: 6, 4: 9, 5: 12 } as const;
+export const MODELLED_WIDTH_M = { 3: 13, 4: 18, 5: 22 } as const;
 
 /** Metres a ribbon floats above max(ground, water): above the villages' 5 m would hide them, so 3. */
 export const CREEK_LIFT_M = 3;
