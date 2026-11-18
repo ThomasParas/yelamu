@@ -1027,3 +1027,111 @@ def test_cli_main_builds_and_reports_errors(tmp_path, grid, capsys):
     # Without --out the region's own `out` ("elsewhere", no meta.json) is used -> clear error.
     assert main(argv[:-2]) == 1
     assert "meta.json" in capsys.readouterr().err
+
+
+# ------------------------------------------------- villages: confidence, no-op meta, bad files
+
+
+def write_villages_with(tmp_path: Path, *confidences: str) -> Path:
+    path = tmp_path / "villages.json"
+    path.write_text(json.dumps([
+        vg(id=f"village-{i}", name=f"V{i}", confidence=c) for i, c in enumerate(confidences)
+    ]))
+    return path
+
+
+def village_rows(out_dir: Path) -> list[dict]:
+    meta = json.loads((out_dir / "meta.json").read_text())
+    return [r for r in meta["hand_sources"] if r["layer"] == "villages"]
+
+
+@pytest.mark.parametrize("levels, expected", [
+    (("documented", "inferred"), "inferred"),
+    (("inferred", "documented"), "inferred"),  # input order does not matter
+    (("documented", "documented"), "documented"),
+    (("inferred", "inferred"), "inferred"),
+    (("documented", "illustrative", "inferred"), "illustrative"),
+])
+def test_villages_hand_sources_row_takes_the_lowest_confidence(tmp_path, grid, levels, expected):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    build_overlay(**kwargs, villages_path=write_villages_with(tmp_path, *levels))
+    rows = village_rows(kwargs["out_dir"])
+    assert len(rows) == 1  # one row for the layer, however the villages differ
+    assert rows[0]["confidence"] == expected
+    assert rows[0]["count"] == len(levels)
+
+
+def test_noop_rebuild_leaves_meta_json_byte_identical(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    villages = write_villages_with(tmp_path, "inferred", "inferred")
+    meta_path = kwargs["out_dir"] / "meta.json"
+    build_overlay(**kwargs, villages_path=villages)
+    before = meta_path.read_bytes()
+    build_overlay(**kwargs, villages_path=villages)
+    assert meta_path.read_bytes() == before
+
+
+def test_noop_rebuild_does_not_rewrite_an_already_patched_meta_in_another_layout(tmp_path, grid):
+    # The patch is a no-op, so meta.json must not be touched at all, even if it was written
+    # compactly (a rewrite would re-indent it and change the bytes).
+    kwargs, _ = write_inputs(tmp_path, grid)
+    villages = write_villages_with(tmp_path, "inferred")
+    meta_path = kwargs["out_dir"] / "meta.json"
+    build_overlay(**kwargs, villages_path=villages)
+    compact = json.dumps(json.loads(meta_path.read_text()), separators=(",", ":")).encode()
+    meta_path.write_bytes(compact)
+    build_overlay(**kwargs, villages_path=villages)
+    assert meta_path.read_bytes() == compact
+
+
+def test_patch_overlay_meta_twice_is_a_fixed_point_and_never_mutates_its_input():
+    from yelamu.overlay import patch_overlay_meta
+
+    meta = {"width": 1, "hand_sources": [{"layer": "ponds", "source": "s", "confidence": "inferred",
+                                          "count": 1}]}
+    snapshot = json.dumps(meta, sort_keys=True)
+    villages = [vg(), vg(id="village-two", name="Two")]
+    once = patch_overlay_meta(meta, villages)
+    assert json.dumps(meta, sort_keys=True) == snapshot
+    twice = patch_overlay_meta(once, villages)
+    assert json.dumps(twice) == json.dumps(once)  # same keys, same order, same bytes
+
+
+def test_an_empty_villages_file_is_a_clear_error_and_writes_nothing(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    meta_path = kwargs["out_dir"] / "meta.json"
+    meta_before = meta_path.read_bytes()
+    villages = tmp_path / "villages.json"
+    villages.write_bytes(b"")
+    assert villages.stat().st_size == 0
+    with pytest.raises(ValueError, match=r"villages\.json.*not valid JSON"):
+        build_overlay(**kwargs, villages_path=villages)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()
+    assert meta_path.read_bytes() == meta_before
+
+
+def test_villages_file_that_is_not_a_list_is_rejected(tmp_path, grid):
+    kwargs, _ = write_inputs(tmp_path, grid)
+    for body in ("{}", "null", '"x"', "5"):
+        villages = tmp_path / "villages.json"
+        villages.write_text(body)
+        with pytest.raises(ValueError):
+            build_overlay(**kwargs, villages_path=villages)
+    assert not (kwargs["out_dir"] / "overlay.json").exists()
+
+
+def test_village_description_length_counts_utf16_units_like_the_viewer():
+    star = "\U0001F332"  # one code point, two UTF-16 units
+    validate_villages([vg(description=star * 200)], BBOX)  # exactly 400 units
+    validate_villages([vg(description=star * 199 + "x" * 2)], BBOX)  # 400 units, mixed
+    with pytest.raises(ValueError, match="the-id.*description"):
+        validate_villages([vg(id="the-id", description=star * 200 + "x")], BBOX)  # 401 units
+    with pytest.raises(ValueError, match="the-id.*description"):
+        validate_villages([vg(id="the-id", description=star * 201)], BBOX)  # 402 units, 201 code points
+
+
+def test_village_description_minimum_counts_utf16_units_too():
+    star = "\U0001F332"
+    validate_villages([vg(description=star * 10)], BBOX)  # 20 units, only 10 code points
+    with pytest.raises(ValueError, match="description"):
+        validate_villages([vg(description=star * 9 + "x")], BBOX)  # 19 units
