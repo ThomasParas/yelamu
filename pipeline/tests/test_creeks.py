@@ -293,6 +293,51 @@ def test_document_bytes_do_not_depend_on_the_input_order_or_direction(grid):
         assert (pts[0], pts[1]) <= (pts[-2], pts[-1])
 
 
+def _utf16(text):
+    return len(text.encode("utf-16-le")) // 2
+
+
+def test_long_sources_are_clipped_by_utf16_length_and_the_validator_accepts_them(grid):
+    astral = "\U0001F600" * 300  # 300 code points, 600 UTF-16 units
+    mapped = [_feature(1, _lonlat_line(grid, -300, 0, 300, 0), NAME1="Creek", S_Interp1=astral)]
+    doc, _ = build_creeks_document(grid, mapped, [], _dry(grid))
+    sources = doc["mapped"][0]["sources"]
+    assert _utf16(sources) <= MAX_SOURCE_CHARS and sources.endswith("\u2026") and len(sources) > 100
+    validate_creeks_document(doc)
+    # ASCII text still clips to exactly the limit
+    ascii_doc, _ = build_creeks_document(
+        grid, [_feature(1, _lonlat_line(grid, -300, 0, 300, 0), S_Interp1="s" * 500)], [], _dry(grid))
+    assert len(ascii_doc["mapped"][0]["sources"]) == MAX_SOURCE_CHARS
+    # a text that fits is left alone
+    short = [_feature(1, _lonlat_line(grid, -300, 0, 300, 0), S_Interp1="\U0001F600" * 150)]
+    kept, _ = build_creeks_document(grid, short, [], _dry(grid))
+    assert kept["mapped"][0]["sources"] == "\U0001F600" * 150
+
+
+def test_a_long_name_is_clipped_like_sources_instead_of_aborting_the_build(grid):
+    mapped = [_feature(1, _lonlat_line(grid, -300, 0, 300, 0), NAME1="N" * 130),
+              _feature(2, _lonlat_line(grid, -300, 100, 300, 100), NAME1="\U0001F600" * 100)]
+    doc, _ = build_creeks_document(grid, mapped, [], _dry(grid))
+    first, second = doc["mapped"]
+    assert len(first["name"]) == MAX_NAME_CHARS and first["name"].endswith("\u2026")
+    assert first["name"][:-1] == "N" * (MAX_NAME_CHARS - 1)
+    assert _utf16(second["name"]) <= MAX_NAME_CHARS and second["name"].endswith("\u2026")
+    validate_creeks_document(doc)
+
+
+def test_validate_counts_name_and_sources_in_utf16_units_like_the_viewer():
+    def doc(**over):
+        return {"version": 1, "mapped": [dict({"id": "creek-1", "name": None, "confidence": "inferred",
+                                               "sources": "", "points": [0.0, 0.0, 10.0, 0.0]}, **over)],
+                "modelled": []}
+
+    validate_creeks_document(doc(name="\U0001F600" * 60, sources="\U0001F600" * 150))  # exactly at both limits
+    with pytest.raises(ValueError, match="name"):
+        validate_creeks_document(doc(name="\U0001F600" * 100))  # 100 code points, 200 units
+    with pytest.raises(ValueError, match="sources"):
+        validate_creeks_document(doc(sources="\U0001F600" * 200))  # 200 code points, 400 units
+
+
 def test_points_are_rounded_to_a_tenth_of_a_metre(grid):
     mapped = [_feature(1, _lonlat_line(grid, -300.123456, 0.987654, 300.0, 0.0))]
     doc, _ = build_creeks_document(grid, mapped, [], _dry(grid))

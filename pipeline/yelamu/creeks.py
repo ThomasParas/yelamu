@@ -276,8 +276,24 @@ def _flat(points: Sequence[XZ]) -> list[float]:
     return out
 
 
+def _js_length(text: str) -> int:
+    """Length as JavaScript counts it (UTF-16 code units), which is what the viewer checks."""
+    return len(text.encode("utf-16-le")) // 2
+
+
 def _clip(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+    """`text`, or its start plus an ellipsis, so that its UTF-16 length is at most `limit`."""
+    if _js_length(text) <= limit:
+        return text
+    units = 0
+    keep = 0
+    for ch in text:
+        step = 2 if ord(ch) > 0xFFFF else 1
+        if units + step > limit - 1:  # room for the ellipsis
+            break
+        units += step
+        keep += 1
+    return text[:keep] + "…"
 
 
 def read_modelled_lines(path: Path | str) -> list[dict]:
@@ -317,7 +333,7 @@ def build_creeks_document(
     for feature in sorted(mapped, key=lambda f: int(f["props"].get("OBJECTID", 0))):
         props = feature["props"]
         oid = int(props.get("OBJECTID", 0))
-        name = str(props.get("NAME1") or "").strip() or None
+        name = _clip(str(props.get("NAME1") or "").strip(), MAX_NAME_CHARS) or None
         sources = _clip(str(props.get("S_Interp1") or "").strip(), MAX_SOURCE_CHARS)
         k = 0
         for lonlat in feature["lines"]:
@@ -416,13 +432,13 @@ def validate_creeks_document(doc: Any) -> None:
             raise ValueError(f"{where}: duplicate id {cid!r}")
         seen.add(cid)
         name = c.get("name")
-        if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > MAX_NAME_CHARS):
-            raise ValueError(f"{where} ({cid}): name must be null or 1 to {MAX_NAME_CHARS} characters")
+        if name is not None and (not isinstance(name, str) or not name.strip() or _js_length(name) > MAX_NAME_CHARS):
+            raise ValueError(f"{where} ({cid}): name must be null or 1 to {MAX_NAME_CHARS} UTF-16 units")
         if c.get("confidence") not in CONFIDENCE_LEVELS:
             raise ValueError(f"{where} ({cid}): confidence {c.get('confidence')!r} is not one of {CONFIDENCE_LEVELS}")
         sources = c.get("sources")
-        if not isinstance(sources, str) or len(sources) > MAX_SOURCE_CHARS:
-            raise ValueError(f"{where} ({cid}): sources must be text of at most {MAX_SOURCE_CHARS} characters")
+        if not isinstance(sources, str) or _js_length(sources) > MAX_SOURCE_CHARS:
+            raise ValueError(f"{where} ({cid}): sources must be text of at most {MAX_SOURCE_CHARS} UTF-16 units")
         _check_points(c.get("points"), f"{where} ({cid})", budget)
     for i, m in enumerate(modelled):
         where = f"modelled[{i}]"
