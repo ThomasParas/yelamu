@@ -17,6 +17,8 @@ screenshot of the box, and note the battery percentage before and after and whet
 warm. Use sections 1 to 3 only if you need the full detail; section 5 (idle battery cost of the
 water) is not part of the quick route.
 
+Scenario E zooms out to the whole grey surround (about 1 million triangles); it is skipped when a dataset has no `context_file`. If E fails on a phone, set the ring's `cell_m` in `pipeline/regions/full-city.json` to 90, rerun `scripts/build_context.py`, and measure again.
+
 ## 1. Serve the viewer to the phone
 
 1. On the computer, from the `viewer/` folder: `npx vite --host`

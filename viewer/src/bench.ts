@@ -1,6 +1,6 @@
 /**
  * On-screen phone benchmark, loaded only with `?bench` (see main.ts). It runs the scenarios of
- * docs/research/phone-measurement.md (A to D) by itself and shows a results table, so a phone
+ * docs/research/phone-measurement.md (A to E) by itself and shows a results table, so a phone
  * needs no attached developer tools.
  */
 import type { AppContext } from "./appContext";
@@ -12,6 +12,8 @@ interface Scenario {
   zoom: number;
   vegetation: boolean;
   water: boolean;
+  /** Needs the grey surrounding terrain; skipped when the dataset has none. */
+  needsContext?: boolean;
 }
 
 // Zoom 1 shows the whole city (coarse LOD); 10 is well past the LOD switch (full resolution).
@@ -20,6 +22,8 @@ const SCENARIOS: Scenario[] = [
   { id: "B", label: "close, vegetation off, water off", zoom: 10, vegetation: false, water: false },
   { id: "C", label: "close, vegetation on, water off", zoom: 10, vegetation: true, water: false },
   { id: "D", label: "close, vegetation on, water on", zoom: 10, vegetation: true, water: true },
+  // Zoom 0.01 is far below any limit: the rig clamps it to the minimum zoom, which shows the whole ring.
+  { id: "E", label: "whole region (grey surround), vegetation on, water on", zoom: 0.01, vegetation: true, water: true, needsContext: true },
 ];
 const CLOSE_VIEW = { x: -2562, z: 126 }; // Golden Gate Park: woodland and scrub
 const PAN_SECONDS = 4;
@@ -114,9 +118,20 @@ export function startBench(ctx: AppContext): void {
     try {
       for (const sc of SCENARIOS) {
         out.textContent += `Scenario ${sc.id}: ${sc.label}\n`;
+        if (sc.needsContext && !ctx.meta.context_file) {
+          out.textContent += "  skipped: this dataset has no surrounding terrain\n";
+          continue;
+        }
         setToggle("Vegetation", sc.vegetation);
         const waterOn = setToggle("Water motion", sc.water);
-        ctx.rig.setState(sc.zoom > 2 ? { ...CLOSE_VIEW, zoom: sc.zoom } : { x: 0, z: 0, zoom: sc.zoom });
+        const ring = ctx.rig.getLimits().bounds;
+        ctx.rig.setState(
+          sc.needsContext
+            ? { x: ring.centerX ?? 0, z: ring.centerZ ?? 0, zoom: sc.zoom } // clamps to the minimum zoom: the whole ring
+            : sc.zoom > 2
+              ? { ...CLOSE_VIEW, zoom: sc.zoom }
+              : { x: 0, z: 0, zoom: sc.zoom },
+        );
         ctx.requestRender();
         await sleep(SETTLE_MS);
         const levelStart = ctx.quality.level();
