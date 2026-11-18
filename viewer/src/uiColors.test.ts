@@ -90,6 +90,21 @@ describe("ui.css tokens", () => {
   });
 });
 
+describe("map label layout", () => {
+  // `.labels > *` makes every child absolute. A later rule such as `position: relative` on a
+  // label class wins and the labels flow in a row, each shifted by the widths of the ones
+  // before it (seen on the village names).
+  it("leaves the positioning of the village label to `.labels > *`", () => {
+    const rule = css.match(/(?:^|\n)\.village-label\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    const declarations = rule![1].replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(declarations).not.toMatch(/(^|[;{\s])position\s*:/);
+    const parent = css.match(/(?:^|\n)\.labels\s*>\s*\*\s*\{([^}]*)\}/);
+    expect(parent).not.toBeNull();
+    expect(parent![1]).toMatch(/position:\s*absolute/);
+  });
+});
+
 describe("legend village icon", () => {
   it("keeps the ui.css disc and ring tokens in sync with overlay/villageColors.ts", () => {
     const fill = color(light["village-disc"]);

@@ -546,7 +546,7 @@ main {
 }
 /* Village names: clickable text, no marker (the tan disc on the map is the symbol). */
 .village-label {
-  position: relative;
+  /* No `position` here: `.labels > *` makes every label absolute, which also anchors ::after. */
   padding: 0 3px;
   border: 0;
   background: none;
