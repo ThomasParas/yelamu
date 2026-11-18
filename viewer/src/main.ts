@@ -34,8 +34,9 @@ const FALLBACK_GROUND = 0xa89f78;
 // would be more than this many screen pixels apart. See switchZoomFor in chunks.ts.
 const MAX_COARSE_SPACING_PX = 6;
 
-// The sea and sea floor planes must reach past the grey ring (about 34 km east of the city centre).
-const SEA_PLANE_FACTOR = 6;
+// The sea and sea floor planes must stay past the screen edges even when fully zoomed out on the
+// grey ring (the view then spans about 100 km, seen at 45 degrees).
+const SEA_PLANE_FACTOR = 14;
 
 // Which dataset folder under public/assets/ to load: the real city unless `?data=<name>` asks
 // for another (`slice`, or the synthetic `city-synth` from npm run make:city-synth).

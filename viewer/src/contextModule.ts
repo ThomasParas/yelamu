@@ -1,5 +1,6 @@
 import { fitViewSize } from "./camera";
 import type { AppContext } from "./appContext";
+import { decodeState } from "./appState";
 import { makeRingColorAt } from "./context/colors";
 import { ContextLayer } from "./context/layer";
 import { ringBounds, ringFitViewSize, ringMinZoom } from "./context/limits";
@@ -38,7 +39,16 @@ export const contextModule: AppModule = async (ctx: AppContext) => {
     const minZoom = ringMinZoom(fitViewSize(cityW, cityD, cityMaxH, aspect), ringFitViewSize(doc, ringMaxH, aspect));
     ctx.rig.setLimits({ bounds: ringBounds(doc), minZoom: Math.min(original.minZoom, minZoom) });
   };
+  // A shared link may point beyond the original limits (zoomed out over the grey ring). main.ts
+  // clamped it on load, before the ring was known; apply it again now that the limits are wider,
+  // unless the visitor has already moved the view.
+  const fromHash = decodeState(location.hash);
+  const before = ctx.rig.getState();
   widen();
+  const after = ctx.rig.getState();
+  if (after.x === before.x && after.z === before.z && after.zoom === before.zoom) {
+    ctx.rig.setState({ x: fromHash.x, z: fromHash.z, zoom: fromHash.zoom });
+  }
   window.addEventListener("resize", widen);
 
   void (async () => {
