@@ -289,3 +289,40 @@ describe("VegetationLayer", () => {
     layer.dispose();
   });
 });
+
+describe("VegetationLayer.setGeometries", () => {
+  it("swaps a species' shape and replants built chunks lazily with it", () => {
+    const layer = new VegetationLayer(options());
+    const west = chunkMesh();
+    layer.attach(west, PLANS[0]);
+    const before = veg(west).find((k) => k.name === "vegetation-oak")!;
+    const count = before.count;
+    const shadowScaleBefore = new THREE.Matrix4();
+    shadowsOf(west)!.getMatrixAt(0, shadowScaleBefore);
+
+    // A model twice as wide as the procedural oak (unit height, like the real ones).
+    const wide = new THREE.BoxGeometry(3, 1, 3).translate(0, 0.5, 0);
+    layer.setGeometries({ oak: wide });
+    expect(veg(west)).toHaveLength(0); // cleared, waiting for refresh
+    expect(layer.refresh([west])).toBe(true);
+    const after = veg(west).find((k) => k.name === "vegetation-oak")!;
+    expect(after.geometry).toBe(wide);
+    expect(after.count).toBe(count); // same plants, same places
+    expect(veg(west).find((k) => k.name === "vegetation-coyote-brush")!.geometry).not.toBe(wide);
+    // shadows are sized from the new footprint
+    const m = new THREE.Matrix4();
+    shadowsOf(west)!.getMatrixAt(0, m);
+    expect(m.equals(shadowScaleBefore)).toBe(false);
+    layer.dispose();
+  });
+
+  it("does nothing when given no new shapes", () => {
+    const layer = new VegetationLayer(options());
+    const west = chunkMesh();
+    layer.attach(west, PLANS[0]);
+    const kids = veg(west);
+    layer.setGeometries({});
+    expect(veg(west)).toEqual(kids);
+    layer.dispose();
+  });
+});

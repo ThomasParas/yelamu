@@ -2,7 +2,11 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-const KEEP = new Set(["real-city"]);
+// Each kept folder with a file it must contain (plants: the tree models, see src/vegetation/glb.ts).
+const KEEP = new Map([
+  ["real-city", "meta.json"],
+  ["plants", "oak.glb"],
+]);
 const assets = join(import.meta.dirname, "..", "dist", "assets");
 if (!existsSync(assets)) {
   console.error("dist/assets not found: run `vite build` first");
@@ -15,9 +19,9 @@ for (const entry of readdirSync(assets, { withFileTypes: true })) {
     console.log(`removed dist/assets/${entry.name}`);
   }
 }
-for (const need of KEEP) {
-  if (!existsSync(join(assets, need, "meta.json"))) {
-    console.error(`dist/assets/${need}/meta.json is missing: the site would be empty`);
+for (const [need, file] of KEEP) {
+  if (!existsSync(join(assets, need, file))) {
+    console.error(`dist/assets/${need}/${file} is missing: the site would be incomplete`);
     process.exit(1);
   }
 }

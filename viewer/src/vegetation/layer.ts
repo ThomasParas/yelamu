@@ -162,6 +162,27 @@ export class VegetationLayer {
     return built > 0;
   }
 
+  /**
+   * Swap in new shapes for some species (the Blender tree models, see glb.ts). Old shapes are
+   * freed; chunks already planted are cleared and queued, so refresh() replants them with the
+   * new shapes (and correctly sized shadows) as they come into view.
+   */
+  setGeometries(replace: Partial<VegetationGeometries>): void {
+    const changed = SPECIES.filter((sp) => replace[sp] && replace[sp] !== this.geometries[sp]);
+    if (changed.length === 0) return;
+    for (const mesh of [...this.built.keys()]) {
+      const plan = this.chunks.get(mesh)!;
+      this.detach(mesh);
+      this.chunks.set(mesh, plan);
+      this.pending.add(mesh);
+    }
+    for (const sp of changed) {
+      this.geometries[sp].dispose();
+      this.geometries[sp] = replace[sp]!;
+      this.footprint[sp] = footprintRadius(this.geometries[sp]);
+    }
+  }
+
   stats(): { instances: number; meshes: number } {
     let instances = 0;
     let meshes = 0;

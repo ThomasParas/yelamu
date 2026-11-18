@@ -21,6 +21,7 @@ import { TerrainChunks } from "./terrainChunks";
 import { copyText } from "./ui/clipboard";
 import { createShell } from "./ui/shell";
 import "./ui/ui.css";
+import { loadTreeModels } from "./vegetation/glb";
 import { VegetationLayer } from "./vegetation/layer";
 import { ViewRig, unitsPerPixel } from "./viewRig";
 import { computeShoreField } from "./water/shoreField";
@@ -258,6 +259,14 @@ async function start() {
     schedule();
   };
   const requestIdleRender = () => schedule();
+  // Tree models from Blender (vegetation/glb.ts): swapped in when they arrive; any that fail
+  // keep the simple shapes. Small files, fetched while the map is already on screen.
+  if (vegetation) {
+    void loadTreeModels(`${import.meta.env.BASE_URL}assets/plants`).then((models) => {
+      vegetation.setGeometries(models);
+      requestIdleRender();
+    });
+  }
   // Shallows and foam need a shore field (~0.1 s to compute): do it after the first frame so
   // it never delays the map appearing; the shoreline fills in a moment later.
   requestAnimationFrame(() =>
