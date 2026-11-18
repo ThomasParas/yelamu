@@ -20,6 +20,15 @@ import {
 } from "./geometry";
 import { chunkSeed, groupNameForClass, placeChunkVegetation, type VegInstance, type VegSpec } from "./placement";
 import { SPECIES, speciesTables, type Species } from "./species";
+import {
+  SHADOW_RENDER_ORDER,
+  footprintRadius,
+  makeShadowGeometry,
+  makeShadowMaterial,
+  placeShadow,
+  shadowDirection,
+  shadowMatrix,
+} from "./shadows";
 
 export interface VegetationLayerOptions {
   size: GridSize;
@@ -42,6 +51,8 @@ export interface VegetationLayerOptions {
   sizeBoost?: number;
   /** Chunks built per refresh() call (keeps a frame short). Default 3. */
   maxBuildsPerRefresh?: number;
+  /** Soft contact shadows under trees and shrubs (see shadows.ts). Default true. */
+  shadows?: boolean;
 }
 
 export const DEFAULT_VEGETATION_SEED = 0x59454c41; // "YELA"
@@ -56,6 +67,11 @@ interface Built {
 export class VegetationLayer {
   private readonly geometries: VegetationGeometries;
   private readonly material: THREE.MeshStandardMaterial;
+  private readonly shadowGeometry: THREE.BufferGeometry;
+  private readonly shadowMaterial: THREE.MeshBasicMaterial;
+  /** Footprint radius of each species at scale 1 (sizes its shadow). */
+  private readonly footprint: Record<Species, number>;
+  private readonly shadowDir = shadowDirection();
   private readonly groupOfClass: (id: number) => string;
   private readonly speciesFor: (classId: number, u: number) => Species | null;
   private readonly specForClass: (classId: number) => VegSpec | undefined;
@@ -81,6 +97,12 @@ export class VegetationLayer {
   constructor(private readonly opts: VegetationLayerOptions) {
     this.geometries = makeVegetationGeometries();
     this.material = makeVegetationMaterial();
+    this.shadowGeometry = makeShadowGeometry();
+    this.shadowMaterial = makeShadowMaterial();
+    this.footprint = Object.fromEntries(SPECIES.map((sp) => [sp, footprintRadius(this.geometries[sp])])) as Record<
+      Species,
+      number
+    >;
     this.groupOfClass = groupNameForClass(opts.classes);
     ({ speciesFor: this.speciesFor, specForClass: this.specForClass } = speciesTables(opts.classes));
     this.seed = opts.seed ?? DEFAULT_VEGETATION_SEED;
@@ -155,6 +177,9 @@ export class VegetationLayer {
     for (const mesh of [...this.chunks.keys()]) this.detach(mesh);
     for (const g of Object.values(this.geometries)) g.dispose();
     this.material.dispose();
+    this.shadowGeometry.dispose();
+    this.shadowMaterial.map?.dispose();
+    this.shadowMaterial.dispose();
   }
 
   private build(mesh: THREE.Mesh, plan: ChunkPlan): void {
@@ -208,6 +233,35 @@ export class VegetationLayer {
       mesh.add(im);
       meshes.push(im);
     }
+    const shadows = o.shadows === false ? null : this.buildShadows(bySpecies);
+    if (shadows) {
+      mesh.add(shadows);
+      meshes.push(shadows);
+    }
     this.built.set(mesh, { meshes, instances: placed });
+  }
+
+  /** One instanced mesh with a shadow under every tree and shrub of the chunk, or null if none. */
+  private buildShadows(bySpecies: Map<Species, VegInstance[]>): THREE.InstancedMesh | null {
+    const o = this.opts;
+    let n = 0;
+    for (const items of bySpecies.values()) for (const v of items) if (v.kind !== "reed") n++;
+    if (n === 0) return null;
+    const im = new THREE.InstancedMesh(this.shadowGeometry, this.shadowMaterial, n);
+    im.name = "vegetation-shadows";
+    im.renderOrder = SHADOW_RENDER_ORDER;
+    im.frustumCulled = false;
+    im.matrixAutoUpdate = false;
+    let i = 0;
+    for (const [sp, items] of bySpecies) {
+      for (const v of items) {
+        if (v.kind === "reed") continue;
+        const radius = this.footprint[sp] * v.scale * this.sizeBoost;
+        const p = placeShadow(v, radius, o.heights, o.size, o.exaggeration, this.shadowDir);
+        im.setMatrixAt(i++, shadowMatrix(p, this.m4));
+      }
+    }
+    im.visible = this.enabled;
+    return im;
   }
 }

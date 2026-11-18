@@ -26,7 +26,11 @@ function options(over: Partial<VegetationLayerOptions> = {}): VegetationLayerOpt
 }
 
 const chunkMesh = () => new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
-const veg = (m: THREE.Object3D) => m.children.filter((c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh);
+const instanced = (m: THREE.Object3D) =>
+  m.children.filter((c): c is THREE.InstancedMesh => (c as THREE.InstancedMesh).isInstancedMesh);
+/** The plant meshes (not the shadows). */
+const veg = (m: THREE.Object3D) => instanced(m).filter((c) => c.name !== "vegetation-shadows");
+const shadowsOf = (m: THREE.Object3D) => instanced(m).find((c) => c.name === "vegetation-shadows");
 
 describe("VegetationLayer", () => {
   it("builds one instanced mesh per species per chunk as children of the chunk mesh", () => {
@@ -45,7 +49,7 @@ describe("VegetationLayer", () => {
     layer.attach(east, PLANS[1]);
     expect(veg(east).map((k) => k.name)).toEqual(["vegetation-tule"]);
     const s = layer.stats();
-    expect(s.meshes).toBe(3);
+    expect(s.meshes).toBe(4); // three plant meshes plus the west chunk's shadows (reeds cast none)
     expect(s.instances).toBe([...veg(west), ...veg(east)].reduce((n, k) => n + k.count, 0));
     layer.dispose();
   });
@@ -247,6 +251,41 @@ describe("VegetationLayer", () => {
     expect(layer.stats().meshes).toBeGreaterThan(0);
     hooks.onLod0Evicted(PLANS[0], m);
     expect(layer.stats().meshes).toBe(0);
+    layer.dispose();
+  });
+
+  it("lays one shadow under every tree and shrub of a chunk, and none under reeds", () => {
+    const layer = new VegetationLayer(options());
+    const west = chunkMesh();
+    const east = chunkMesh();
+    layer.attach(west, PLANS[0]);
+    layer.attach(east, PLANS[1]);
+    const sh = shadowsOf(west)!;
+    expect(sh.count).toBe(veg(west).reduce((n, k) => n + k.count, 0));
+    expect(sh.renderOrder).toBeGreaterThan(0); // after the sea
+    expect(sh.renderOrder).toBeLessThan(1); // before the ponds, village discs, creeks and streets
+    expect(shadowsOf(east)).toBeUndefined(); // tule only
+    layer.dispose();
+  });
+
+  it("hides, shows and frees the shadows with the plants", () => {
+    const layer = new VegetationLayer(options());
+    const m = chunkMesh();
+    layer.attach(m, PLANS[0]);
+    layer.setEnabled(false);
+    expect(shadowsOf(m)!.visible).toBe(false);
+    layer.setEnabled(true);
+    expect(shadowsOf(m)!.visible).toBe(true);
+    layer.detach(m);
+    expect(shadowsOf(m)).toBeUndefined();
+    layer.dispose();
+  });
+
+  it("can be built without shadows", () => {
+    const layer = new VegetationLayer(options({ shadows: false }));
+    const m = chunkMesh();
+    layer.attach(m, PLANS[0]);
+    expect(shadowsOf(m)).toBeUndefined();
     layer.dispose();
   });
 });
