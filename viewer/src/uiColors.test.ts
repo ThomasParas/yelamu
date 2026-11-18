@@ -167,6 +167,21 @@ describe.each(Object.keys(themes))("text contrast, %s theme (>= 4.5:1)", (name) 
     }
   });
 
+  it("the turn buttons: no fill, the arrow is drawn like a map label (glyph in a halo)", () => {
+    // Read the colours from the real .turn__btn rules, so the test follows the stylesheet.
+    const rule = /\.turn__btn\s*\{([^}]*)\}/.exec(css)![1];
+    expect(rule).toMatch(/background:\s*transparent/);
+    const glyph = /(?:^|[;\s])color:\s*var\(--([a-z-]+)\)/.exec(rule)![1];
+    const glyphRule = /\.turn__btn \.btn-glyph\s*\{([^}]*)\}/.exec(css)![1];
+    const halos = [...glyphRule.matchAll(/var\(--([a-z-]+)\)/g)].map((m) => m[1]);
+    expect(new Set(halos)).toEqual(new Set(["label-halo"]));
+    const halo = color(t["label-halo"]);
+    for (const [group, ground] of grounds) {
+      const behind = blend(halo.color, halo.alpha, ground);
+      expect(contrastRatio(c(glyph), behind), `turn arrow over ${group}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("the focus ring is visible against panels and the page (>= 3:1)", () => {
     expect(contrastRatio(c("focus"), c("surface-strong"))).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(c("focus"), c("bg"))).toBeGreaterThanOrEqual(3);

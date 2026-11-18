@@ -172,13 +172,27 @@ export function createShell(root: HTMLElement): Shell {
   let lastAnnouncement = "";
   const toastEl = el("div", "toast", { role: "status", "aria-live": "polite" });
   const panelHost = el("div", "panels");
-  root.append(header, status, announcer, toastEl, panelHost);
+  // Big thumb-sized turn buttons in the bottom corners, for phones and tablets, where the
+  // toolbar's own rotate buttons sit inside the Menu disclosure. ui.css shows them only on
+  // narrow or touch screens and hides them while a panel (bottom sheet) is open.
+  const turn = el("div", "turn", { role: "group", "aria-label": "Turn the map" });
+  const turnLeftBtn = actionButton("turn__btn turn__btn--left", "↺", "Rotate left", "Rotate left (Q)", true);
+  const turnRightBtn = actionButton("turn__btn turn__btn--right", "↻", "Rotate right", "Rotate right (E)", true);
+  turn.append(turnLeftBtn, turnRightBtn);
+  root.append(header, status, announcer, toastEl, turn, panelHost);
 
   // Panels sit below the top bar, which wraps to a variable height on narrow screens.
   const syncBarHeight = () =>
     root.style.setProperty("--topbar-h", `${Math.ceil(header.getBoundingClientRect().height)}px`);
   syncBarHeight();
-  if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncBarHeight).observe(header);
+  // The turn buttons sit just above the status line, which may wrap to two lines.
+  const syncStatusHeight = () =>
+    root.style.setProperty("--status-h", `${Math.ceil(status.getBoundingClientRect().height)}px`);
+  syncStatusHeight();
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(syncBarHeight).observe(header);
+    new ResizeObserver(syncStatusHeight).observe(status);
+  }
 
   const resetHandlers: Array<() => void> = [];
   const rotateHandlers: Array<(dir: 1 | -1) => void> = [];
@@ -187,6 +201,8 @@ export function createShell(root: HTMLElement): Shell {
   resetBtn.addEventListener("click", () => resetHandlers.forEach((h) => h()));
   rotLeftBtn.addEventListener("click", () => rotateHandlers.forEach((h) => h(-1)));
   rotRightBtn.addEventListener("click", () => rotateHandlers.forEach((h) => h(1)));
+  turnLeftBtn.addEventListener("click", () => rotateHandlers.forEach((h) => h(-1)));
+  turnRightBtn.addEventListener("click", () => rotateHandlers.forEach((h) => h(1)));
   surpriseBtn.addEventListener("click", () => surpriseHandlers.forEach((h) => h()));
   copyBtn.addEventListener("click", () => copyHandlers.forEach((h) => h()));
 
@@ -201,6 +217,10 @@ export function createShell(root: HTMLElement): Shell {
   const actionIds = new Set<string>();
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let toastClearTimer: ReturnType<typeof setTimeout> | null = null;
+  const syncPanelOpen = () => {
+    if (openStack.length > 0) root.dataset.panelOpen = "true";
+    else delete root.dataset.panelOpen;
+  };
 
   return {
     root,
@@ -308,12 +328,14 @@ export function createShell(root: HTMLElement): Shell {
           if (at >= 0) openStack.splice(at, 1);
           else returnFocus = document.activeElement as HTMLElement | null;
           openStack.push(panel);
+          syncPanelOpen();
           section.hidden = false;
           section.focus({ preventScroll: true });
         },
         close() {
           const at = openStack.indexOf(panel);
           if (at >= 0) openStack.splice(at, 1);
+          syncPanelOpen();
           if (section.hidden) return;
           const hadFocus = section.contains(document.activeElement);
           section.hidden = true;

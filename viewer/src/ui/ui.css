@@ -323,6 +323,72 @@ main {
   display: none;
 }
 
+/* --- turn buttons: big thumb targets in the bottom corners (phones and tablets) ---
+   Hidden on wide mouse screens, where the toolbar's rotate buttons and Q / E are at hand.
+   They sit above the status line (its measured height is --status-h) and above the home
+   indicator, and step aside while a panel or bottom sheet is open. No fill: the arrow is
+   drawn like a map label, a dark glyph in a white halo, so it reads on every ground without
+   a solid disc over the map (uiColors.test.ts). The 52 px hit area stays invisible. */
+.turn {
+  display: none;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .turn {
+    display: block; /* zero height: both buttons are position: fixed */
+  }
+  .turn__btn {
+    position: fixed;
+    bottom: calc(var(--edge) + var(--safe-bottom) + var(--status-h, 0px) + var(--gap));
+    width: 52px;
+    height: 52px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--label-fg);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation; /* no double-tap zoom on quick repeated turns */
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: transform 0.08s ease;
+  }
+  .turn__btn .btn-glyph {
+    font-size: 2.2rem;
+    text-shadow:
+      0 0 2px var(--label-halo),
+      0 0 2px var(--label-halo),
+      0 0 3px var(--label-halo),
+      0 0 4px var(--label-halo);
+  }
+  .turn__btn--left {
+    left: calc(var(--edge) + env(safe-area-inset-left, 0px));
+  }
+  .turn__btn--right {
+    right: calc(var(--edge) + env(safe-area-inset-right, 0px));
+  }
+  .turn__btn:active {
+    transform: scale(0.88);
+  }
+  .turn__btn:focus-visible {
+    outline: 3px solid var(--canvas-ring);
+    outline-offset: 0;
+  }
+  .ui-root[data-panel-open="true"] .turn__btn {
+    display: none;
+  }
+}
+@media (forced-colors: active) {
+  .turn__btn {
+    border: 1px solid ButtonText;
+  }
+}
+
 /* --- side panel (bottom sheet on narrow screens) --- */
 .panel {
   position: fixed;
