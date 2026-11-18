@@ -141,3 +141,11 @@ Do all four steps; the first alone leaves the seven creek cards and the credit b
 **Not checked:** phone width, dark mode, a screen reader reading a card, and whether the five markers hidden at the opening view are a loss (a visitor finds them by zooming, search or Places).
 
 **Removal.** If the layer is removed, also delete these seven entries from `hotspots.json` and rerun `build_overlay.py`.
+
+## Mission Creek lower reach: CDFW "Historical Channels Ecology" (ds3202) checked (2026-11-18)
+
+The one lead from the source search was SFEI's "Historical Channels Ecology" compilation (CDFW BIOS ds3202, page states GNU GPL v3 or later). With the owner's approval it was downloaded (ds3202.zip, 12.4 MB; kept in the git-ignored `pipeline/data/raw/cdfw-ds3202/`) and read with a temporary `pyogrio` environment (`uv run --no-project --with pyogrio ...`, not added to the project's dependencies).
+
+**Result: it has no lines in San Francisco, so it does not fill the gap.** The file is a file geodatabase with one layer of 87,305 lines (EPSG:3310) covering California, from about 32.5 to 39.7 N. Queried with a box around the whole city (lon -122.52 to -122.35, lat 37.70 to 37.83) it returns 0 lines, and a box around lower Mission Creek (lon -122.42 to -122.375, lat 37.755 to 37.785) returns 0. Its largest project is "South San Francisco Baylands Tsheets" (64,775 lines), which is the South Bay baylands, not the city. Nothing from it is used on the map.
+
+**Not checked:** whether the file holds lines just south of the city limit that a wider box would show (irrelevant to Mission Creek); SFEI's own Hidden Nature SF data pages (sfei.org blocked automated reads); whether SFEI holds a lower Mission Creek line that is not published (the SFEI email asks).
