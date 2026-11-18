@@ -74,3 +74,19 @@ On the final production build (after the grey surround), served locally.
 - Thank the SFEI contact (Pete) and ask whether the Data terms wording is right.
 - The git backup of the pre-rewrite history at `~/Documents/yelamu-git-backup-before-rewrite-2026-11-17.tar.gz` contains the personal email address; delete it when sure.
 - The 1850s shore stages (East Bay, peninsula bayshore, Marin) each need their own plan.
+
+## Visual improvements on the phone (2026-11-18)
+
+**What changed since the launch run.** Branch `native-plant-shapes`, rebased on `a0cb107` (village sites): native plant shapes per habitat (oak, bay, willow, coyote brush, lupine, tule, reed), smooth terrain normals with baked hill shadows and ambient occlusion, and soft habitat edges drawn per pixel. Same method as above (production build, `vite preview`, over Tailscale).
+
+**Phone (Android, Chrome 158, 411x777 at 2.625x, 60 Hz).**
+
+| Scenario | fps | p95 frame gap | p95 JS time per frame | Quality | Triangles | Draw calls | Plants | Result |
+|---|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 60.0 | 17.3 ms | 3.6 ms | 2 -> 2 | 531,585 | 132 | 0 | **PASS** |
+| B close-up, vegetation off | 59.2 | 17.3 ms | 1.9 ms | 2 -> 2 | 1,039,220 | 42 | 0 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.2 ms | 2.3 ms | 2 -> 2 | 1,546,696 | 88 | 33,000 | **PASS** |
+| D close-up, vegetation + water | 60.0 | 17.1 ms | 1.8 ms | 2 -> 2 | 1,531,615 | 86 | 33,000 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.3 ms | 3.6 ms | 2 -> 2 | 1,049,603 | 268 | 33,000 | **PASS** |
+
+Against the launch run, C has about 5% more triangles (1.47M to 1.55M) and 13 more draw calls (one mesh per plant species), and the frame gaps are unchanged. The worst single JS callback was 35.2 ms (scenario B, once, a chunk loading). Capped at 60 fps, so this shows the phone keeps up, not its headroom. Not tested: an older phone, an iPhone, a long session, battery and warmth (not recorded).
