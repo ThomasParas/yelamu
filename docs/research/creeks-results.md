@@ -149,3 +149,21 @@ The one lead from the source search was SFEI's "Historical Channels Ecology" com
 **Result: it has no lines in San Francisco, so it does not fill the gap.** The file is a file geodatabase with one layer of 87,305 lines (EPSG:3310) covering California, from about 32.5 to 39.7 N. Queried with a box around the whole city (lon -122.52 to -122.35, lat 37.70 to 37.83) it returns 0 lines, and a box around lower Mission Creek (lon -122.42 to -122.375, lat 37.755 to 37.785) returns 0. Its largest project is "South San Francisco Baylands Tsheets" (64,775 lines), which is the South Bay baylands, not the city. Nothing from it is used on the map.
 
 **Not checked:** whether the file holds lines just south of the city limit that a wider box would show (irrelevant to Mission Creek); SFEI's own Hidden Nature SF data pages (sfei.org blocked automated reads); whether SFEI holds a lower Mission Creek line that is not published (the SFEI email asks).
+
+## Phone benchmark A to E with the creeks (2026-11-18)
+
+Run by the owner on the live site (`https://yelamu.thomasparas.com/?bench`, main at 21e6057 or later: creeks, shoreline foam, waterline fix and water ripples all present). Same phone and method as the Visual Improvements phone runs in `launch-results.md`: Android 10, Chrome 158, 411x777 at 2.625x, coarse pointer, reduced motion off, 60 Hz. Pass rule: at least 30 fps, p95 frame gap under 50 ms, quality level not dropped. Read from the owner's screenshot of the benchmark box.
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.2 ms | 4.1 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.5 | 17.7 ms | 2.1 ms | 2 -> 2 | 877,292 | 44 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.2 ms | 2.5 ms | 2 -> 2 | 1,581,376 | 96 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.4 ms | 2.3 ms | 2 -> 2 | 1,581,376 | 96 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.1 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+**Against the phone run just before the creeks merge** (the water-ripples run, `launch-results.md`): in A, C, D and E the triangle count is exactly 34,680 higher and the draw calls exactly 8 higher (A 574,447 to 609,127 and 152 to 160; C and D 1,546,696 to 1,581,376 and 88 to 96; E 1,049,603 to 1,084,283 and 268 to 276). That is the creek layer, the same 34,680 triangles and 8 calls the desktop bench measured (17,340 ribbon triangles, drawn twice because the ribbons are transparent and double-sided). Frame gaps are 17.1 to 17.7 ms against 17.2 to 17.3 ms before. The p95 render time is up by 0.9 ms in A (3.2 to 4.1 ms) and by 0.1 to 0.4 ms in B to E. B has fewer triangles than before (877,292 against 1,039,220) because fewer terrain chunks had streamed in when it was sampled, and only 2 more draw calls (44 against 42), since the close-up view holds little creek.
+
+**Result:** the creek layer does not cost frames on this phone. All five scenarios pass, the quality level never dropped, and the run is capped by the 60 Hz display, so it shows the phone keeps up, not how much headroom it has.
+
+**Not measured:** battery and warmth (not recorded for this run), an older or low-end phone, an iPhone, a long session. The one-off cost of building the ribbons at load (about 17,000 triangles from 2,903 points) was not timed on the phone.

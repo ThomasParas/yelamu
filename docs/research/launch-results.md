@@ -132,3 +132,7 @@ Branch `water-ripples` (`4de25c7`, built before the creeks merge): three's light
 | E whole region (grey surround) | 60.0 | 17.3 ms | 2.9 ms | 2 -> 2 | 1,049,603 | 268 | **PASS** |
 
 Frame gaps match the waterline-notch run to within 0.2 ms and JS time to within 0.4 ms, so the heavier water shader does not cost frames on this phone. The desktop run showed a higher JS-time p95 in A (3.9 ms against 1.7 ms) that the phone does not; it looks like run-to-run noise. Not measured here: the creeks layer (merged to main after this build).
+
+## Creeks on the phone (2026-11-18)
+
+The creeks layer (main `c54d1b8`, with the water ripples merged on top) measured on the same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz), on the live site. All five scenarios PASS at 59.5 to 60.0 fps, p95 frame gap 17.1 to 17.7 ms, quality 2 -> 2. The creek layer adds exactly 34,680 triangles and 8 draw calls in A, C, D and E against the water-ripples run; the p95 render time is up 0.9 ms in A and 0.1 to 0.4 ms elsewhere. Full table and reading: `docs/research/creeks-results.md`. Not measured: battery and warmth, an older phone, an iPhone, a long session.
