@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { GROUP_COLORS } from "./habitat";
-import { GROUP_LABELS, PONDS_LEGEND_NOTE, hexToCss, legendEntries, legendNotes } from "./legendEntries";
+import {
+  CONTEXT_LEGEND_NOTE,
+  GROUP_LABELS,
+  PONDS_LEGEND_NOTE,
+  hexToCss,
+  legendEntries,
+  legendNotes,
+} from "./legendEntries";
 
 describe("hexToCss", () => {
   it("pads to six digits", () => {
@@ -44,5 +51,18 @@ describe("legendNotes", () => {
     expect(legendNotes({})).toEqual([]);
     expect(legendNotes({ ponds_file: "" })).toEqual([]);
     expect(legendNotes({ ponds_file: null })).toEqual([]);
+  });
+});
+
+describe("legendNotes with surrounding terrain", () => {
+  it("adds the context note only when the dataset has a context_file", () => {
+    expect(legendNotes({ context_file: "context.json" })).toContain(CONTEXT_LEGEND_NOTE);
+    expect(legendNotes({})).not.toContain(CONTEXT_LEGEND_NOTE);
+    expect(legendNotes({ context_file: "" })).not.toContain(CONTEXT_LEGEND_NOTE);
+  });
+  it("keeps the ponds note and orders ponds first", () => {
+    const notes = legendNotes({ ponds_file: "ponds.json", context_file: "context.json" });
+    expect(notes.length).toBe(2);
+    expect(notes[1]).toBe(CONTEXT_LEGEND_NOTE);
   });
 });

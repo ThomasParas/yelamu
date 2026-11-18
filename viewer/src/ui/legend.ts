@@ -6,7 +6,7 @@ import type { Shell } from "./shell";
 
 export function createLegend(
   shell: Shell,
-  meta: Pick<HeightmapMeta, "habitat_classes" | "overlay_file" | "ponds_file">,
+  meta: Pick<HeightmapMeta, "habitat_classes" | "overlay_file" | "ponds_file" | "context_file">,
   options: { vegetation?: boolean } = {},
 ) {
   const panel = shell.addPanel("legend", "Legend");

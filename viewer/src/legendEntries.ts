@@ -44,9 +44,15 @@ export function legendEntries(classes: readonly HabitatClass[] | undefined): Leg
 /** Legend line for datasets that draw ponds (those with `ponds_file`). Plain text, no colour of its own. */
 export const PONDS_LEGEND_NOTE = "Ponds and lagoons sit at their own water level.";
 
+// Wording approved by the owner on 2026-11-17
+/** Legend line for datasets with the grey surrounding terrain (those with `context_file`). */
+export const CONTEXT_LEGEND_NOTE =
+  "Beyond the area mapped for 1769, the grey-brown ground is today's terrain and coastline, shown only for orientation. It is not a reconstruction.";
+
 /** Extra plain-text lines the Legend shows beneath the ground colours, depending on the dataset. */
-export function legendNotes(meta: { ponds_file?: string | null }): string[] {
+export function legendNotes(meta: { ponds_file?: string | null; context_file?: string | null }): string[] {
   const notes: string[] = [];
   if (typeof meta.ponds_file === "string" && meta.ponds_file !== "") notes.push(PONDS_LEGEND_NOTE);
+  if (typeof meta.context_file === "string" && meta.context_file !== "") notes.push(CONTEXT_LEGEND_NOTE);
   return notes;
 }

@@ -51,6 +51,12 @@ export function createAbout(): AboutDialog {
           "U.S. Coast Survey maps. It is an informed picture of how land and water may have lain, not a " +
           "photograph or a survey.",
       ),
+      // Wording approved by the owner on 2026-11-17
+      paragraph(
+        "The grey-brown ground beyond the mapped area is today's terrain and coastline, shown only so the peninsula " +
+          "is not floating on its own. It is not a reconstruction: along the Bay shore it includes land that was " +
+          "filled in after 1769.",
+      ),
     ),
   );
 
