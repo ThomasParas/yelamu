@@ -49,3 +49,18 @@ describe("announcements", () => {
     expect(layerAnnouncement("Water motion", false)).toBe("Water motion off");
   });
 });
+
+describe("groupPlaces with village sites", () => {
+  it("lists Village sites between Hotspots and Landmarks, sorted by name", () => {
+    const villages = [h("village-tubsinte", "Tubsinte", "village"), h("village-amuctac", "Amuctac", "village")];
+    const groups = groupPlaces([h("h1", "Mission Creek")], [h("l1", "Alcatraz", "other")], villages);
+    expect(groups.map((g) => g.title)).toEqual(["Hotspots", "Village sites", "Landmarks"]);
+    expect(groups[1].items.map((i) => i.name)).toEqual(["Amuctac", "Tubsinte"]);
+  });
+
+  it("keeps working with two lists, and leaves an empty village group out", () => {
+    expect(groupPlaces([h("h1", "A")], [h("l1", "B")]).map((g) => g.title)).toEqual(["Hotspots", "Landmarks"]);
+    expect(groupPlaces([h("h1", "A")], [h("l1", "B")], []).map((g) => g.title)).toEqual(["Hotspots", "Landmarks"]);
+    expect(groupPlaces([], [], [h("v", "V", "village")]).map((g) => g.title)).toEqual(["Village sites"]);
+  });
+});

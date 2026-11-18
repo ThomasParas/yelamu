@@ -9,8 +9,21 @@ export const REGION_PRIORITY = 58;
 export const REGION_PLACE_ZOOM = 1.2;
 
 /**
+ * The label kinds the enabled layers switch on: landmark and hotspot labels with their layers,
+ * and village names with the Village sites layer (they are never hidden by zoom, see labelKindsFor).
+ */
+export function baseLabelKinds(isOn: (layerId: string) => boolean): Set<string> {
+  const kinds = new Set<string>();
+  if (isOn("landmarks")) kinds.add("landmark");
+  if (isOn("hotspots")) kinds.add("hotspot");
+  if (isOn("villages")) kinds.add("village");
+  return kinds;
+}
+
+/**
  * The label kinds to show this frame: `base` plus "region" when Landmarks is on and the camera is
  * zoomed out, or whenever `forceRegion` is set (a ring place is selected, so its label must show).
+ * Kinds already in `base` (including "village") are kept at every zoom.
  */
 export function labelKindsFor(
   base: ReadonlySet<string>,

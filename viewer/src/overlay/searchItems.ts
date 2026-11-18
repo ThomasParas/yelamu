@@ -53,10 +53,11 @@ export function streetSearchItems(streets: readonly Street[]): SearchItem[] {
   return items;
 }
 
-/** Hotspots, landmarks and street names as search items. */
+/** Hotspots, village sites, landmarks and street names as search items. */
 export function overlaySearchItems(overlay: Overlay): SearchItem[] {
   return [
     ...overlay.hotspots.map((h): SearchItem => ({ id: h.id, name: h.name, group: "hotspot", kind: h.kind, x: h.x, z: h.z })),
+    ...overlay.villages.map((v): SearchItem => ({ id: v.id, name: v.name, group: "village", kind: "village", x: v.x, z: v.z })),
     ...overlay.landmarks.map((l): SearchItem => ({ id: l.id, name: l.name, group: "landmark", kind: l.kind, x: l.x, z: l.z })),
     ...streetSearchItems(overlay.streets),
   ];

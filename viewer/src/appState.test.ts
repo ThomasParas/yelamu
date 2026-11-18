@@ -194,3 +194,11 @@ describe("isPlaceId", () => {
     expect(isPlaceId(undefined)).toBe(false);
   });
 });
+
+describe("village place ids (p=village-xxx)", () => {
+  it("are valid place ids and round-trip", () => {
+    expect(isPlaceId("village-chutchui")).toBe(true);
+    expect(decodeState("p=village-petlenuc").place).toBe("village-petlenuc");
+    expect(decodeState(encodeState({ ...base, place: "village-sitlintac" })).place).toBe("village-sitlintac");
+  });
+});

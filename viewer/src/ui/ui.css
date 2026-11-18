@@ -30,6 +30,9 @@
   /* map labels sit on the (unthemed) canvas, so they keep their own contrast */
   --label-fg: #1c2429;
   --label-halo: rgba(255, 255, 255, 0.95);
+  /* village names: a dark brown on a warm halo (same values as overlay/villageColors.ts) */
+  --village-fg: #3b2a14;
+  --village-halo: rgba(255, 244, 224, 0.95);
   /* focus ring around the canvas: fixed, because the scene background does not follow the theme */
   --canvas-ring: #0b57d0;
 }
@@ -535,6 +538,37 @@ main {
   pointer-events: none;
 }
 .label.is-selected {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Village names: clickable text, no marker (the tan disc on the map is the symbol). */
+.village-label {
+  position: relative;
+  padding: 0 3px;
+  border: 0;
+  background: none;
+  color: var(--village-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow:
+    0 0 2px var(--village-halo),
+    0 0 2px var(--village-halo),
+    0 0 3px var(--village-halo),
+    0 0 4px var(--village-halo);
+}
+/* Grow the hit area to at least 44x44 CSS px without changing the layout. */
+.village-label::after {
+  content: "";
+  position: absolute;
+  inset: -14px -10px;
+}
+.village-label.is-selected {
   text-decoration: underline;
   text-underline-offset: 2px;
 }

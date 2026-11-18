@@ -140,3 +140,29 @@ describe("searchMetaLabel", () => {
     expect(searchMetaLabel(it_("1", "x", "street", "primary"))).toBe("Street");
   });
 });
+
+describe("village sites", () => {
+  const v = (id: string, name: string) => it_(id, name, "village", "village");
+  it("are found by name and by prefix", () => {
+    const index = buildSearchIndex([v("village-chutchui", "Chutchui"), v("village-sitlintac", "Sitlintac"), it_("l", "Mission Dolores")]);
+    expect(names(search(index, "Chutchui"))).toEqual(["Chutchui"]);
+    expect(names(search(index, "chut"))).toEqual(["Chutchui"]);
+    expect(names(search(index, "SITLIN"))).toEqual(["Sitlintac"]);
+  });
+  it("rank after hotspots and before landmarks on an equal match", () => {
+    const index = buildSearchIndex([
+      it_("l", "Tubsinte Hill", "landmark", "hill"),
+      v("village-tubsinte", "Tubsinte"),
+      it_("h", "Tubsinte Marsh", "hotspot", "marsh"),
+    ]);
+    // "tubs" is a name-prefix match for all three; group weight breaks the tie
+    expect(search(index, "tubs").map((i) => i.group)).toEqual(["hotspot", "village", "landmark"]);
+  });
+  it("beat a landmark with the same name when the index collapses duplicates", () => {
+    const index = buildSearchIndex([it_("l", "Amuctac", "landmark", "other"), v("village-amuctac", "Amuctac")]);
+    expect(search(index, "amuctac")[0].group).toBe("village");
+  });
+  it("show the secondary label 'Village site'", () => {
+    expect(searchMetaLabel(v("village-petlenuc", "Petlenuc"))).toBe("Village site");
+  });
+});

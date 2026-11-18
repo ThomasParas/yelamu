@@ -76,3 +76,39 @@ describe("overlaySearchItems", () => {
     expect(items[0]).toMatchObject({ x: 3, z: 4, kind: "creek" });
   });
 });
+
+describe("village search items", () => {
+  const village = (id: string, name: string, x: number, z: number) => ({
+    id,
+    name,
+    x,
+    z,
+    lon: -122.4,
+    lat: 37.7,
+    radius_m: 530,
+    description: "A village site used only in tests.",
+    sources: [{ title: "t", url: "https://example.org" }],
+    confidence: "inferred" as const,
+  });
+
+  it("adds one 'village' item per village, after hotspots and before landmarks", () => {
+    const overlay: Overlay = {
+      version: 1,
+      streets: [],
+      landmarks: [{ id: "peak", name: "Peak", kind: "hill", x: 1, z: 2, lon: 0, lat: 0 }],
+      hotspots: [],
+      villages: [village("village-chutchui", "Chutchui", 7, 8)],
+    };
+    const items = overlaySearchItems(overlay);
+    expect(items.map((i) => [i.group, i.id])).toEqual([
+      ["village", "village-chutchui"],
+      ["landmark", "peak"],
+    ]);
+    expect(items[0]).toMatchObject({ name: "Chutchui", x: 7, z: 8, kind: "village" });
+  });
+
+  it("adds nothing when there are no villages", () => {
+    const overlay: Overlay = { version: 1, streets: [], landmarks: [], hotspots: [], villages: [] };
+    expect(overlaySearchItems(overlay)).toEqual([]);
+  });
+});

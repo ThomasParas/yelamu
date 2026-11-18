@@ -8,6 +8,8 @@
  *   label text 1c2429 on its white halo ........ 15.7:1   (on bare ground: 2.6 woodland .. 11.1 beach)
  *   street slate 1f2a33: darkest ground (woodland 4f6b3f) 2.4:1, lightest (beach e6d9a8) 10.3:1,
  *     worst case over all ten ground colours 2.35:1 (primary) / 1.74:1 (local, 0.6 opacity)
+ *   village label 3b2a14 on its halo fff4e0 ... 12.6:1  (over every ground colour 11.8 .. 12.5)
+ *   village outline 4a3418 at 0.9: worst case woodland 1.83:1, beach 6.4:1 (a lighter tan ring: beach 1.11:1)
  *   old street cream fff3d6: woodland 5.4:1 but beach 1.28:1, dune 1.55:1 -> replaced
  */
 import { readFileSync } from "node:fs";
@@ -16,6 +18,18 @@ import { blend, contrastRatio, meetsContrast } from "./a11y";
 import { GROUP_COLORS } from "./habitat";
 import { LABEL_HALO, LABEL_HALO_ALPHA, LABEL_TEXT } from "./overlay/labels";
 import { STREET_COLOR, STREET_OPACITY } from "./overlay/streetsLayer";
+import {
+  VILLAGE_FILL,
+  VILLAGE_FILL_OPACITY,
+  VILLAGE_FILL_SELECTED_OPACITY,
+  VILLAGE_LABEL_HALO,
+  VILLAGE_LABEL_HALO_ALPHA,
+  VILLAGE_LABEL_TEXT,
+  VILLAGE_OUTLINE,
+  VILLAGE_OUTLINE_OPACITY,
+  VILLAGE_OUTLINE_SELECTED,
+  VILLAGE_OUTLINE_SELECTED_OPACITY,
+} from "./overlay/villageColors";
 import { SCENE_BACKGROUND } from "./theme";
 import { VEG_COLORS } from "./vegetation/geometry";
 import { VEGETATION_BY_GROUP } from "./vegetation/placement";
@@ -64,6 +78,15 @@ describe("ui.css tokens", () => {
     const halo = color(light["label-halo"]);
     expect(halo.color).toBe(LABEL_HALO);
     expect(halo.alpha).toBeCloseTo(LABEL_HALO_ALPHA, 5);
+  });
+
+  it("keeps the village label colours in sync with overlay/villageColors.ts", () => {
+    expect(color(light["village-fg"]).color).toBe(VILLAGE_LABEL_TEXT);
+    const halo = color(light["village-halo"]);
+    expect(halo.color).toBe(VILLAGE_LABEL_HALO);
+    expect(halo.alpha).toBeCloseTo(VILLAGE_LABEL_HALO_ALPHA, 5);
+    expect(themes.dark["village-fg"]).toBe(light["village-fg"]); // on the unthemed canvas, like other labels
+    expect(themes.dark["village-halo"]).toBe(light["village-halo"]);
   });
 });
 
@@ -122,6 +145,54 @@ describe("map labels", () => {
     for (const [group, ground] of grounds) {
       const halo = blend(LABEL_HALO, LABEL_HALO_ALPHA, ground);
       expect(contrastRatio(LABEL_TEXT, halo), `halo over ${group}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe("village labels", () => {
+  it("text on its halo meets 4.5:1, also over every ground colour", () => {
+    expect(meetsContrast(VILLAGE_LABEL_TEXT, VILLAGE_LABEL_HALO, 4.5)).toBe(true);
+    for (const [group, ground] of grounds) {
+      const halo = blend(VILLAGE_LABEL_HALO, VILLAGE_LABEL_HALO_ALPHA, ground);
+      expect(contrastRatio(VILLAGE_LABEL_TEXT, halo), `village halo over ${group}`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe("village discs (a soft area plus an outline, not text)", () => {
+  it("the outline clears 1.5:1 against every ground colour, selected or not", () => {
+    for (const [outline, opacity, state] of [
+      [VILLAGE_OUTLINE, VILLAGE_OUTLINE_OPACITY, "normal"],
+      [VILLAGE_OUTLINE_SELECTED, VILLAGE_OUTLINE_SELECTED_OPACITY, "selected"],
+    ] as const) {
+      for (const [group, ground] of grounds) {
+        const drawn = blend(outline, opacity, ground);
+        const ratio = contrastRatio(drawn, ground);
+        expect(ratio, `${state} village outline over ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.5);
+      }
+    }
+  });
+
+  it("the outline stands out from the tan fill drawn over the same ground", () => {
+    for (const [group, ground] of grounds) {
+      const inside = blend(VILLAGE_FILL, VILLAGE_FILL_OPACITY, ground);
+      const ring = blend(VILLAGE_OUTLINE, VILLAGE_OUTLINE_OPACITY, ground);
+      expect(contrastRatio(ring, inside), `outline vs fill over ${group}`).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+
+  it("the fill is translucent and gets stronger, not weaker, when selected", () => {
+    expect(VILLAGE_FILL).toBe(0xcaaf8f);
+    expect(VILLAGE_FILL_OPACITY).toBeGreaterThan(0.3);
+    expect(VILLAGE_FILL_OPACITY).toBeLessThan(0.6);
+    expect(VILLAGE_FILL_SELECTED_OPACITY).toBeGreaterThan(VILLAGE_FILL_OPACITY);
+    expect(VILLAGE_FILL_SELECTED_OPACITY).toBeLessThan(1);
+  });
+
+  it("the label text is told apart from the tan disc it sits on (>= 4.5:1 over the fill)", () => {
+    for (const [group, ground] of grounds) {
+      const halo = blend(VILLAGE_LABEL_HALO, VILLAGE_LABEL_HALO_ALPHA, blend(VILLAGE_FILL, VILLAGE_FILL_SELECTED_OPACITY, ground));
+      expect(contrastRatio(VILLAGE_LABEL_TEXT, halo), `label over a selected disc on ${group}`).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

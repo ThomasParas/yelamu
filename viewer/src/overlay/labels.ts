@@ -49,6 +49,8 @@ export function declutter(items: readonly DeclutterItem[], padding: number): Set
 
 /** Declutter priority of a landmark label by kind (hotspots use HOTSPOT_PRIORITY). */
 export const HOTSPOT_PRIORITY = 100;
+/** Village names rank with hotspots, so they win over every landmark. */
+export const VILLAGE_PRIORITY = HOTSPOT_PRIORITY;
 const LANDMARK_PRIORITY: Record<LandmarkKind, number> = {
   hill: 60,
   park: 56,
@@ -72,7 +74,7 @@ export interface LabelItem {
   x: number;
   z: number;
   y: number;
-  kind: "landmark" | "hotspot" | "region";
+  kind: "landmark" | "hotspot" | "village" | "region";
   priority: number;
 }
 
@@ -222,6 +224,15 @@ export class LabelLayer {
       name.setAttribute("aria-hidden", "true");
       name.textContent = item.text;
       button.append(dot, name);
+      button.addEventListener("click", () => this.onActivate(item.id));
+      el = button;
+    } else if (item.kind === "village") {
+      // A clickable name (no marker: the disc on the map is the symbol).
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "village-label";
+      button.setAttribute("aria-label", `Village site: ${item.text}`);
+      button.textContent = item.text;
       button.addEventListener("click", () => this.onActivate(item.id));
       el = button;
     } else {

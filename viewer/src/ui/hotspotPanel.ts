@@ -1,11 +1,11 @@
-/** Side panel with the details of one hotspot. All text from data goes through textContent. */
+/** Side panel with the details of one hotspot (or village site). All text from data goes through textContent. */
 import { confidenceInfo } from "../confidence";
-import type { Hotspot } from "../overlay/types";
+import type { PanelPlace } from "../overlay/villageSite";
 import type { Panel, Shell } from "./shell";
 
 export interface HotspotPanel {
-  /** Fill and open the panel for `hotspot`. */
-  show(hotspot: Hotspot): void;
+  /** Fill and open the panel for `hotspot` (a village arrives with its kind text "Village site"). */
+  show(hotspot: PanelPlace): void;
   /** Close the panel (calls the onClose handlers). */
   hide(): void;
   isOpen(): boolean;
@@ -47,7 +47,7 @@ export function safeLink(url: string, text: string): HTMLElement {
 export function createHotspotPanel(shell: Shell): HotspotPanel {
   const panel: Panel = shell.addPanel("hotspot", "Hotspot");
 
-  const show = (h: Hotspot) => {
+  const show = (h: PanelPlace) => {
     panel.setTitle(h.name);
     const info = confidenceInfo(h.confidence);
 

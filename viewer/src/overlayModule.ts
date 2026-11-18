@@ -1,9 +1,10 @@
 import type { AppContext } from "./appContext";
 import type { AppModule } from "./modules";
 import { makeHeightSampler } from "./overlay/heightAt";
-import { HOTSPOT_PRIORITY, LabelLayer, landmarkPriority, type LabelItem } from "./overlay/labels";
+import { layerDefsFor } from "./overlay/layerDefs";
+import { HOTSPOT_PRIORITY, LabelLayer, VILLAGE_PRIORITY, landmarkPriority, type LabelItem } from "./overlay/labels";
 import { loadOverlay } from "./overlay/parse";
-import { REGION_PLACE_ZOOM, REGION_PRIORITY, labelKindsFor, regionSearchItems } from "./overlay/regionLabels";
+import { REGION_PLACE_ZOOM, REGION_PRIORITY, baseLabelKinds, labelKindsFor, regionSearchItems } from "./overlay/regionLabels";
 import { overlaySearchItems } from "./overlay/searchItems";
 import {
   STREET_LIFT_M,
@@ -11,7 +12,9 @@ import {
   STREET_THRESHOLDS,
   StreetsLayer,
 } from "./overlay/streetsLayer";
-import type { Hotspot, Landmark } from "./overlay/types";
+import type { Hotspot, Landmark, Village } from "./overlay/types";
+import { VillageDiscs } from "./overlay/villageDiscs";
+import { villagePanelEntry } from "./overlay/villageSite";
 import { groupPlaces, selectedAnnouncement } from "./placesList";
 import { buildSearchIndex, search, type SearchItem } from "./search";
 import { createHotspotPanel } from "./ui/hotspotPanel";
@@ -19,13 +22,7 @@ import { createPlacesPanel } from "./ui/placesPanel";
 import { createSearchBox } from "./ui/searchBox";
 
 /** Camera zoom used when flying to a search result or a surprise hotspot (never zooms out). */
-export const PLACE_ZOOM = { hotspot: 6, landmark: 4, street: 4 } as const;
-
-const LAYER_DEFS = [
-  { id: "streets", label: "Streets", defaultOn: false },
-  { id: "landmarks", label: "Landmarks", defaultOn: true },
-  { id: "hotspots", label: "Hotspots", defaultOn: true },
-] as const;
+export const PLACE_ZOOM = { hotspot: 6, village: 5, landmark: 4, street: 4 } as const;
 
 /**
  * Modern streets, landmark labels, hotspot markers + panel and local search, all driven by
@@ -66,6 +63,7 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
 
   // --- labels and markers ---
   const hotspots = new Map<string, Hotspot>(overlay.hotspots.map((h) => [h.id, h]));
+  const villages = new Map<string, Village>(overlay.villages.map((v) => [v.id, v]));
   const landmarks = new Map<string, Landmark>(overlay.landmarks.map((l) => [l.id, l]));
   const regionIds = new Set<string>();
   for (const p of ctx.extraPlaces) {
@@ -79,6 +77,9 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
     ...overlay.hotspots.map(
       (h): LabelItem => ({ id: h.id, text: h.name, x: h.x, z: h.z, y: groundY(h.x, h.z), kind: "hotspot", priority: HOTSPOT_PRIORITY }),
     ),
+    ...overlay.villages.map(
+      (v): LabelItem => ({ id: v.id, text: v.name, x: v.x, z: v.z, y: groundY(v.x, v.z), kind: "village", priority: VILLAGE_PRIORITY }),
+    ),
     ...ctx.extraPlaces.map(
       (p): LabelItem => ({ id: p.id, text: p.name, x: p.x, z: p.z, y: Math.max(p.groundM, ctx.meta.water_level_m) * exaggeration, kind: "region", priority: REGION_PRIORITY }),
     ),
@@ -88,20 +89,27 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   const labels = new LabelLayer(shell.root, (id) => place.set(id));
   labels.setItems(items);
 
+  // --- village discs (static; none when the dataset has no villages) ---
+  const discs = overlay.villages.length
+    ? new VillageDiscs(overlay.villages, heightAt, { waterLevelM: ctx.meta.water_level_m, exaggeration })
+    : null;
+  if (discs) ctx.scene.add(discs);
+
   // --- layer toggles (defaults apply only when the URL has no `l`) ---
   const visibleKinds = new Set<string>();
   const handles = new Map<string, ReturnType<typeof shell.addToggle>>();
+  const layerDefs = layerDefsFor(overlay.villages.length > 0);
   const syncLayers = () => {
     visibleKinds.clear();
-    if (layers.has("landmarks")) visibleKinds.add("landmark");
-    if (layers.has("hotspots")) visibleKinds.add("hotspot");
+    for (const kind of baseLabelKinds((id) => layers.has(id))) visibleKinds.add(kind);
+    discs?.setEnabled(layers.has("villages"));
     const wantStreets = layers.has("streets");
     if (wantStreets) ensureStreets().setEnabled(true);
     else streets?.setEnabled(false);
-    for (const def of LAYER_DEFS) handles.get(def.id)?.set(layers.has(def.id));
+    for (const def of layerDefs) handles.get(def.id)?.set(layers.has(def.id));
     ctx.requestRender();
   };
-  for (const def of LAYER_DEFS) {
+  for (const def of layerDefs) {
     const on = layers.register(def.id, def.defaultOn);
     handles.set(def.id, shell.addToggle(def.id, def.label, on, (v) => layers.set(def.id, v)));
   }
@@ -122,22 +130,26 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   const applyPlace = (id: string | undefined) => {
     labels.setSelected(id);
     const hotspot = id ? hotspots.get(id) : undefined;
+    const village = id ? villages.get(id) : undefined;
+    discs?.setSelected(village?.id);
     if (hotspot) panel.show(hotspot);
+    else if (village) panel.show(villagePanelEntry(village));
     else panel.hide();
     ctx.requestRender();
   };
   place.onChange((id) => {
     applyPlace(id);
     // Screen readers hear the selection even when no panel opens (a landmark).
-    const name = id ? (hotspots.get(id)?.name ?? landmarks.get(id)?.name) : undefined;
+    const name = id ? (hotspots.get(id)?.name ?? villages.get(id)?.name ?? landmarks.get(id)?.name) : undefined;
     if (name) shell.announce(selectedAnnouncement(name));
   });
   panel.onClose(() => {
-    if (place.get() && hotspots.has(place.get()!)) place.set(undefined);
+    const open = place.get();
+    if (open && (hotspots.has(open) || villages.has(open))) place.set(undefined);
   });
   // Only places in this overlay can be selected: this also drops an unknown id from a shared
   // link now, and from a hand-edited hash later (the listeners hear about the clearing).
-  place.restrictTo((id) => hotspots.has(id) || landmarks.has(id));
+  place.restrictTo((id) => hotspots.has(id) || villages.has(id) || landmarks.has(id));
   applyPlace(place.get());
 
   // Esc: close a panel first; otherwise drop a selected landmark.
@@ -178,6 +190,7 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
         ...overlay.landmarks.map((l) => ({ id: l.id, name: l.name, kind: l.kind })),
         ...ctx.extraPlaces.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
       ],
+      overlay.villages.map((v) => ({ id: v.id, name: v.name, kind: "village" })),
     ),
     (id) => {
       const item = placeItems.get(id);

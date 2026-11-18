@@ -1,6 +1,6 @@
 /** Local search over place names. Pure: no DOM. */
 
-export type SearchGroup = "hotspot" | "landmark" | "street";
+export type SearchGroup = "hotspot" | "village" | "landmark" | "street";
 
 export interface SearchItem {
   id: string;
@@ -21,7 +21,7 @@ export interface SearchIndex {
 }
 
 export const MIN_QUERY_CHARS = 2;
-const GROUP_WEIGHT: Record<SearchGroup, number> = { hotspot: 0, landmark: 1, street: 2 };
+const GROUP_WEIGHT: Record<SearchGroup, number> = { hotspot: 0, village: 1, landmark: 2, street: 3 };
 
 /**
  * Lowercase, strip diacritics, drop apostrophes, turn every other run of punctuation and
@@ -43,7 +43,7 @@ function weight(group: SearchGroup): number {
 
 /**
  * Index the items. Items whose normalised names are equal collapse to one: the best group
- * (hotspot, landmark, street) wins, then the first in input order. Items with an empty
+ * (hotspot, village, landmark, street) wins, then the first in input order. Items with an empty
  * normalised name are skipped.
  */
 export function buildSearchIndex(items: readonly SearchItem[]): SearchIndex {
@@ -68,7 +68,7 @@ function tier(norm: string, q: string): number {
 
 /**
  * Best matches for a query, at most `limit`. Rank: exact name, name prefix, word prefix,
- * substring; ties go to hotspots, then landmarks, then streets, then the shorter name,
+ * substring; ties go to hotspots, then village sites, then landmarks, then streets, then the shorter name,
  * then alphabetical order (then id). A query shorter than 2 characters finds nothing.
  */
 export function search(index: SearchIndex, query: string, limit = 8): SearchItem[] {
@@ -92,12 +92,13 @@ export function search(index: SearchIndex, query: string, limit = 8): SearchItem
 
 const GROUP_LABEL: Record<SearchGroup, string> = {
   hotspot: "Hotspot",
+  village: "Village site",
   landmark: "Landmark",
   street: "Street",
 };
 
-/** Small secondary label for a result: "Hotspot · creek", "Landmark · park", "Street". */
+/** Small secondary label for a result: "Hotspot · creek", "Landmark · park", "Village site", "Street". */
 export function searchMetaLabel(item: SearchItem): string {
   const group = Object.hasOwn(GROUP_LABEL, item.group) ? GROUP_LABEL[item.group] : item.group;
-  return item.group === "street" || !item.kind ? group : `${group} · ${item.kind}`;
+  return item.group === "street" || item.group === "village" || !item.kind ? group : `${group} · ${item.kind}`;
 }

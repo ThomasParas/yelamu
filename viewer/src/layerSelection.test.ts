@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cleanLayers, decodeState, encodeState } from "./appState";
 import { LayerSelection } from "./layerSelection";
 
 describe("LayerSelection", () => {
@@ -163,5 +164,26 @@ describe("LayerSelection defaults are per layer", () => {
     l.register("hotspots", true);
     expect(n).toBe(0);
     expect(l.hashValue()).toBeUndefined();
+  });
+});
+
+describe("the villages layer", () => {
+  it("is a valid layer id, kept in a list from the URL and sorted with the rest", () => {
+    expect(cleanLayers(["villages", "streets", "landmarks"])).toEqual(["landmarks", "streets", "villages"]);
+    expect(decodeState("l=hotspots,villages").layers).toEqual(["hotspots", "villages"]);
+    expect(new LayerSelection(["villages"]).has("villages")).toBe(true);
+  });
+
+  it("is on by default (no l=), and an explicit list without it leaves it off", () => {
+    const fresh = new LayerSelection();
+    expect(fresh.register("villages", true)).toBe(true);
+    expect(fresh.hashValue()).toBeUndefined();
+    const explicit = new LayerSelection(["landmarks"]);
+    expect(explicit.register("villages", true)).toBe(false);
+  });
+
+  it("round-trips through the hash", () => {
+    const s = { x: 0, z: 0, zoom: 1, rot: 0, layers: ["villages"] };
+    expect(decodeState(encodeState(s)).layers).toEqual(["villages"]);
   });
 });

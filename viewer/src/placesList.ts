@@ -1,4 +1,4 @@
-/** Pure data for the Places panel: every hotspot and landmark, grouped and sorted by name. */
+/** Pure data for the Places panel: every hotspot, village site and landmark, grouped and sorted by name. */
 
 export interface PlaceEntry {
   id: string;
@@ -8,7 +8,7 @@ export interface PlaceEntry {
 }
 
 export interface PlaceGroup {
-  title: "Hotspots" | "Landmarks";
+  title: "Hotspots" | "Village sites" | "Landmarks";
   items: PlaceEntry[];
 }
 
@@ -26,13 +26,15 @@ function clean(list: ReadonlyArray<PlaceEntry>): PlaceEntry[] {
   return out.sort(compare);
 }
 
-/** Hotspots first, then landmarks; a group with no entries is left out. */
+/** Hotspots first, then village sites, then landmarks; a group with no entries is left out. */
 export function groupPlaces(
   hotspots: ReadonlyArray<PlaceEntry>,
   landmarks: ReadonlyArray<PlaceEntry>,
+  villages: ReadonlyArray<PlaceEntry> = [],
 ): PlaceGroup[] {
   const groups: PlaceGroup[] = [
     { title: "Hotspots", items: clean(hotspots) },
+    { title: "Village sites", items: clean(villages) },
     { title: "Landmarks", items: clean(landmarks) },
   ];
   return groups.filter((g) => g.items.length > 0);

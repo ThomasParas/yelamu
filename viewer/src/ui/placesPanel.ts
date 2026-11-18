@@ -19,7 +19,7 @@ export function createPlacesPanel(shell: Shell, groups: readonly PlaceGroup[], o
   const parts: Node[] = [];
   parts.push(node("p", "panel__note", "Every hotspot and landmark on the map. Choose one to fly there."));
   for (const group of groups) {
-    const headingId = `places-${group.title.toLowerCase()}`;
+    const headingId = `places-${group.title.toLowerCase().replace(/\s+/g, "-")}`;
     const heading = node("h3", "panel__subtitle", group.title);
     heading.id = headingId;
     const list = node("ul", "places");

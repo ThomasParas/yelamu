@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { declutter, landmarkPriority, projectToScreen, type DeclutterItem } from "./labels";
+import { HOTSPOT_PRIORITY, VILLAGE_PRIORITY, declutter, landmarkPriority, projectToScreen, type DeclutterItem } from "./labels";
 
 const item = (id: string, x: number, y: number, priority = 1, w = 50, h = 14): DeclutterItem => ({
   id,
@@ -101,5 +101,19 @@ describe("landmarkPriority", () => {
     expect(landmarkPriority("hill")).toBeGreaterThan(landmarkPriority("building"));
     expect(landmarkPriority("nonsense")).toBe(landmarkPriority("other"));
     expect(landmarkPriority("constructor")).toBe(landmarkPriority("other"));
+  });
+});
+
+describe("village label priority", () => {
+  it("equals the hotspot priority, so village names win over every landmark", () => {
+    expect(VILLAGE_PRIORITY).toBe(HOTSPOT_PRIORITY);
+    for (const kind of ["hill", "park", "bridge", "neighborhood", "fort", "beach", "water", "building", "other", "region"]) {
+      expect(VILLAGE_PRIORITY).toBeGreaterThan(landmarkPriority(kind));
+    }
+  });
+
+  it("declutter keeps a village label over an overlapping landmark label", () => {
+    const kept = declutter([item("landmark", 0, 0, landmarkPriority("hill")), item("village", 10, 3, VILLAGE_PRIORITY)], 4);
+    expect([...kept]).toEqual(["village"]);
   });
 });
