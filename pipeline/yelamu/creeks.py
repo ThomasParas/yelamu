@@ -253,7 +253,7 @@ MODELLED_LAYER = "modelled_streams"
 # Proposed wording for the Sources panel; the owner approves it verbatim before it ships.
 MAPPED_SOURCE_NOTE = (
     "Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from "
-    "1850s maps and a historical elevation model. Approximate."
+    "19th-century maps and a historical elevation model. Approximate."
 )
 MODELLED_SOURCE_NOTE = (
     "Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), "

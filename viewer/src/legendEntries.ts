@@ -63,7 +63,7 @@ export function hasVillages(meta: { overlay_villages?: unknown } | null | undefi
 // Wording proposed 2026-11-18, awaiting the owner's approval
 /** Legend "Map symbols" rows for the creek layers (`creeks_mapped` and `creeks_modelled` > 0). */
 export const CREEKS_LEGEND_NOTE =
-  "Creek lines mapped by SFEI's Hidden Nature SF from 1850s maps and a historical elevation model. Approximate; most are inferred.";
+  "Creek lines mapped by SFEI's Hidden Nature SF from 19th-century maps and a historical elevation model. Approximate; most are inferred.";
 export const MODELLED_LEGEND_NOTE =
   "Stream channels computed by SFEI from a historical elevation model, shown where no hand-mapped creek exists. Larger channels only. Computed, not observed.";
 

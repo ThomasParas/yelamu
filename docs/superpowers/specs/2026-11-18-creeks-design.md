@@ -17,7 +17,7 @@ Both are public ArcGIS feature services owned by SFEI's Resilient Landscapes pro
 | Features | 26 lines (2,015 vertices, 84 KB as GeoJSON) | 10,270 segments, Strahler order 2 to 6 |
 | Covers | north and central city, lon -122.485 to -122.403, lat 37.755 to 37.809 | the whole city and beyond, lon -122.514 to -122.380, lat 37.590 to 37.805, as measured in the downloaded file (the item page's extent, lat 37.69 to 37.749, was wrong or stale) |
 | Attributes | name (8 of 26), `stream_typ` ("well located" on 8 lines), program tag (HNSF or WLA, original or revised), digitising method, cited sources (Hoadley 1855, Goddard 1869, Hall 1870, Wheeler 1870, Warner 1847, SeepCity and others) | `StrahlerID` only |
-| Method | Mostly "historical DEM flow accumulation", checked against cited 1850s maps | Derived by SFEI from a historical elevation model, accumulation threshold 0.1 km2, order 1 dropped as "inconsistent". The description has unfilled blanks ("developed by ____") |
+| Method | Mostly "historical DEM flow accumulation", checked against cited 19th-century maps | Derived by SFEI from a historical elevation model, accumulation threshold 0.1 km2, order 1 dropped as "inconsistent". The description has unfilled blanks ("developed by ____") |
 
 Order counts in the modelled set: order 2 has 5,086 segments, order 3 has 2,803, order 4 has 1,765, order 5 has 586, order 6 has 30. The downloaded file (order 3 and up) holds 5,184 features: 2,803 of order 3, 1,765 of order 4, 586 of order 5 and 30 of order 6. One order-3 feature is a MultiLineString of two lines, so the build reads 5,185 line segments (2,804 of order 3).
 
@@ -65,7 +65,7 @@ New folder `viewer/src/creeks/` (`types.ts`, `parse.ts`, `geometry.ts`, `layer.t
 
 ## Proposed wording (shown to the owner verbatim before it ships)
 
-- Legend, "Historical creeks": "Creek lines mapped by SFEI's Hidden Nature SF from 1850s maps and a historical elevation model. Approximate; most are inferred."
+- Legend, "Historical creeks": "Creek lines mapped by SFEI's Hidden Nature SF from 19th-century maps and a historical elevation model. Approximate; most are inferred."
 - Legend, "Modelled streams": "Stream channels computed by SFEI from a historical elevation model, shown where no hand-mapped creek exists. Larger channels only. Computed, not observed."
 - Sources rows: one per layer, with the SFEI item names and the confidence above.
 - Card for a named creek: "{Name}, a historical creek as mapped by SFEI's Hidden Nature SF, after {cited sources}. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them."
