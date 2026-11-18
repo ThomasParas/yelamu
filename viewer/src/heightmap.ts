@@ -36,6 +36,8 @@ export interface HeightmapMeta {
   overlay_file?: string;
   /** File name of the freshwater ponds (flat water surfaces) next to the heightmap. */
   ponds_file?: string;
+  /** File name of the grey surrounding terrain description next to the heightmap. */
+  context_file?: string;
   /** Hand-drawn and sculpted provenance, shown on the Sources panel (see handSourceRows). */
   hand_sources?: HandSource[];
   /** Pipeline parameters, shown on the Sources panel (see provenanceData.ts). */

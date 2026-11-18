@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import numpy as np
 import pytest
 import rasterio
@@ -384,3 +387,13 @@ def test_build_context_marsh_stays_marsh_and_open_water_goes_to_the_bay_floor(tm
     assert heights[lat.rows // 2, 1] == pytest.approx(BAY_FLOOR_M, abs=0.05)
     # Dry land outside the marsh polygon keeps its 20 m.
     assert heights[0, lat.cols - 1] == pytest.approx(20.0, abs=0.1)
+
+
+def test_limits_match_the_viewer_parser():
+    from yelamu import context as ctxmod
+
+    ts = (Path(__file__).resolve().parents[2] / "viewer" / "src" / "context" / "parse.ts").read_text()
+    for name in ("MAX_PLACES", "MAX_NAME_CHARS"):
+        found = re.search(rf"export const {name} = (\d+);", ts)
+        assert found, f"{name} not found in viewer/src/context/parse.ts"
+        assert int(found.group(1)) == getattr(ctxmod, name)
