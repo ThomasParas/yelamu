@@ -1,6 +1,6 @@
 # SFEI's reply on the Hidden Nature SF licence (recorded 2026-11-17)
 
-Reply to the licence inquiry (`sfei-license-email-draft.md`, sent to eigis@sfei.org), from SFEI's Senior GIS Manager, Environmental Informatics. The terms below are SFEI's own text, copied from the reply.
+Reply to the licence inquiry (sent to eigis@sfei.org; the draft is no longer kept in the repository), from SFEI's Senior GIS Manager, Environmental Informatics. The terms below are SFEI's own text, copied from the reply.
 
 ## Terms SFEI gave
 

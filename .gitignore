@@ -13,6 +13,10 @@ viewer/dist/
 # Older local experiments and review images stay out of git.
 viewer/public/assets/real/
 docs/research/local/
+# Outreach drafts and call scripts (emails to SFEI or the Association of Ramaytush Ohlone) stay out of git:
+# keep them in docs/research/local/. Records of what others replied (sfei-license-reply.md) are tracked.
+docs/research/*-draft.md
+docs/research/*-script.md
 .playwright-mcp/
 
 # Generated synthetic whole-city test data (no real data in it, but 8 MB of binary)

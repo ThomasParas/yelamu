@@ -70,7 +70,7 @@ On the final production build (after the grey surround), served locally.
 
 **Open after launch.**
 - `http://yelamu.thomasparas.com/` still answered 200 without redirecting to HTTPS a few minutes after "Enforce HTTPS" was switched on; GitHub applies it with a delay. Recheck within the hour.
-- The unsent introduction to the Association of Ramaytush Ohlone (`docs/research/aro-outreach-draft.md`) is public in the repository now; send it soon.
+- The unsent introduction to the Association of Ramaytush Ohlone was public in the repository at launch; it has since been replaced by a newer draft and moved out of git (outreach drafts now live in the ignored `docs/research/local/`). Send it soon.
 - Thank the SFEI contact (Pete) and ask whether the Data terms wording is right.
 - The git backup of the pre-rewrite history at `~/Documents/yelamu-git-backup-before-rewrite-2026-11-17.tar.gz` contains the personal email address; delete it when sure.
 - The 1850s shore stages (East Bay, peninsula bayshore, Marin) each need their own plan.
