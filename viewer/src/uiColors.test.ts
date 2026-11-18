@@ -20,6 +20,7 @@ import { blend, contrastRatio, meetsContrast } from "./a11y";
 import { CREEK_COLOR, CREEK_OPACITY, MODELLED_COLOR, MODELLED_OPACITY } from "./creeks/colors";
 import { GROUP_COLORS, srgbToLinear } from "./habitat";
 import { GROUND_DARKEST } from "./habitatMaterial";
+import { neutralToneMap } from "./toneMapping";
 import { LABEL_HALO, LABEL_HALO_ALPHA, LABEL_TEXT } from "./overlay/labels";
 import { STREET_COLOR, STREET_OPACITY } from "./overlay/streetsLayer";
 import {
@@ -326,7 +327,7 @@ describe("vegetation shapes against their ground", () => {
 
 });
 
-describe("dark lines over ground darkened by the colour variation (habitatMaterial.ts)", () => {
+describe("dark lines over ground darkened by the colour variation (habitatMaterial.ts), raw and tone-mapped", () => {
   // The shader multiplies linear colour, so darken in linear light and convert back.
   const toSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
   const darken = (hex: number, k: number) =>
@@ -334,7 +335,14 @@ describe("dark lines over ground darkened by the colour variation (habitatMateri
       const v = toSrgb(srgbToLinear(((hex >> shift) & 255) / 255) * k);
       return out | (Math.round(Math.min(1, Math.max(0, v)) * 255) << shift);
     }, 0);
+  // What reaches the screen: every scene material goes through the tone curve (toneMapping.ts)
+  // before blending, lines and ground alike.
+  const toneMapped = (hex: number) => {
+    const lin = [16, 8, 0].map((shift) => srgbToLinear(((hex >> shift) & 255) / 255)) as [number, number, number];
+    return neutralToneMap(lin).reduce((out, v, i) => out | (Math.round(Math.min(1, Math.max(0, toSrgb(v))) * 255) << (16 - 8 * i)), 0);
+  };
   const land = grounds.filter(([group]) => group !== "water").map(([g, c]) => [g, darken(c, GROUND_DARKEST)] as const);
+  const landOnScreen = land.map(([g, c]) => [g, toneMapped(c)] as const);
 
   it("darkens by at most about 6%", () => {
     expect(GROUND_DARKEST).toBeGreaterThan(0.94);
@@ -352,6 +360,11 @@ describe("dark lines over ground darkened by the colour variation (habitatMateri
       for (const [group, ground] of land) {
         const ratio = contrastRatio(blend(colour, opacity, ground), ground);
         expect(ratio, `${kind} over darkened ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.5);
+      }
+      // and as drawn: both through the tone curve, then blended
+      for (const [group, ground] of landOnScreen) {
+        const ratio = contrastRatio(blend(toneMapped(colour), opacity, ground), ground);
+        expect(ratio, `${kind} over tone-mapped darkened ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.5);
       }
     }
   });

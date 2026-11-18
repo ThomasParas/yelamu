@@ -26,6 +26,7 @@ import { ViewRig, unitsPerPixel } from "./viewRig";
 import { computeShoreField } from "./water/shoreField";
 import { createWaterMaterial } from "./water/waterMaterial";
 import { SUN_DIRECTION, VERTICAL_EXAGGERATION, makeTerrainShade, shadeProblem, withShade } from "./terrainShade";
+import { applyToneMapping } from "./toneMapping";
 
 // Ground below the water surface darkens down to this depth (metres, real scale).
 const MAX_SHADE_DEPTH_M = 6;
@@ -64,6 +65,7 @@ async function start() {
   const canvas = document.getElementById("scene") as HTMLCanvasElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  applyToneMapping(renderer);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SCENE_BACKGROUND);
