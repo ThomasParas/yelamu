@@ -20,6 +20,21 @@ export interface KeyHandlers {
   escape(): void;
 }
 
+/** A place outside the overlay (a town in the grey surrounding ring): a modern landmark label. */
+export interface ExtraPlace {
+  id: string;
+  name: string;
+  /** "town", "peak" or "airport". */
+  kind: string;
+  /** World metres. */
+  x: number;
+  z: number;
+  lon: number;
+  lat: number;
+  /** Ground height at the place, real metres (labels sit at groundM * verticalExaggeration). */
+  groundM: number;
+}
+
 /**
  * Everything a feature module needs, built once by start() in main.ts after the data has
  * loaded. Modules receive it from initModules (modules.ts) and keep a reference.
@@ -64,6 +79,11 @@ export interface AppContext {
    * time when non-empty). Modules push onto it; `place` is selected on arrival.
    */
   surpriseTargets: SurpriseTarget[];
+  /**
+   * Extra landmark-like places that modules contribute BEFORE the overlay module runs (the
+   * context module adds the ring's towns). The overlay module labels, searches and lists them.
+   */
+  extraPlaces: ExtraPlace[];
   /**
    * Run `cb` after every renderer.render (camera matrices are current). A callback that
    * throws is removed and logged once. Returns an unsubscribe function.

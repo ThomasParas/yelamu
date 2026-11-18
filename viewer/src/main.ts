@@ -374,6 +374,7 @@ async function start() {
     layers,
     place,
     surpriseTargets,
+    extraPlaces: [],
     onFrame,
     handlers,
   };

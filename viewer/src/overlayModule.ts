@@ -3,6 +3,7 @@ import type { AppModule } from "./modules";
 import { makeHeightSampler } from "./overlay/heightAt";
 import { HOTSPOT_PRIORITY, LabelLayer, landmarkPriority, type LabelItem } from "./overlay/labels";
 import { loadOverlay } from "./overlay/parse";
+import { REGION_PLACE_ZOOM, REGION_PRIORITY, labelKindsFor, regionSearchItems } from "./overlay/regionLabels";
 import { overlaySearchItems } from "./overlay/searchItems";
 import {
   STREET_LIFT_M,
@@ -66,12 +67,20 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   // --- labels and markers ---
   const hotspots = new Map<string, Hotspot>(overlay.hotspots.map((h) => [h.id, h]));
   const landmarks = new Map<string, Landmark>(overlay.landmarks.map((l) => [l.id, l]));
+  const regionIds = new Set<string>();
+  for (const p of ctx.extraPlaces) {
+    regionIds.add(p.id);
+    landmarks.set(p.id, { id: p.id, name: p.name, kind: "region", x: p.x, z: p.z, lon: p.lon, lat: p.lat });
+  }
   const items: LabelItem[] = [
     ...overlay.landmarks.map(
       (l): LabelItem => ({ id: l.id, text: l.name, x: l.x, z: l.z, y: groundY(l.x, l.z), kind: "landmark", priority: landmarkPriority(l.kind) }),
     ),
     ...overlay.hotspots.map(
       (h): LabelItem => ({ id: h.id, text: h.name, x: h.x, z: h.z, y: groundY(h.x, h.z), kind: "hotspot", priority: HOTSPOT_PRIORITY }),
+    ),
+    ...ctx.extraPlaces.map(
+      (p): LabelItem => ({ id: p.id, text: p.name, x: p.x, z: p.z, y: p.groundM * exaggeration, kind: "region", priority: REGION_PRIORITY }),
     ),
   ];
 
@@ -105,7 +114,9 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   rig.onChange(() => {
     if (streets?.update(ctx.camera.zoom)) ctx.requestRender();
   });
-  ctx.onFrame(() => labels.update(ctx.camera, ctx.canvas.clientWidth, ctx.canvas.clientHeight, visibleKinds));
+  ctx.onFrame(() =>
+    labels.update(ctx.camera, ctx.canvas.clientWidth, ctx.canvas.clientHeight, labelKindsFor(visibleKinds, ctx.camera.zoom, layers.has("landmarks"))),
+  );
 
   // --- places: one selection drives the panel, the highlight and the hash (`p=`) ---
   const applyPlace = (id: string | undefined) => {
@@ -138,9 +149,11 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
   };
 
   // --- search ---
-  const index = buildSearchIndex(overlaySearchItems(overlay));
+  const searchItems = [...overlaySearchItems(overlay), ...regionSearchItems(ctx.extraPlaces)];
+  const index = buildSearchIndex(searchItems);
   const choose = (item: SearchItem) => {
-    const zoom = Math.max(rig.getState().zoom, PLACE_ZOOM[item.group]);
+    const base = regionIds.has(item.id) ? REGION_PLACE_ZOOM : PLACE_ZOOM[item.group];
+    const zoom = Math.max(rig.getState().zoom, base);
     rig.flyTo(item.x, item.z, zoom);
     if (item.group === "street") return;
     // Same place picked again: the panel may have been closed, so reopen it directly.
@@ -155,12 +168,15 @@ export const overlayModule: AppModule = async (ctx: AppContext) => {
 
   // --- Places: a keyboard and screen-reader route to every hotspot and landmark ---
   const placeItems = new Map<string, SearchItem>();
-  for (const item of overlaySearchItems(overlay)) if (item.group !== "street") placeItems.set(item.id, item);
+  for (const item of searchItems) if (item.group !== "street") placeItems.set(item.id, item);
   const placesPanel = createPlacesPanel(
     shell,
     groupPlaces(
       overlay.hotspots.map((h) => ({ id: h.id, name: h.name, kind: h.kind })),
-      overlay.landmarks.map((l) => ({ id: l.id, name: l.name, kind: l.kind })),
+      [
+        ...overlay.landmarks.map((l) => ({ id: l.id, name: l.name, kind: l.kind })),
+        ...ctx.extraPlaces.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
+      ],
     ),
     (id) => {
       const item = placeItems.get(id);

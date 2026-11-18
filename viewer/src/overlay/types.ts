@@ -3,6 +3,7 @@ import type { Confidence } from "../heightmap";
 export const STREET_KINDS = ["primary", "secondary", "local"] as const;
 export type StreetKind = (typeof STREET_KINDS)[number];
 
+// "region" is only produced by the context module (extraPlaces), never by overlay.json.
 export const LANDMARK_KINDS = [
   "park",
   "bridge",
@@ -13,6 +14,7 @@ export const LANDMARK_KINDS = [
   "water",
   "fort",
   "other",
+  "region",
 ] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 

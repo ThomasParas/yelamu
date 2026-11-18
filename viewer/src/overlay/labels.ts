@@ -59,6 +59,7 @@ const LANDMARK_PRIORITY: Record<LandmarkKind, number> = {
   water: 44,
   building: 40,
   other: 30,
+  region: 58,
 };
 export function landmarkPriority(kind: string): number {
   return Object.hasOwn(LANDMARK_PRIORITY, kind) ? LANDMARK_PRIORITY[kind as LandmarkKind] : 30;
@@ -71,7 +72,7 @@ export interface LabelItem {
   x: number;
   z: number;
   y: number;
-  kind: "landmark" | "hotspot";
+  kind: "landmark" | "hotspot" | "region";
   priority: number;
 }
 
