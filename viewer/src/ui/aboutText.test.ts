@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { ABOUT_LAND_AND_WATER_ONLY, ABOUT_VILLAGES, aboutPeopleSentence } from "./aboutText";
+import {
+  ABOUT_BYLINE_LEAD,
+  ABOUT_BYLINE_NAME,
+  ABOUT_BYLINE_TAIL,
+  ABOUT_BYLINE_URL,
+  ABOUT_LAND_AND_WATER_ONLY,
+  ABOUT_VILLAGES,
+  aboutPeopleSentence,
+} from "./aboutText";
+
+describe("About: the byline at the very end", () => {
+  it("reads 'Built by Thomas Paras.' with the name as the link text", () => {
+    expect(ABOUT_BYLINE_LEAD + ABOUT_BYLINE_NAME + ABOUT_BYLINE_TAIL).toBe("Built by Thomas Paras.");
+    expect(ABOUT_BYLINE_NAME).toBe("Thomas Paras");
+  });
+
+  it("links the name to the owner's site over https", () => {
+    expect(ABOUT_BYLINE_URL).toBe("https://thomasparas.com/");
+    expect(new URL(ABOUT_BYLINE_URL).protocol).toBe("https:");
+  });
+});
 
 describe("About: the villages sentence", () => {
   it("uses the exact wording the owner approved on 2026-11-18", () => {

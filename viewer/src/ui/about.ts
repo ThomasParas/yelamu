@@ -4,7 +4,13 @@
  */
 import { CONFIDENCE_INFO } from "../confidence";
 import { takeFirstVisit } from "../aboutSeen";
-import { aboutPeopleSentence } from "./aboutText";
+import {
+  ABOUT_BYLINE_LEAD,
+  ABOUT_BYLINE_NAME,
+  ABOUT_BYLINE_TAIL,
+  ABOUT_BYLINE_URL,
+  aboutPeopleSentence,
+} from "./aboutText";
 import { confidenceBadge, safeLink } from "./hotspotPanel";
 
 export interface AboutDialog {
@@ -152,6 +158,11 @@ export function createAbout(options: { context?: boolean; villages?: boolean } =
   );
 
   inner.appendChild(el("p", "about__warning", "This map is not for navigation, engineering or legal use."));
+
+  // The very end of the text, above the button: "Built by Thomas Paras." with the name linked.
+  const byline = paragraph(ABOUT_BYLINE_LEAD, safeLink(ABOUT_BYLINE_URL, ABOUT_BYLINE_NAME), ABOUT_BYLINE_TAIL);
+  byline.className = "about__byline";
+  inner.appendChild(byline);
 
   const explore = el("button", "btn btn--primary about__close", "Explore the map");
   explore.type = "button";
