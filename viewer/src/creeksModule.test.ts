@@ -228,6 +228,27 @@ describe("creeksModule", () => {
     expect(toggles.every((t) => t.set.mock.calls.at(-1)?.[0] === false)).toBe(true);
   });
 
+  it("warns once and leaves the viewer unchanged when the layer cannot be built (heights of the wrong size)", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, toggles, add, requestRender } = makeCtx({ heights: new Float32Array(3) });
+    await expect(creeksModule(ctx)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(toggles).toEqual([]);
+    expect(add).not.toHaveBeenCalled();
+    expect(requestRender).not.toHaveBeenCalled();
+  });
+
+  it("warns once and never adds the layer to the scene when the wiring fails", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add } = makeCtx();
+    (ctx.shell as unknown as { addToggle: () => never }).addToggle = () => {
+      throw new Error("toggle already exists");
+    };
+    await expect(creeksModule(ctx)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(add).not.toHaveBeenCalled();
+  });
+
   it("shows exactly the creek layers a hash names", async () => {
     stubFetch(creeksDoc());
     const { ctx, add } = makeCtx({ hash: ["modelled-streams"] });

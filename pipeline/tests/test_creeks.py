@@ -8,6 +8,7 @@ from yelamu.geo import Grid
 from yelamu.creeks import (
     BAY_CLASS_NAMES,
     CREEKS_FILE,
+    MAX_CREEK_LENGTH_M,
     MAX_CREEK_POINTS,
     MAX_MAPPED,
     MAX_MODELLED,
@@ -489,6 +490,30 @@ def test_meta_patch_sets_file_counts_and_two_rows_and_keeps_everything_else():
     assert patch_creeks_meta(out, doc) == out  # idempotent
 
 
+def test_validate_caps_the_total_length_of_line_like_the_viewer():
+    assert MAX_CREEK_LENGTH_M == 2_000_000
+
+    def doc(mapped_m, modelled_m):
+        return {"version": 1,
+                "mapped": [{"id": "creek-1", "name": None, "confidence": "inferred", "sources": "",
+                            "points": [-1e6, 0.0, -1e6 + mapped_m, 0.0]}],
+                "modelled": [{"order": 3, "points": [-1e6, 5.0, -1e6 + modelled_m, 5.0]}]}
+
+    validate_creeks_document(doc(1_000_000, 999_999))  # just under, mapped and modelled together
+    with pytest.raises(ValueError, match="more than 2000 km of line in total"):
+        validate_creeks_document(doc(1_000_000, 1_000_001))
+    # one hostile segment across the whole coordinate range
+    hostile = doc(10, 10)
+    hostile["modelled"][0]["points"] = [-1e6, -1e6, 1e6, 1e6]
+    with pytest.raises(ValueError, match="2000 km"):
+        validate_creeks_document(hostile)
+    # many short lines add up
+    many = doc(10, 10)
+    many["modelled"] = [{"order": 3, "points": [-1e6, 0.0, -9e5, 0.0]} for _ in range(21)]
+    with pytest.raises(ValueError, match="2000 km"):
+        validate_creeks_document(many)
+
+
 def _row(layer, count=1):
     return {"layer": layer, "source": "x", "confidence": "inferred", "count": count}
 
@@ -632,7 +657,7 @@ def test_pipeline_limits_match_the_viewer_parser():
         assert found, name
         return float(found.group(1).replace("_", ""))
 
-    for name in ("MAX_MAPPED", "MAX_MODELLED", "MAX_CREEK_POINTS", "MAX_NAME_CHARS", "MAX_SOURCE_CHARS",
-                 "MAX_COORD_M", "MIN_ORDER", "MAX_ORDER"):
+    for name in ("MAX_MAPPED", "MAX_MODELLED", "MAX_CREEK_POINTS", "MAX_CREEK_LENGTH_M", "MAX_NAME_CHARS",
+                 "MAX_SOURCE_CHARS", "MAX_COORD_M", "MIN_ORDER", "MAX_ORDER"):
         assert float(getattr(m, name)) == const(name), name
     assert re.search(r"const ID = /\^\[a-z0-9\]\[a-z0-9-\]\*\$/;", text)

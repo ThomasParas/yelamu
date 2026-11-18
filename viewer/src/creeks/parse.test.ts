@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  MAX_CREEK_LENGTH_M,
   MAX_CREEK_POINTS,
   MAX_MAPPED,
   MAX_MODELLED,
@@ -69,6 +70,24 @@ describe("parseCreeks", () => {
     expect(() => parseCreeks(doc({ mapped: many }))).toThrow(/mapped/);
     const streams = Array.from({ length: MAX_MODELLED + 1 }, () => ({ order: 3, points: [0, 0, 1, 1] }));
     expect(() => parseCreeks(doc({ modelled: streams }))).toThrow(/modelled/);
+  });
+
+  it("enforces the total length of line, mapped and modelled together", () => {
+    expect(MAX_CREEK_LENGTH_M).toBe(2_000_000);
+    const line = (metres: number) => [-1e6, 0, -1e6 + metres, 0]; // one segment, `metres` long
+    // 1000 km of mapped line plus just under 1000 km of modelled line passes ...
+    const under = doc({ mapped: [mapped({ points: line(1_000_000) })], modelled: [{ order: 3, points: line(999_999) }] });
+    expect(() => parseCreeks(under)).not.toThrow();
+    // ... and a metre more does not
+    const over = doc({ mapped: [mapped({ points: line(1_000_000) })], modelled: [{ order: 3, points: line(1_000_001) }] });
+    expect(() => parseCreeks(over)).toThrow(/more than 2000 km of line in total/);
+    // one hostile segment across the whole coordinate range (2828 km) is refused, with the line named
+    expect(() => parseCreeks(doc({ modelled: [{ order: 3, points: [-1e6, -1e6, 1e6, 1e6] }] }))).toThrow(
+      /modelled\[0\].*2000 km/,
+    );
+    // many short lines add up too
+    const many = Array.from({ length: 21 }, () => ({ order: 3, points: line(100_000) }));
+    expect(() => parseCreeks(doc({ modelled: many }))).toThrow(/2000 km/);
   });
 
   it("enforces the total point budget", () => {

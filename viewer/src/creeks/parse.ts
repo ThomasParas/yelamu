@@ -10,6 +10,12 @@ import type { Creeks, MappedCreek, ModelledStream } from "./types";
 export const MAX_MAPPED = 500;
 export const MAX_MODELLED = 20_000;
 export const MAX_CREEK_POINTS = 400_000;
+/**
+ * Total length of all lines, metres (2000 km; the shipped data is about 150 km). The point cap
+ * alone is not enough: with coordinates up to MAX_COORD_M a few long segments would be draped
+ * into billions of vertices.
+ */
+export const MAX_CREEK_LENGTH_M = 2_000_000;
 export const MAX_NAME_CHARS = 120;
 export const MAX_SOURCE_CHARS = 300;
 /** World coordinates (metres from the terrain centre) must stay within this. */
@@ -27,7 +33,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function parsePoints(v: unknown, label: string, budget: { points: number }): number[] {
+function parsePoints(v: unknown, label: string, budget: { points: number; lengthM: number }): number[] {
   if (!Array.isArray(v)) fail(label, "points must be a flat array of numbers");
   if (v.length % 2 !== 0) fail(label, `points has an odd number of values (${v.length})`);
   if (v.length < 4) fail(label, `needs at least 2 points, has ${v.length / 2}`);
@@ -39,6 +45,12 @@ function parsePoints(v: unknown, label: string, budget: { points: number }): num
     if (typeof n !== "number" || !Number.isFinite(n)) fail(label, `value ${k} is not a finite number`);
     if (Math.abs(n) > MAX_COORD_M) fail(label, `value ${k} is out of range (must be within ±1e6 metres), got ${n}`);
     out[k] = n;
+  }
+  for (let k = 2; k < out.length; k += 2) {
+    budget.lengthM += Math.hypot(out[k] - out[k - 2], out[k + 1] - out[k - 1]);
+  }
+  if (budget.lengthM > MAX_CREEK_LENGTH_M) {
+    fail(label, `creeks hold more than ${MAX_CREEK_LENGTH_M / 1000} km of line in total`);
   }
   return out;
 }
@@ -61,7 +73,7 @@ export function parseCreeks(raw: unknown): Creeks {
     fail("modelled", `has ${modelledRaw.length} entries, more than the limit of ${MAX_MODELLED}`);
   }
 
-  const budget = { points: 0 };
+  const budget = { points: 0, lengthM: 0 };
   const seen = new Set<string>();
   const mapped = mappedRaw.map((c: unknown, i: number): MappedCreek => {
     const where = `mapped[${i}]`;

@@ -45,6 +45,7 @@ CREEKS_FILE = "creeks.json"
 MAX_MAPPED = 500
 MAX_MODELLED = 20_000
 MAX_CREEK_POINTS = 400_000
+MAX_CREEK_LENGTH_M = 2_000_000  # total length of all lines, metres (2000 km; the shipped data is ~150 km)
 MAX_NAME_CHARS = 120
 MAX_SOURCE_CHARS = 300
 MAX_COORD_M = 1e6
@@ -377,7 +378,8 @@ def build_creeks_document(
 _ID_OK = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
-def _check_points(points: Any, where: str, budget: list[int]) -> None:
+def _check_points(points: Any, where: str, budget: list[float]) -> None:
+    """`budget` is [points so far, metres of line so far], shared by every line of the file."""
     if not isinstance(points, list) or len(points) < 4 or len(points) % 2 != 0:
         raise ValueError(f"{where}: points must be a flat [x, z, ...] list with at least 2 points")
     budget[0] += len(points) // 2
@@ -388,6 +390,10 @@ def _check_points(points: Any, where: str, budget: list[int]) -> None:
             raise ValueError(f"{where}: value {k} is not a finite number")
         if abs(v) > MAX_COORD_M:
             raise ValueError(f"{where}: value {k} is out of range (within +-1e6 metres), got {v}")
+    for k in range(2, len(points), 2):
+        budget[1] += math.hypot(points[k] - points[k - 2], points[k + 1] - points[k - 1])
+    if budget[1] > MAX_CREEK_LENGTH_M:
+        raise ValueError(f"{where}: creeks hold more than {MAX_CREEK_LENGTH_M // 1000} km of line in total")
 
 
 def validate_creeks_document(doc: Any) -> None:
@@ -399,7 +405,7 @@ def validate_creeks_document(doc: Any) -> None:
         raise ValueError(f"creeks: mapped must be a list of at most {MAX_MAPPED}")
     if not isinstance(modelled, list) or len(modelled) > MAX_MODELLED:
         raise ValueError(f"creeks: modelled must be a list of at most {MAX_MODELLED}")
-    budget = [0]
+    budget: list[float] = [0, 0.0]
     seen: set[str] = set()
     for i, c in enumerate(mapped):
         where = f"mapped[{i}]"
