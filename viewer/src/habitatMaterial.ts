@@ -32,6 +32,79 @@ export const EDGE_SHARPNESS = 1.5;
 /** Height (metres, before exaggeration) over which sea colours fade out above the water. */
 export const DRY_BAND_M = 0.4;
 
+/**
+ * Ground colour variation, so a habitat is not one flat colour: broad patches (drier and
+ * greener ground) and fine mottling, in world space, on land only. Brightening goes further
+ * than darkening, so thin dark lines drawn over the darkest ground (creeks, streets) keep
+ * their contrast; see GROUND_DARKEST and uiColors.test.ts.
+ */
+/** Most the ground can brighten (share of its colour). */
+export const GROUND_VARY_UP = 0.12;
+/** Most the ground can darken (share of its colour). */
+export const GROUND_VARY_DOWN = 0.05;
+/** Strength of the warm/cool tint of the broad patches. */
+export const GROUND_TINT = 0.06;
+/** Size of the broad patches and the fine mottling, metres (one noise period). */
+export const GROUND_PATCH_M = 160;
+export const GROUND_MOTTLE_M = 12;
+/** Side of the baked noise texture (texels) and noise periods across it. */
+export const GROUND_NOISE_SIZE = 256;
+export const GROUND_NOISE_PERIODS = 8;
+
+/** Integer hash to 0..1 (deterministic, so every load bakes the same ground). */
+function hash2(x: number, y: number, seed: number): number {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(seed, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+/** Tileable smooth value noise in -1..1: `periods` lattice cells across [0, 1). */
+export function tileNoise(u: number, v: number, periods: number, seed: number): number {
+  const x = u * periods;
+  const y = v * periods;
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const s = (t: number) => t * t * (3 - 2 * t);
+  const fx = s(x - ix);
+  const fy = s(y - iy);
+  const w = (n: number) => ((n % periods) + periods) % periods;
+  const a = hash2(w(ix), w(iy), seed);
+  const b = hash2(w(ix + 1), w(iy), seed);
+  const c = hash2(w(ix), w(iy + 1), seed);
+  const d = hash2(w(ix + 1), w(iy + 1), seed);
+  return (a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy) * 2 - 1;
+}
+
+/**
+ * RGBA bytes of the ground noise texture, which tiles: R broad patches, G fine mottling,
+ * B warm/cool hue, each two octaves of value noise, stored as 128 + n * 127.
+ */
+export function groundNoiseData(size = GROUND_NOISE_SIZE, periods = GROUND_NOISE_PERIODS): Uint8Array {
+  const out = new Uint8Array(size * size * 4);
+  const two = (u: number, v: number, seed: number) =>
+    0.65 * tileNoise(u, v, periods, seed) + 0.35 * tileNoise(u, v, periods * 2, seed + 7);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      const o = (y * size + x) * 4;
+      out[o] = Math.round(128 + two(u, v, 1) * 127);
+      out[o + 1] = Math.round(128 + two(u, v, 2) * 127);
+      out[o + 2] = Math.round(128 + tileNoise(u, v, periods, 3) * 127);
+      out[o + 3] = 255;
+    }
+  }
+  return out;
+}
+/** Warm tint (rgb gains at full strength t = 1); luminance moves by under 1% of the tint. */
+export const warmTint = (t: number): [number, number, number] => [1 + 0.5 * t, 1, 1 - 1.5 * t];
+export const coolTint = (t: number): [number, number, number] => [1 - 0.5 * t, 1 + 0.1 * t, 1 + 0.5 * t];
+/** Darkest factor the variation can give any ground colour (its relative luminance). */
+export const GROUND_DARKEST = (() => {
+  const lum = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return (1 - GROUND_VARY_DOWN) * Math.min(1, lum(warmTint(GROUND_TINT)), lum(coolTint(GROUND_TINT)));
+})();
+
 export interface HabitatMaterialOptions {
   /** Class id per raster sample, row-major, row 0 = north. */
   habitat: Uint8Array;
@@ -74,6 +147,7 @@ uniform float uCellM;
 uniform float uWaterY;        // world y of the water surface
 uniform float uDryBand;       // world-y band above it over which sea colours fade out
 uniform vec3 uShoreColor;     // linear colour where all four samples are sea, above water
+uniform sampler2D uGroundNoise; // RGBA8 tiling noise (R broad, G fine, B hue), repeat, mipmapped
 varying vec2 vHabitatXZ;
 varying float vHabitatY;
 
@@ -145,10 +219,29 @@ vec3 habitatColor( vec2 worldXZ, float worldY ) {
 	if ( lost < 1e-4 ) return c / kept;
 	return ( c + habLandNear( floor( p0 + 0.5 ) ) * lost ) / ( kept + lost );
 }
+// Colour gain for ground variation (1 = unchanged): broad patches leaning warm or cool and a
+// little lighter or darker, plus fine mottling. Two fetches from a baked tiling noise texture;
+// its mipmaps average the mottling away where a pixel covers more ground than a blotch.
+// The fine lookup is turned and shifted so the two tilings never line up. Above water only.
+vec3 habGroundVary( vec2 worldXZ, float worldY ) {
+	float land = smoothstep( uWaterY, uWaterY + uDryBand, worldY );
+	if ( land <= 0.0 ) return vec3( 1.0 );
+	vec3 big = texture2D( uGroundNoise, worldXZ / ${f(GROUND_PATCH_M * GROUND_NOISE_PERIODS)} ).rgb * 2.0 - 1.0;
+	vec2 m = mat2( 0.8, 0.6, -0.6, 0.8 ) * worldXZ / ${f(GROUND_MOTTLE_M * GROUND_NOISE_PERIODS)} + vec2( 0.37, 0.71 );
+	float fine = texture2D( uGroundNoise, m ).g * 2.0 - 1.0;
+	float hue = big.b;
+	float n = clamp( 0.7 * big.r + 0.45 * fine, -1.0, 1.0 ) * land;
+	float lum = 1.0 + n * ( n > 0.0 ? ${f(GROUND_VARY_UP)} : ${f(GROUND_VARY_DOWN)} );
+	float t = ${f(GROUND_TINT)} * abs( hue ) * land;
+	vec3 tint = hue > 0.0
+		? vec3( 1.0 + 0.5 * t, 1.0, 1.0 - 1.5 * t )
+		: vec3( 1.0 - 0.5 * t, 1.0 + 0.1 * t, 1.0 + 0.5 * t );
+	return lum * tint;
+}
 `;
 /** Replaces #include <color_fragment>: habitat colour times the vertex colour (shade factors). */
 export const FRAGMENT_COLOR = /* glsl */ `
-diffuseColor.rgb *= habitatColor( vHabitatXZ, vHabitatY ) * vColor.rgb;
+diffuseColor.rgb *= habitatColor( vHabitatXZ, vHabitatY ) * habGroundVary( vHabitatXZ, vHabitatY ) * vColor.rgb;
 `;
 
 function replaceOnce(source: string, anchor: string, withText: string): string {
@@ -205,6 +298,14 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
   palette.colorSpace = THREE.NoColorSpace; // already linear
   palette.needsUpdate = true;
 
+  const groundNoise = new THREE.DataTexture(groundNoiseData(), GROUND_NOISE_SIZE, GROUND_NOISE_SIZE, THREE.RGBAFormat);
+  groundNoise.wrapS = groundNoise.wrapT = THREE.RepeatWrapping;
+  groundNoise.magFilter = THREE.LinearFilter;
+  groundNoise.minFilter = THREE.LinearMipmapLinearFilter;
+  groundNoise.generateMipmaps = true;
+  groundNoise.colorSpace = THREE.NoColorSpace; // data, not colour
+  groundNoise.needsUpdate = true;
+
   const material = new THREE.MeshStandardMaterial({ vertexColors: true });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uHabitat = { value: habitat };
@@ -214,15 +315,17 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
     shader.uniforms.uWaterY = { value: o.waterY ?? 0 };
     shader.uniforms.uDryBand = { value: DRY_BAND_M * (o.exaggeration ?? 1) };
     shader.uniforms.uShoreColor = { value: new THREE.Vector3(...(o.shoreColor ?? o.fallback)) };
+    shader.uniforms.uGroundNoise = { value: groundNoise };
     patchHabitatShaders(shader);
   };
-  material.customProgramCacheKey = () => "yelamu-habitat-v2";
+  material.customProgramCacheKey = () => "yelamu-habitat-v3";
   return {
     material,
     dispose() {
       material.dispose();
       habitat.dispose();
       palette.dispose();
+      groundNoise.dispose();
     },
   };
 }

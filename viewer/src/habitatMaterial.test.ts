@@ -4,11 +4,16 @@ import { makeShadeFactorAt, shadeByDepth } from "./habitat";
 import {
   DRY_BAND_M,
   FRAGMENT_COLOR,
+  GROUND_NOISE_SIZE,
+  GROUND_VARY_DOWN,
+  GROUND_VARY_UP,
   FRAGMENT_PARS,
   VERTEX_BODY,
   createHabitatMaterial,
+  groundNoiseData,
   paletteTextureData,
   patchHabitatShaders,
+  tileNoise,
 } from "./habitatMaterial";
 
 const options = () => ({
@@ -72,7 +77,7 @@ describe("createHabitatMaterial", () => {
   it("keeps vertex colours on and gets its own program cache key", () => {
     const { material } = createHabitatMaterial(options());
     expect(material.vertexColors).toBe(true);
-    expect(material.customProgramCacheKey()).toBe("yelamu-habitat-v2");
+    expect(material.customProgramCacheKey()).toBe("yelamu-habitat-v3");
   });
 
   it("binds the water surface, the dry band in world units and the shore colour", () => {
@@ -126,5 +131,51 @@ describe("makeShadeFactorAt", () => {
   it("carries the same depth darkening the old vertex colours had", () => {
     expect(f(0, -10)).toEqual(shadeByDepth([1, 1, 1], -10, 0, 20));
     expect(f(0, -10)[0]).toBeLessThan(1);
+  });
+});
+
+describe("ground colour variation", () => {
+  it("tileNoise wraps seamlessly and stays in -1..1", () => {
+    for (const [u, v] of [[0, 0.3], [0.25, 0], [0.71, 0.13]]) {
+      expect(tileNoise(u, v, 8, 1)).toBeCloseTo(tileNoise(u + 1, v, 8, 1), 9);
+      expect(tileNoise(u, v, 8, 1)).toBeCloseTo(tileNoise(u, v + 1, 8, 1), 9);
+    }
+    for (let i = 0; i < 500; i++) {
+      const n = tileNoise(i * 0.0137, i * 0.0291, 8, 2);
+      expect(Math.abs(n)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("bakes a texture whose edges meet (no seam where it repeats) and that averages to grey", () => {
+    const size = 64;
+    const d = groundNoiseData(size, 8);
+    expect(d.length).toBe(size * size * 4);
+    const at = (x: number, y: number, ch: number) => d[(y * size + x) * 4 + ch];
+    let edge = 0;
+    for (let i = 0; i < size; i++) for (const ch of [0, 1, 2]) {
+      edge = Math.max(edge, Math.abs(at(size - 1, i, ch) - at(0, i, ch)), Math.abs(at(i, size - 1, ch) - at(i, 0, ch)));
+    }
+    expect(edge).toBeLessThan(40); // neighbours across the wrap differ like any two neighbours
+    for (const ch of [0, 1, 2]) {
+      let sum = 0;
+      for (let i = 0; i < size * size; i++) sum += d[i * 4 + ch];
+      expect(Math.abs(sum / (size * size) - 128)).toBeLessThan(20); // mipmaps fade to "no change"
+    }
+  });
+
+  it("binds a repeating, mipmapped noise texture and fetches it twice", () => {
+    const { material } = createHabitatMaterial(options());
+    const s = { vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader, uniforms: {} as Record<string, { value: unknown }> };
+    material.onBeforeCompile(s as never, undefined as never);
+    const t = s.uniforms.uGroundNoise.value as THREE.DataTexture;
+    expect(t.image.width).toBe(GROUND_NOISE_SIZE);
+    expect(t.wrapS).toBe(THREE.RepeatWrapping);
+    expect(t.generateMipmaps).toBe(true);
+    expect(FRAGMENT_PARS.match(/texture2D\( uGroundNoise/g)).toHaveLength(2);
+    expect(FRAGMENT_COLOR).toContain("habGroundVary");
+  });
+
+  it("brightens further than it darkens", () => {
+    expect(GROUND_VARY_UP).toBeGreaterThan(GROUND_VARY_DOWN);
   });
 });

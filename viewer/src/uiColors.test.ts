@@ -18,7 +18,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { blend, contrastRatio, meetsContrast } from "./a11y";
 import { CREEK_COLOR, CREEK_OPACITY, MODELLED_COLOR, MODELLED_OPACITY } from "./creeks/colors";
-import { GROUP_COLORS } from "./habitat";
+import { GROUP_COLORS, srgbToLinear } from "./habitat";
+import { GROUND_DARKEST } from "./habitatMaterial";
 import { LABEL_HALO, LABEL_HALO_ALPHA, LABEL_TEXT } from "./overlay/labels";
 import { STREET_COLOR, STREET_OPACITY } from "./overlay/streetsLayer";
 import {
@@ -323,4 +324,35 @@ describe("vegetation shapes against their ground", () => {
     for (const [sp] of SPECIES_BY_CLASS["Willow grove"]) check(sp, "wetland");
   });
 
+});
+
+describe("dark lines over ground darkened by the colour variation (habitatMaterial.ts)", () => {
+  // The shader multiplies linear colour, so darken in linear light and convert back.
+  const toSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+  const darken = (hex: number, k: number) =>
+    [16, 8, 0].reduce((out, shift) => {
+      const v = toSrgb(srgbToLinear(((hex >> shift) & 255) / 255) * k);
+      return out | (Math.round(Math.min(1, Math.max(0, v)) * 255) << shift);
+    }, 0);
+  const land = grounds.filter(([group]) => group !== "water").map(([g, c]) => [g, darken(c, GROUND_DARKEST)] as const);
+
+  it("darkens by at most about 6%", () => {
+    expect(GROUND_DARKEST).toBeGreaterThan(0.94);
+    expect(GROUND_DARKEST).toBeLessThanOrEqual(1);
+  });
+
+  it("creeks, streets and village outlines still clear 1.5:1", () => {
+    const lines: [string, number, number][] = [
+      ["creek", CREEK_COLOR, CREEK_OPACITY],
+      ["modelled stream", MODELLED_COLOR, MODELLED_OPACITY],
+      ...Object.entries(STREET_OPACITY).map(([k, o]) => [`${k} street`, STREET_COLOR, o] as [string, number, number]),
+      ["village outline", VILLAGE_OUTLINE, VILLAGE_OUTLINE_OPACITY],
+    ];
+    for (const [kind, colour, opacity] of lines) {
+      for (const [group, ground] of land) {
+        const ratio = contrastRatio(blend(colour, opacity, ground), ground);
+        expect(ratio, `${kind} over darkened ${group}: ${fmt(ratio)}`).toBeGreaterThanOrEqual(1.5);
+      }
+    }
+  });
 });
