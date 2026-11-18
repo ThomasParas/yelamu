@@ -423,22 +423,37 @@ def patch_creeks_meta(meta: dict, doc: dict | None) -> dict:
 
     Sets `creeks_file`, `creeks_mapped`, `creeks_modelled` and one `hand_sources` row per layer
     that has lines (so the Sources panel lists it). With `doc` None, or no lines at all, every
-    creek key and row is removed. Other keys and other layers' rows are kept, in order. A city
+    creek key and row is removed. Other keys and other layers' rows are kept, in order; a creek
+    row that already exists is replaced in place, a new one is appended. A city
     rebuild rewrites meta.json, so build_creeks has to be run again afterwards."""
     out = {k: v for k, v in meta.items() if not k.startswith("creeks_")}
-    rows = [r for r in meta.get("hand_sources", []) if r.get("layer") not in (MAPPED_LAYER, MODELLED_LAYER)]
     mapped = (doc or {}).get("mapped", [])
     modelled = (doc or {}).get("modelled", [])
     if mapped or modelled:
         out["creeks_file"] = CREEKS_FILE
         out["creeks_mapped"] = len(mapped)
         out["creeks_modelled"] = len(modelled)
+    wanted: dict[str, dict] = {}
     if mapped:
-        rows.append({"layer": MAPPED_LAYER, "source": MAPPED_SOURCE_NOTE,
-                     "confidence": lowest_confidence(c["confidence"] for c in mapped), "count": len(mapped)})
+        wanted[MAPPED_LAYER] = {"layer": MAPPED_LAYER, "source": MAPPED_SOURCE_NOTE,
+                                "confidence": lowest_confidence(c["confidence"] for c in mapped),
+                                "count": len(mapped)}
     if modelled:
-        rows.append({"layer": MODELLED_LAYER, "source": MODELLED_SOURCE_NOTE,
-                     "confidence": "illustrative", "count": len(modelled)})
+        wanted[MODELLED_LAYER] = {"layer": MODELLED_LAYER, "source": MODELLED_SOURCE_NOTE,
+                                  "confidence": "illustrative", "count": len(modelled)}
+    # A row for a creek layer is replaced where it stands (a rerun leaves the order alone, so a
+    # rebuilt meta.json does not churn); a layer with no row yet is appended after the others;
+    # a layer with no lines loses its row. Rows of other layers are untouched.
+    rows: list[dict] = []
+    placed: set[str] = set()
+    for r in meta.get("hand_sources", []):
+        layer = r.get("layer")
+        if layer not in (MAPPED_LAYER, MODELLED_LAYER):
+            rows.append(r)
+        elif layer in wanted and layer not in placed:
+            rows.append(wanted[layer])
+            placed.add(layer)
+    rows.extend(row for layer, row in wanted.items() if layer not in placed)
     if rows:
         out["hand_sources"] = rows
     else:

@@ -423,6 +423,41 @@ def test_meta_patch_sets_file_counts_and_two_rows_and_keeps_everything_else():
     assert patch_creeks_meta(out, doc) == out  # idempotent
 
 
+def _row(layer, count=1):
+    return {"layer": layer, "source": "x", "confidence": "inferred", "count": count}
+
+
+def test_meta_patch_rerun_replaces_the_creek_rows_in_place():
+    doc = {"mapped": [{"confidence": "inferred"}], "modelled": [{"order": 3}, {"order": 4}]}
+    # build_overlay.py wrote its rows, then build_creeks added its two, then villages came last
+    meta = {"hand_sources": [_row("ponds"), _row("creeks", 99), _row("modelled_streams", 99), _row("villages")]}
+    out = patch_creeks_meta(meta, doc)
+    assert [r["layer"] for r in out["hand_sources"]] == ["ponds", "creeks", "modelled_streams", "villages"]
+    rows = {r["layer"]: r for r in out["hand_sources"]}
+    assert rows["creeks"]["count"] == 1 and rows["modelled_streams"]["count"] == 2  # refreshed, not kept
+    assert rows["ponds"] == _row("ponds") and rows["villages"] == _row("villages")
+    assert patch_creeks_meta(out, doc) == out
+    # a layer that is gone drops its row without moving the others
+    only_mapped = patch_creeks_meta(out, {"mapped": doc["mapped"], "modelled": []})
+    assert [r["layer"] for r in only_mapped["hand_sources"]] == ["ponds", "creeks", "villages"]
+    # removing everything keeps the other rows in order
+    gone = patch_creeks_meta(out, None)
+    assert [r["layer"] for r in gone["hand_sources"]] == ["ponds", "villages"]
+
+
+def test_meta_patch_appends_creek_rows_after_existing_rows_when_there_are_none_yet():
+    doc = {"mapped": [{"confidence": "inferred"}], "modelled": [{"order": 3}]}
+    meta = {"hand_sources": [_row("ponds"), _row("villages")]}
+    out = patch_creeks_meta(meta, doc)
+    assert [r["layer"] for r in out["hand_sources"]] == ["ponds", "villages", "creeks", "modelled_streams"]
+    # one creek row already present: it stays where it is, the missing one is appended
+    half = {"hand_sources": [_row("creeks"), _row("villages")]}
+    out = patch_creeks_meta(half, doc)
+    assert [r["layer"] for r in out["hand_sources"]] == ["creeks", "villages", "modelled_streams"]
+    # no hand_sources key at all
+    assert [r["layer"] for r in patch_creeks_meta({}, doc)["hand_sources"]] == ["creeks", "modelled_streams"]
+
+
 def test_meta_patch_with_nothing_removes_every_trace():
     doc = {"mapped": [{"confidence": "inferred"}], "modelled": []}
     with_creeks = patch_creeks_meta({"width": 5}, doc)
