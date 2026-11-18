@@ -200,3 +200,21 @@ Run by the owner on the live site (`https://yelamu.thomasparas.com/?bench`, main
 **Result:** the creek layer does not cost frames on this phone. All five scenarios pass, the quality level never dropped, and the run is capped by the 60 Hz display, so it shows the phone keeps up, not how much headroom it has.
 
 **Not measured:** battery and warmth (not recorded for this run), an older or low-end phone, an iPhone, a long session. The one-off cost of building the ribbons at load (about 17,000 triangles from 2,903 points) was not timed on the phone.
+
+## Phone benchmark A to E with the zoom-dependent width (2026-11-18)
+
+Run by the owner on the live site (`https://yelamu.thomasparas.com/?bench`), same phone and method as the earlier creeks phone run: Android 10, Chrome 158, 411x777 at 2.625x, coarse pointer, reduced motion off, 60 Hz. The build held the zoom-dependent width and also the later visual work that had merged by then (contact shadows under plants, ground colour variation, tone mapping), so the run measures the whole live build, not the width change alone. Read from the owner's screenshot of the benchmark box.
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.1 ms | 3.6 ms | 2 -> 2 | 611,784 | 167 | **PASS** |
+| B close-up, vegetation off | 59.5 | 17.6 ms | 2.0 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.1 ms | 2.5 ms | 2 -> 2 | 1,617,404 | 112 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.1 ms | 2.3 ms | 2 -> 2 | 1,617,404 | 112 | **PASS** |
+| E whole region (grey surround) | 59.7 | 17.4 ms | 3.0 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+**Against the earlier creeks phone run** (above): the frame gaps are 17.1 to 17.6 ms against 17.1 to 17.7 ms, and the p95 render time is 3.6 ms against 4.1 ms in A, 2.0 against 2.1 in B, 2.5 against 2.5 in C, 2.3 against 2.3 in D and 3.0 against 3.2 in E. Scenario E (the whole region, no plants) has exactly the same 1,084,283 triangles and 276 draw calls as before, so the ribbon geometry did not change in count: a width change rebuilds ribbons with the same number of triangles. The higher triangle and call counts in A, B, C and D come from other work (the Visual Improvements session's contact shadows added about 36,000 triangles and 16 draw calls in C and D; A, B differ also by how many terrain chunks had streamed in when sampled).
+
+**Result:** the zoom-dependent width does not cost frames on this phone. All five scenarios pass, quality never dropped, and the 60 Hz display caps the run, so it shows the phone keeps up, not the headroom.
+
+**Not measured:** battery and warmth (not recorded), whether the width steps (30% per level) are visible as a pulse during a continuous pinch zoom (the benchmark pans and does not zoom; owner to look by eye), the time of a single ribbon rebuild on the phone, an older phone, an iPhone.

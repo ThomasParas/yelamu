@@ -178,3 +178,8 @@ Branch `tone-mapping` (`36cb8b1`, built on main `dc5de3a`, before the zoom-depen
 | E whole region (grey surround) | 59.7 | 17.3 ms | 3.2 ms | 2 -> 2 | 1,167,035 | 281 | **PASS** |
 
 Against the ground-variation run: frame gaps within 0.2 ms, p95 render time within 0.3 ms either way. Tone mapping adds no geometry; the higher triangle and call counts in A and E come from more chunks having streamed in when sampled. Desktop bench A-E unchanged at ~120 fps. Not measured: battery and warmth, an older phone, an iPhone, a long session, and this exact build with the zoom-dependent creek width.
+
+
+## Creek zoom-dependent width on the phone (2026-11-18)
+
+Same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz), live site with the zoom-dependent creek width and the later visual work (contact shadows, ground colour variation, tone mapping). All five scenarios PASS at 59.5 to 59.7 fps, p95 frame gap 17.1 to 17.6 ms, quality 2 -> 2. Scenario E is unchanged from the earlier creeks run (1,084,283 triangles, 276 calls), so the ribbon rebuilds at width changes add no geometry. Table and reading: `docs/research/creeks-results.md`. Not measured: battery and warmth, visible pulsing of the width steps during a continuous pinch zoom, an older phone, an iPhone.
