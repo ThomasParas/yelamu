@@ -513,3 +513,25 @@ def test_fetch_query_urls():
     modelled = mod.query_url(mod.MODELLED, offset=2000)
     assert "MYHL_HistoricStreams/FeatureServer/1/query" in modelled
     assert "StrahlerID%3E%3D3" in modelled and "resultOffset=2000" in modelled
+
+
+def test_pipeline_limits_match_the_viewer_parser():
+    import re
+    from pathlib import Path
+
+    import yelamu.creeks as m
+
+    ts_path = Path(__file__).resolve().parents[2] / "viewer" / "src" / "creeks" / "parse.ts"
+    if not ts_path.exists():
+        pytest.skip("viewer sources not present")
+    text = ts_path.read_text()
+
+    def const(name):
+        found = re.search(rf"export const {name} = ([-0-9_e.]+);", text)
+        assert found, name
+        return float(found.group(1).replace("_", ""))
+
+    for name in ("MAX_MAPPED", "MAX_MODELLED", "MAX_CREEK_POINTS", "MAX_NAME_CHARS", "MAX_SOURCE_CHARS",
+                 "MAX_COORD_M", "MIN_ORDER", "MAX_ORDER"):
+        assert float(getattr(m, name)) == const(name), name
+    assert re.search(r"const ID = /\^\[a-z0-9\]\[a-z0-9-\]\*\$/;", text)

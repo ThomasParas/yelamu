@@ -39,6 +39,10 @@ export interface HeightmapMeta {
   overlay_villages?: number;
   /** File name of the freshwater ponds (flat water surfaces) next to the heightmap. */
   ponds_file?: string;
+  /** Optional: the creeks file (hand-mapped creeks and modelled streams) and how many of each it holds. */
+  creeks_file?: string;
+  creeks_mapped?: number;
+  creeks_modelled?: number;
   /** File name of the grey surrounding terrain description next to the heightmap. */
   context_file?: string;
   /** Baked ground shading (sun shadows + occlusion) next to the heightmap; see terrainShade.ts. */
