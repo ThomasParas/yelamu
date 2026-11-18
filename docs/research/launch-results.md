@@ -183,3 +183,15 @@ Against the ground-variation run: frame gaps within 0.2 ms, p95 render time with
 ## Creek zoom-dependent width on the phone (2026-11-18)
 
 Same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz), live site with the zoom-dependent creek width and the later visual work (contact shadows, ground colour variation, tone mapping). All five scenarios PASS at 59.5 to 59.7 fps, p95 frame gap 17.1 to 17.6 ms, quality 2 -> 2. Scenario E is unchanged from the earlier creeks run (1,084,283 triangles, 276 calls), so the ribbon rebuilds at width changes add no geometry. Table and reading: `docs/research/creeks-results.md`. Not measured: battery and warmth, visible pulsing of the width steps during a continuous pinch zoom, an older phone, an iPhone.
+
+## Blender tree models on the phone (2026-11-18)
+
+Branch `blender-trees` (main `391ef07`): oak, bay and willow drawn from Blender GLB models (`pipeline/yelamu/plants.py`, `viewer/src/vegetation/glb.ts`) instead of the procedural shapes. Same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz). Three tree sets were benched in a row; scene C (close-up, vegetation on) is the one that moves:
+
+| Tree set (oak / bay / willow triangles) | C fps | C p95 frame gap | D fps | D p95 frame gap | Result |
+|---|---|---|---|---|---|
+| Simple Blender set (200 / 130 / 190) | 59.5 | 17.2 ms | 59.7 | 17.1 ms | **PASS** |
+| Detailed (370 / 320 / 380) | 53.5 | 28.4 ms | 55.0 | 28.1 ms | PASS, but drops frames |
+| **Trimmed detailed, shipped (250 / 260 / 250)** | 59.5 | 17.3 ms | 59.2 | 20.5 ms | **PASS** |
+
+A, B and E stayed at 59.2 to 60 fps, gaps 17.2 to 17.5 ms, in every run. p95 render (CPU submit) stayed 2.2 to 3.1 ms throughout: the detailed set's cost was on the GPU. Triangle counts in C vary between runs (1.56M to 1.94M) with how many chunks had streamed in, so compare fps and gaps, not triangles. Keep `DETAILED_MAX_TRIANGLES` (260) unless a new phone bench says otherwise. Not measured: battery and warmth, an older phone, an iPhone, a long session.
