@@ -1,6 +1,7 @@
 import type { AppContext } from "./appContext";
 import { CreeksLayer } from "./creeks/layer";
 import { loadCreeks } from "./creeks/parse";
+import { metersPerPixel } from "./creeks/width";
 import type { HeightmapMeta } from "./heightmap";
 import type { AppModule } from "./modules";
 import { makeHeightSampler } from "./overlay/heightAt";
@@ -27,6 +28,12 @@ export function creekLayerDefs(meta: Pick<HeightmapMeta, "creeks_mapped" | "cree
   return out;
 }
 
+/** World metres per CSS pixel now (0, meaning the close-up widths, when the camera or canvas has no usable size). */
+function currentMetersPerPixel(ctx: AppContext): number {
+  const cam = ctx.camera;
+  return metersPerPixel(cam.top, cam.bottom, cam.zoom, ctx.canvas.clientHeight);
+}
+
 /**
  * Historical creeks: SFEI's hand-mapped creek lines and its modelled stream channels, drawn as
  * ribbons on the terrain, each with its own layer toggle. A dataset without `creeks_file`, or a
@@ -49,11 +56,13 @@ export const creeksModule: AppModule = async (ctx: AppContext) => {
   // Building the ribbons and wiring the toggles can throw (a bad height grid, a duplicate toggle id).
   // The scene is touched last, so a failure leaves the viewer as it was, with one warning.
   let built: CreeksLayer | undefined;
+  let unsubscribe: (() => void) | undefined;
   try {
     const heightAt = makeHeightSampler(ctx.heights, ctx.meta);
     const layer = new CreeksLayer(creeks, heightAt, {
       waterLevelM: ctx.meta.water_level_m,
       exaggeration: ctx.verticalExaggeration,
+      mPerPx: currentMetersPerPixel(ctx),
     });
     built = layer;
     const handles = new Map<string, ReturnType<typeof ctx.shell.addToggle>>();
@@ -70,8 +79,14 @@ export const creeksModule: AppModule = async (ctx: AppContext) => {
     ctx.layers.onChange(sync);
     sync();
     ctx.scene.add(layer);
+    // The ribbon width follows the zoom, in levels: the layer rebuilds a band only when its level
+    // changes, so most camera changes cost a few multiplications and ask for no render.
+    unsubscribe = ctx.rig.onChange(() => {
+      if (layer.update(currentMetersPerPixel(ctx))) ctx.requestRender();
+    });
   } catch (err) {
     console.warn("Creeks not drawn; continuing without them.", err);
+    unsubscribe?.();
     built?.dispose();
   }
 };

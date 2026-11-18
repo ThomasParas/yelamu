@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppContext } from "./appContext";
 import { CREEK_LAYERS, creekLayerDefs, creeksModule } from "./creeksModule";
 import { CreeksLayer } from "./creeks/layer";
+import { CREEK_TARGET_PX, CREEK_WIDTH_M, MODELLED_TARGET_PX, MODELLED_WIDTH_M } from "./creeks/colors";
 import { loadCreeks } from "./creeks/parse";
+import { ribbonWidth } from "./creeks/width";
 import { LayerSelection } from "./layerSelection";
 
 // The real loader, wrapped so a test can see whether it was asked to load anything.
@@ -65,7 +67,19 @@ function makeCtx(opts: { noFile?: boolean; hash?: string[]; heights?: Float32Arr
   const add = vi.fn();
   const requestRender = vi.fn();
   const layers = new LayerSelection(opts.hash);
+  // The camera sees 10,000 m top to bottom on a 1,000 px tall canvas: 10 m per pixel at zoom 1.
+  const camera = { top: 5000, bottom: -5000, zoom: 1 };
+  const rigListeners: Array<() => void> = [];
+  const unsubscribe = vi.fn();
   const ctx = {
+    camera,
+    canvas: { clientHeight: 1000 },
+    rig: {
+      onChange: (cb: () => void) => {
+        rigListeners.push(cb);
+        return unsubscribe;
+      },
+    },
     assetBase: "/assets/test",
     meta: {
       width: 2,
@@ -87,7 +101,7 @@ function makeCtx(opts: { noFile?: boolean; hash?: string[]; heights?: Float32Arr
       },
     },
   } as unknown as AppContext;
-  return { ctx, toggles, add, requestRender, layers };
+  return { ctx, toggles, add, requestRender, layers, camera, rigListeners, unsubscribe };
 }
 
 function added(add: ReturnType<typeof vi.fn>): CreeksLayer {
@@ -256,5 +270,111 @@ describe("creeksModule", () => {
     const layer = added(add);
     expect(child(layer, "creeks-mapped").visible).toBe(false);
     expect(child(layer, "creeks-modelled").visible).toBe(true);
+  });
+});
+
+describe("creeksModule width by zoom", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** Horizontal distance between the first left and right vertex of a ribbon mesh. */
+  function widthOf(layer: THREE.Group, name: string): number {
+    const mesh = layer.getObjectByName(name) as THREE.Mesh;
+    const p = mesh.geometry.getAttribute("position");
+    return Math.hypot(p.getX(0) - p.getX(1), p.getZ(0) - p.getZ(1));
+  }
+  // The test creeks run along x, the ground is level enough that the horizontal gap is the width.
+  const MAPPED = "creeks-mapped-ribbons";
+  const MODELLED = "creeks-modelled-order-3";
+
+  it("builds at the width for the camera it finds (10 m per pixel: far out)", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add, rigListeners } = makeCtx();
+    await creeksModule(ctx);
+    const layer = added(add);
+    expect(rigListeners).toHaveLength(1);
+    expect(widthOf(layer, MAPPED)).toBeCloseTo(ribbonWidth(CREEK_WIDTH_M, CREEK_TARGET_PX, 10));
+    expect(widthOf(layer, MAPPED)).toBeGreaterThan(CREEK_WIDTH_M);
+    expect(widthOf(layer, MODELLED)).toBeCloseTo(ribbonWidth(MODELLED_WIDTH_M[3], MODELLED_TARGET_PX[3], 10));
+  });
+
+  it("rebuilds the ribbons on a rig change that crosses a level, and asks for a render", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add, camera, rigListeners, requestRender } = makeCtx();
+    await creeksModule(ctx);
+    const layer = added(add);
+    const far = widthOf(layer, MAPPED);
+
+    camera.zoom = 100; // 0.1 m per pixel: close up
+    const rendersBefore = requestRender.mock.calls.length;
+    rigListeners[0]();
+    expect(widthOf(layer, MAPPED)).toBeCloseTo(CREEK_WIDTH_M);
+    expect(widthOf(layer, MODELLED)).toBeCloseTo(MODELLED_WIDTH_M[3]);
+    expect(far).toBeGreaterThan(widthOf(layer, MAPPED));
+    expect(requestRender.mock.calls.length).toBe(rendersBefore + 1);
+
+    camera.zoom = 0.5; // 20 m per pixel: wider than at 10
+    rigListeners[0]();
+    expect(widthOf(layer, MAPPED)).toBeCloseTo(ribbonWidth(CREEK_WIDTH_M, CREEK_TARGET_PX, 20));
+    expect(widthOf(layer, MAPPED)).toBeGreaterThan(far);
+  });
+
+  it("does not rebuild or ask for a render when a rig change stays inside the same level", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add, camera, rigListeners, requestRender } = makeCtx();
+    await creeksModule(ctx);
+    const layer = added(add);
+    const geometry = (layer.getObjectByName(MAPPED) as THREE.Mesh).geometry;
+    const rendersBefore = requestRender.mock.calls.length;
+    camera.zoom = 1.001;
+    rigListeners[0]();
+    expect((layer.getObjectByName(MAPPED) as THREE.Mesh).geometry).toBe(geometry);
+    expect(requestRender.mock.calls.length).toBe(rendersBefore);
+  });
+
+  it("reads the canvas height too: a taller canvas is closer, so thinner", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add, rigListeners } = makeCtx();
+    await creeksModule(ctx);
+    const layer = added(add);
+    const far = widthOf(layer, MAPPED);
+    (ctx.canvas as unknown as { clientHeight: number }).clientHeight = 100000; // 0.1 m per pixel
+    rigListeners[0]();
+    expect(widthOf(layer, MAPPED)).toBeCloseTo(CREEK_WIDTH_M);
+    expect(far).toBeGreaterThan(CREEK_WIDTH_M);
+  });
+
+  it("falls back to the close-up widths when the canvas has no height yet", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add } = makeCtx();
+    (ctx.canvas as unknown as { clientHeight: number }).clientHeight = 0;
+    await creeksModule(ctx);
+    expect(widthOf(added(add), MAPPED)).toBeCloseTo(CREEK_WIDTH_M);
+  });
+
+  it("keeps the toggles working after a rebuild", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, add, toggles, camera, rigListeners } = makeCtx();
+    await creeksModule(ctx);
+    const layer = added(add);
+    toggles.find((t) => t.id === "creeks")!.onChange(false);
+    camera.zoom = 100;
+    rigListeners[0]();
+    expect(layer.getObjectByName("creeks-mapped")!.visible).toBe(false);
+    toggles.find((t) => t.id === "creeks")!.onChange(true);
+    expect(layer.getObjectByName("creeks-mapped")!.visible).toBe(true);
+    expect(widthOf(layer, MAPPED)).toBeCloseTo(CREEK_WIDTH_M);
+  });
+
+  it("does not listen to the rig when the layer could not be built", async () => {
+    stubFetch(creeksDoc());
+    const { ctx, rigListeners } = makeCtx({ heights: new Float32Array(3) });
+    await creeksModule(ctx);
+    expect(rigListeners).toHaveLength(0);
   });
 });
