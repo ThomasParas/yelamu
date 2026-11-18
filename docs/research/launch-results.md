@@ -118,3 +118,17 @@ Branch `waterline-notches` (`022d659`): above the water surface the habitat shad
 | E whole region (grey surround) | 60.0 | 17.3 ms | 3.1 ms | 2 -> 2 | 1,049,603 | 268 | **PASS** |
 
 Frame gaps match the shoreline run to within 0.2 ms, and JS time per frame to within 0.4 ms. The fix is shader-only. The lower triangle counts in A, B and D come from how many chunks had streamed in when each scenario was sampled; this change adds no geometry.
+
+## Water ripples without the grid, on the phone (2026-11-18)
+
+Branch `water-ripples` (`4de25c7`, built before the creeks merge): three's lighting keeps the flat water normal; four long swell waves only shade the water, and the sun glint comes from three drifting noise octaves (chop), each faded out below about 8 px. More per-pixel work across the whole sea, no new geometry. Same method and phone as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 JS time per frame | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.3 ms | 3.2 ms | 2 -> 2 | 574,447 | 152 | **PASS** |
+| B close-up, vegetation off | 59.2 | 17.3 ms | 1.7 ms | 2 -> 2 | 1,039,220 | 42 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.2 ms | 2.4 ms | 2 -> 2 | 1,546,696 | 88 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.3 ms | 2.0 ms | 2 -> 2 | 1,546,696 | 88 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.3 ms | 2.9 ms | 2 -> 2 | 1,049,603 | 268 | **PASS** |
+
+Frame gaps match the waterline-notch run to within 0.2 ms and JS time to within 0.4 ms, so the heavier water shader does not cost frames on this phone. The desktop run showed a higher JS-time p95 in A (3.9 ms against 1.7 ms) that the phone does not; it looks like run-to-run noise. Not measured here: the creeks layer (merged to main after this build).
