@@ -103,7 +103,24 @@ Production build, Playwright (Chrome 157 on a desktop Mac, 1400 x 900 at 1x), `?
 
 ## Removing the layer
 
-From `pipeline/`, run `uv run python scripts/build_creeks.py ../viewer/public/assets/real-city --remove`. It deletes `viewer/public/assets/real-city/creeks.json` and removes `creeks_file`, `creeks_mapped`, `creeks_modelled` and the two `hand_sources` rows (`creeks`, `modelled_streams`) from `meta.json`. The viewer's Legend rows, toggles and Sources rows appear only when the dataset has creeks, so they go too. Then delete the SFEI creeks row from `NOTICE.md`. A city rebuild also drops the meta entries, so rerun `build_creeks.py` after `build_overlay.py` and `build_shade.py` (the README says so).
+Do all four steps; the first alone leaves the seven creek cards and the credit behind.
+
+1. From `pipeline/`: `uv run python scripts/build_creeks.py ../viewer/public/assets/real-city --remove`. It deletes `viewer/public/assets/real-city/creeks.json` and removes `creeks_file`, `creeks_mapped`, `creeks_modelled` and the two `hand_sources` rows (`creeks`, `modelled_streams`) from `meta.json`. The viewer's Legend rows, toggles and Sources rows appear only when the dataset has creeks, so they go too.
+2. Delete the SFEI creeks row from `NOTICE.md`.
+3. Delete the seven named creek entries from `pipeline/data/overlay/hotspots.json` (ids `creek-arroyo-dolores`, `creek-old-arroyo-dolores`, `creek-chutchui`, `creek-petlenuc`, `creek-ojo-de-agua-de-figueroa`, `creek-el-polin`, `creek-coyote-gulch`; leave Lobos Creek, which was there before). Also remove or update the two tests in `pipeline/tests/test_overlay.py` that expect these seven cards in the shipped `hotspots.json` and `overlay.json`, and `pipeline/tests/test_creeks_shipped.py`, which expects a shipped `creeks.json`, or they will fail.
+4. From `pipeline/`, rerun `uv run python scripts/build_overlay.py --region regions/full-city.json` (it needs the raw TIGER files in `pipeline/data/raw/tiger/`). This rewrites `overlay.json` without the seven hotspots.
+
+`build_shade.py` and `build_creeks.py` do not need to be rerun after `--remove`. `build_overlay.py` does not drop the `shade` key: `patch_overlay_meta` in `pipeline/yelamu/overlay.py` copies `meta.json` and changes only `overlay_file`, `overlay_villages` and the `villages` row of `hand_sources`, keeping every other key and row (read in the code; the full removal, steps 1 to 4 together, was not run). After a city rebuild (not a removal) the README order applies: `build_overlay.py`, `build_shade.py`, `build_creeks.py`.
+
+## Known limits
+
+- **Islais Creek has a hotspot but no line.** No modelled channel of order 3 or higher crosses the Islais estuary in SFEI's set (see "Viewer and browser results").
+- **`creek-1` ends on a hillside.** Its modelled continuation lay inside the 100 m overlap buffer and was dropped, so the line stops square-cut on the north side of Bernal Heights, 676 m from the nearest drawn modelled line.
+- **Mission Creek's lower reach is not drawn.** Neither SFEI set covers it (answer 4 above).
+- **The ribbons are drawn twice.** They are transparent and double-sided, so three.js draws each mesh twice (34,680 triangles and 8 draw calls counted for 17,340 triangles of geometry). A front-face-only material, with the index order swapped, would halve the cost; this was not done, as 60 fps was met.
+- **Widths are in world metres.** The lines are faint at the opening zoom (about one pixel) and heavy up close (10 to 11 px at zoom 12), and on a phone at its opening zoom none shows.
+- **Old share links with an explicit `l=` list hide the creek layers**, as they do the village sites and other newer layers; a link with no `l=` shows both on.
+- **The licence is not yet confirmed in writing** for the two creek layers; the NOTICE row says so.
 
 ## Named creek cards (2026-11-18)
 
