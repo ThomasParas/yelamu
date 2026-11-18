@@ -136,3 +136,17 @@ Frame gaps match the waterline-notch run to within 0.2 ms and JS time to within 
 ## Creeks on the phone (2026-11-18)
 
 The creeks layer (main `c54d1b8`, with the water ripples merged on top) measured on the same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz), on the live site. All five scenarios PASS at 59.5 to 60.0 fps, p95 frame gap 17.1 to 17.7 ms, quality 2 -> 2. The creek layer adds exactly 34,680 triangles and 8 draw calls in A, C, D and E against the water-ripples run; the p95 render time is up 0.9 ms in A and 0.1 to 0.4 ms elsewhere. Full table and reading: `docs/research/creeks-results.md`. Not measured: battery and warmth, an older phone, an iPhone, a long session.
+
+## Contact shadows on the phone (2026-11-18)
+
+Branch `contact-shadows` (built on main `21e6057`, creeks present): a soft dark patch under each tree and shrub, one instanced quad per planted chunk, transparent and drawn without depth writes. Same method and phone as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.1 ms | 4.0 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.5 | 17.3 ms | 2.1 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.5 ms | 3.0 ms | 2 -> 2 | 1,617,404 | 112 | **PASS** |
+| D close-up, vegetation + water | 60.0 | 17.2 ms | 2.3 ms | 2 -> 2 | 1,602,323 | 110 | **PASS** |
+| E whole region (grey surround) | 60.0 | 17.4 ms | 3.4 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+Against the creeks run (`creeks-results.md`): C has 36,028 more triangles and 16 more draw calls, the shadow quads (two triangles each) of the planted chunks in view; D drew slightly fewer chunks when sampled. A and E are unchanged in triangles and calls, so no shadows are drawn at those distances, and B has vegetation off. Frame gaps are 17.1 to 17.5 ms against 17.1 to 17.7 ms before; the p95 render time is up 0.5 ms in C, 0.2 ms in E and unchanged elsewhere. The shadows do not cost frames on this phone. Not measured: battery and warmth, an older phone, an iPhone, a long session.
