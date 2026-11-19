@@ -29,6 +29,12 @@ describe("Layers popover", () => {
     expect(rule(wide, '.toggles[data-open="true"]:not([hidden])')).toMatch(/display:\s*flex/);
   });
 
+  it("keeps its natural width and stays inside the bar when the button ends a row", () => {
+    expect(rule(media("(min-width: 641px)"), ".toggles")).toMatch(/width:\s*max-content/);
+    expect(shell).toContain("Math.max(inset, Math.min(layersBtn.offsetLeft, maxLeft))");
+    expect(shell).toMatch(/const syncBarHeight = \(\) => \{[\s\S]*?placeLayers\(\);/);
+  });
+
   it("leaves phones as they were: no Layers button, toggles inline in the Menu", () => {
     expect(rule(media("(max-width: 640px)"), ".topbar__layers-btn")).toMatch(/display:\s*none/);
   });

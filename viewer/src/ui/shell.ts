@@ -185,12 +185,20 @@ export function createShell(root: HTMLElement): Shell {
   header.append(title, searchSlot, menuBtn, menu);
 
   let layersOpen = false;
+  // Line the popover up under its button (both are positioned within the top bar), slid left
+  // as far as needed to stay inside the bar: when the bar wraps, the button can sit at the
+  // right end of a row.
+  const placeLayers = () => {
+    if (!layersOpen) return;
+    const inset = 8;
+    const maxLeft = header.clientWidth - toggles.offsetWidth - inset;
+    toggles.style.setProperty("--layers-left", `${Math.max(inset, Math.min(layersBtn.offsetLeft, maxLeft))}px`);
+  };
   const setLayersOpen = (open: boolean) => {
     layersOpen = open;
     layersBtn.setAttribute("aria-expanded", String(open));
     toggles.dataset.open = String(open);
-    // Line the popover up under its button (both are positioned within the top bar).
-    if (open) toggles.style.setProperty("--layers-left", `${layersBtn.offsetLeft}px`);
+    placeLayers(); // after data-open, so the popover is shown and has a width
   };
   setLayersOpen(false);
   layersBtn.addEventListener("click", () => setLayersOpen(!layersOpen));
@@ -258,8 +266,10 @@ export function createShell(root: HTMLElement): Shell {
   root.append(header, status, announcer, toastEl, turn, zoomGroup, panelHost);
 
   // Panels sit below the top bar, which wraps to a variable height on narrow screens.
-  const syncBarHeight = () =>
+  const syncBarHeight = () => {
     root.style.setProperty("--topbar-h", `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    placeLayers(); // the bar re-wraps as the window changes width
+  };
   syncBarHeight();
   // The turn buttons sit just above the status line, which may wrap to two lines.
   const syncStatusHeight = () =>
