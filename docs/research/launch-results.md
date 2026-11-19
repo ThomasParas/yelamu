@@ -195,3 +195,17 @@ Branch `blender-trees` (main `391ef07`): oak, bay and willow drawn from Blender 
 | **Trimmed detailed, shipped (250 / 260 / 250)** | 59.5 | 17.3 ms | 59.2 | 20.5 ms | **PASS** |
 
 A, B and E stayed at 59.2 to 60 fps, gaps 17.2 to 17.5 ms, in every run. p95 render (CPU submit) stayed 2.2 to 3.1 ms throughout: the detailed set's cost was on the GPU. Triangle counts in C vary between runs (1.56M to 1.94M) with how many chunks had streamed in, so compare fps and gaps, not triangles. Keep `DETAILED_MAX_TRIANGLES` (260) unless a new phone bench says otherwise. Not measured: battery and warmth, an older phone, an iPhone, a long session.
+
+## Distance haze on the phone (2026-11-18)
+
+Branch `haze-sky` (`e43f5cc`, on main `4e830e7`): far ground and water fade to a pale blue-grey (`viewer/src/haze.ts`, three's fog with an exponential curve from 1.5 km past the view target, scale 5 km, at most 80%). Same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.2 ms | 4.2 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.7 | 17.8 ms | 3.6 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.6 ms | 2.6 ms | 2 -> 2 | 1,672,254 | 98 | **PASS** |
+| D close-up, vegetation + water | 60 | 17.1 ms | 2.4 ms | 2 -> 2 | 1,920,863 | 110 | **PASS** |
+| E whole region (grey surround) | 59.7 | 17.4 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+Against the trimmed tree run: C within 0.3 ms, D 3 ms better (run-to-run noise). The haze adds no geometry, pass or texture. Desktop bench A-E ~120 fps, counts unchanged. A sky gradient was dropped: the sea planes cover the whole screen at every zoom, so scene.background is never seen. Not measured: battery and warmth, an older phone, an iPhone.
