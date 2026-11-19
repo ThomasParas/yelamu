@@ -710,7 +710,7 @@ def test_data_files_in_the_repo_are_valid():
     validate_landmarks(landmarks, region.bbox)
     validate_hotspots(hotspots, region.bbox)
     validate_unique_ids(landmarks, hotspots)
-    assert len(landmarks) == 37
+    assert len(landmarks) == 47
     assert 8 <= len(hotspots) <= 20  # ten curated hotspots plus the seven named creeks
 
 

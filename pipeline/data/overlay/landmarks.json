@@ -257,5 +257,75 @@
   "kind": "other",
   "lon": -122.363,
   "lat": 37.8095
+ },
+ {
+  "id": "legion-of-honor",
+  "name": "Legion of Honor",
+  "kind": "building",
+  "lon": -122.501,
+  "lat": 37.7846
+ },
+ {
+  "id": "mclaren-park",
+  "name": "McLaren Park",
+  "kind": "park",
+  "lon": -122.4175,
+  "lat": 37.7175
+ },
+ {
+  "id": "ucsf-parnassus",
+  "name": "UCSF (Parnassus Heights)",
+  "kind": "other",
+  "lon": -122.4574,
+  "lat": 37.7631
+ },
+ {
+  "id": "san-francisco-general-hospital",
+  "name": "San Francisco General Hospital",
+  "kind": "building",
+  "lon": -122.4053,
+  "lat": 37.7568
+ },
+ {
+  "id": "san-francisco-state-university",
+  "name": "San Francisco State University",
+  "kind": "other",
+  "lon": -122.48,
+  "lat": 37.7245
+ },
+ {
+  "id": "city-college-ocean-campus",
+  "name": "City College of San Francisco (Ocean Campus)",
+  "kind": "other",
+  "lon": -122.4504,
+  "lat": 37.7258
+ },
+ {
+  "id": "cow-palace",
+  "name": "Cow Palace",
+  "kind": "building",
+  "lon": -122.4195,
+  "lat": 37.7065
+ },
+ {
+  "id": "transamerica-pyramid",
+  "name": "Transamerica Pyramid",
+  "kind": "building",
+  "lon": -122.4028,
+  "lat": 37.7952
+ },
+ {
+  "id": "lombard-street",
+  "name": "Lombard Street (crooked block)",
+  "kind": "other",
+  "lon": -122.4189,
+  "lat": 37.802
+ },
+ {
+  "id": "union-square",
+  "name": "Union Square",
+  "kind": "park",
+  "lon": -122.4075,
+  "lat": 37.7879
  }
 ]

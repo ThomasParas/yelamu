@@ -109,7 +109,7 @@ describe("the committed real-city ring", () => {
     expect(doc.cols).toBe(814);
     expect(doc.rows).toBe(656);
     expect(doc.hole).toEqual({ i0: 104, i1: 399, j0: 171, j1: 432 });
-    expect(doc.places).toHaveLength(19);
+    expect(doc.places).toHaveLength(20);
     expect(doc.places.map((p) => p.id)).toContain("oakland");
     expect(doc.layers[0].confidence).toBe("illustrative");
     expect(existsSync(new URL(doc.heights_file, dir))).toBe(true);

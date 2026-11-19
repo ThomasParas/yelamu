@@ -10,6 +10,7 @@
   {"id": "angel-island", "name": "Angel Island", "kind": "island", "lon": -122.4313, "lat": 37.8607, "source": "Approximate island-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "mill-valley", "name": "Mill Valley", "kind": "town", "lon": -122.5450, "lat": 37.9060, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "mount-tamalpais", "name": "Mount Tamalpais", "kind": "peak", "lon": -122.5778, "lat": 37.9291, "source": "Approximate summit position (Wikipedia infobox / USGS GNIS); within about 500 m"},
+  {"id": "san-bruno-mountain", "name": "San Bruno Mountain", "kind": "peak", "lon": -122.4355, "lat": 37.6874, "source": "Approximate summit position (OpenStreetMap); within about 500 m"},
   {"id": "daly-city", "name": "Daly City", "kind": "town", "lon": -122.4702, "lat": 37.6879, "source": "Approximate town-centre position (Wikipedia infobox / USGS GNIS); within about 500 m"},
   {"id": "brisbane", "name": "Brisbane", "kind": "town", "lon": -122.3999, "lat": 37.6808, "source": "Downtown position; the Wikipedia infobox gives a city centroid on the hills, about 1.7 km west"},
   {"id": "south-san-francisco", "name": "South San Francisco", "kind": "town", "lon": -122.4077, "lat": 37.6547, "source": "Downtown (Grand Avenue) position; the Wikipedia infobox gives a point on the bay shore, about 2.8 km away"},

@@ -156,6 +156,17 @@
    "ground_m": 772.3
   },
   {
+   "id": "san-bruno-mountain",
+   "name": "San Bruno Mountain",
+   "kind": "peak",
+   "lon": -122.4355,
+   "lat": 37.6874,
+   "x": -437.9,
+   "z": 9167.2,
+   "source": "Approximate summit position (OpenStreetMap); within about 500 m",
+   "ground_m": 387.3
+  },
+  {
    "id": "daly-city",
    "name": "Daly City",
    "kind": "town",
