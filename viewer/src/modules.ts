@@ -2,6 +2,7 @@ import type { AppContext } from "./appContext";
 import { contextModule } from "./contextModule";
 import { creeksModule } from "./creeksModule";
 import { effectsModule } from "./effectsModule";
+import { identifyModule } from "./identifyModule";
 import { infoModule } from "./infoModule";
 import { overlayModule } from "./overlayModule";
 import { patternsModule } from "./patternsModule";
@@ -14,7 +15,7 @@ export type AppModule = (ctx: AppContext) => void | Promise<void>;
  * Registered modules run in order after the core view is up. Add a module by importing
  * it here and appending it; a module that throws is logged and does not stop the rest.
  */
-export const modules: AppModule[] = [infoModule, effectsModule, pondsModule, contextModule, overlayModule, creeksModule, patternsModule];
+export const modules: AppModule[] = [infoModule, effectsModule, pondsModule, contextModule, overlayModule, creeksModule, patternsModule, identifyModule];
 
 export async function initModules(ctx: AppContext): Promise<void> {
   for (const init of modules) {
