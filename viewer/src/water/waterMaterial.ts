@@ -104,8 +104,11 @@ export interface WaterMaterial {
   setTime(t: number): void;
   /** Off: amplitude 0, identical to the old static plane. */
   setAnimated(on: boolean): void;
-  /** Turn on shallows and foam from a shore field (until then the water looks as before). */
-  setShore(shore: WaterShore): void;
+  /**
+   * Turn on shallows and foam from a shore field (until then the water looks as before).
+   * Returns the field's texture, for the ground's wet shore band to share.
+   */
+  setShore(shore: WaterShore): THREE.DataTexture;
 }
 
 const f = (n: number) => n.toFixed(4);
@@ -379,6 +382,7 @@ export function createWaterMaterial(): WaterMaterial {
       shoreUniforms.uShoreGrid.value.set(shore.width, shore.height);
       shoreUniforms.uShoreCellM.value = shore.cellM;
       seaShoreOn.value = 1;
+      return texture;
     },
   };
 }

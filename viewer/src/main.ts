@@ -286,7 +286,8 @@ async function start() {
     setTimeout(() => {
       const t0 = performance.now();
       const field = computeShoreField(heights, meta.width, meta.height, meta.water_level_m);
-      waterFx.setShore({ field, width: meta.width, height: meta.height, cellM: meta.cell_m });
+      const shoreTexture = waterFx.setShore({ field, width: meta.width, height: meta.height, cellM: meta.cell_m });
+      habitatMaterial?.setShore(shoreTexture); // the same grid as the habitat raster
       console.info(`shore field: ${(performance.now() - t0).toFixed(0)} ms`);
       requestIdleRender();
     }, 0),

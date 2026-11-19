@@ -19,7 +19,9 @@
  * four are sea.
  */
 import * as THREE from "three";
+import { GROUP_COLORS, srgbToLinear } from "./habitat";
 import { PATTERN_GLSL } from "./habitatPatterns";
+import { SHORE_DIST_SCALE } from "./water/shoreField";
 
 /** How far (in 10 m cells) the noise can push an edge. */
 export const EDGE_WARP_CELLS = 1.3;
@@ -32,6 +34,19 @@ export const EDGE_WARP_PERIOD_CELLS = 3.5;
 export const EDGE_SHARPNESS = 1.5;
 /** Height (metres, before exaggeration) over which sea colours fade out above the water. */
 export const DRY_BAND_M = 0.4;
+
+/**
+ * Wet shore: a darker band on the land just above the sea, like wet sand or rock at the
+ * waterline, so the coast reads as an edge rather than a colour change. It uses the shore
+ * field the water shader already has (signed distance to the shoreline, shared texture) and
+ * fades out with height above the water, so a cliff gets little and a beach the full band.
+ */
+/** Band width on land, metres (a noise along the coast varies it by +-40%). */
+export const WET_WIDTH_M = 7;
+/** Height above the water (metres, before exaggeration) where the band has faded out. */
+export const WET_HEIGHT_M = 1.2;
+/** Most the band darkens the ground (share of its colour). */
+export const WET_DARK = 0.3;
 
 /**
  * Ground colour variation, so a habitat is not one flat colour: broad patches (drier and
@@ -106,6 +121,17 @@ export const GROUND_DARKEST = (() => {
   return (1 - GROUND_VARY_DOWN) * Math.min(1, lum(warmTint(GROUND_TINT)), lum(coolTint(GROUND_TINT)));
 })();
 
+/**
+ * Luminance (linear) the wet band never darkens the ground below: the darkest woodland the
+ * ground variation can give, so lines drawn over the shore keep the contrast they have over
+ * woodland (uiColors.test.ts). Light sand gets the full WET_DARK, dark ground hardly any.
+ */
+export const WET_FLOOR_LUM = (() => {
+  const c = GROUP_COLORS.woodland;
+  const [r, g, b] = [(c >> 16) & 255, (c >> 8) & 255, c & 255].map((v) => srgbToLinear(v / 255));
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) * GROUND_DARKEST;
+})();
+
 export interface HabitatMaterialOptions {
   /** Class id per raster sample, row-major, row 0 = north. */
   habitat: Uint8Array;
@@ -154,6 +180,9 @@ uniform sampler2D uGroundNoise; // RGBA8 tiling noise (R broad, G fine, B hue), 
 uniform sampler2D uPatternOf; // 256 x 1 float: pattern code per class id
 uniform float uPatterns;      // 1 = draw the habitat patterns, 0 = off
 uniform float uPixelRatio;    // device pixels per CSS pixel
+uniform sampler2D uShore;     // RG8 shore field (water/shoreField.ts), same grid as uHabitat
+uniform float uShoreOn;       // 0 until the shore field is set
+uniform float uWetHeight;     // world-y height above the water where the wet band ends
 varying vec2 vHabitatXZ;
 varying float vHabitatY;
 
@@ -243,6 +272,25 @@ vec3 habitatColor( vec2 worldXZ, float worldY, out float pattern ) {
 	return ( c + habLandNear( floor( p0 + 0.5 ) ) * lost ) / ( kept + lost );
 }
 ${PATTERN_GLSL}
+// Darkening factor of the wet band at the shore (1 = none) for ground colour c. Land only,
+// above the water, and never below WET_FLOOR_LUM.
+float habWet( vec2 worldXZ, float worldY, vec3 c ) {
+	if ( uShoreOn < 0.5 ) return 1.0;
+	float above = worldY - uWaterY;
+	if ( above <= 0.0 || above >= uWetHeight ) return 1.0;
+	vec2 p = worldXZ / uCellM + ( uGridSize - 1.0 ) * 0.5;
+	vec2 uv = ( p + 0.5 ) / uGridSize;
+	if ( uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0 ) return 1.0;
+	// Distance inland from the shoreline, metres (the field is negative on land).
+	float inland = -( texture2D( uShore, uv ).g * 255.0 - 128.0 ) / ${f(SHORE_DIST_SCALE)} * uCellM;
+	float width = ${f(WET_WIDTH_M)} * ( 0.6 + 0.8 * ( habNoise( worldXZ / 40.0 ) * 0.5 + 0.5 ) );
+	float wet = ( 1.0 - smoothstep( 0.4 * width, width, inland ) )
+		* ( 1.0 - smoothstep( 0.3 * uWetHeight, uWetHeight, above ) );
+	// Zoomed far out the band is thinner than a pixel and would shimmer.
+	wet *= 1.0 - smoothstep( 4.0, 10.0, length( fwidth( worldXZ ) ) );
+	float lum = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+	return max( 1.0 - ${f(WET_DARK)} * wet, min( 1.0, ${WET_FLOOR_LUM.toFixed(6)} / max( lum, 1e-4 ) ) );
+}
 // Colour gain for ground variation (1 = unchanged): broad patches leaning warm or cool and a
 // little lighter or darker, plus fine mottling. Two fetches from a baked tiling noise texture;
 // its mipmaps average the mottling away where a pixel covers more ground than a blotch.
@@ -272,6 +320,7 @@ if ( habPatternHere > 0.5 ) {
 	float px = max( length( dFdx( vHabitatXZ ) ), length( dFdy( vHabitatXZ ) ) ) / uPixelRatio;
 	habGround = habApplyPattern( habGround, habPatternHere, habPattern( habPatternHere, vHabitatXZ, px ) );
 }
+habGround *= habWet( vHabitatXZ, vHabitatY, habGround );
 diffuseColor.rgb *= habGround * vColor.rgb;
 `;
 
@@ -313,6 +362,8 @@ export interface HabitatMaterial {
   setPatterns(on: boolean): void;
   /** Device pixels per CSS pixel (renderer.getPixelRatio()), so marks keep their on-screen size. */
   setPixelRatio(ratio: number): void;
+  /** Turn on the wet shore band, from the water's shore field texture (shared, not disposed here). */
+  setShore(texture: THREE.Texture): void;
   dispose(): void;
 }
 
@@ -350,6 +401,11 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
   patternOf.needsUpdate = true;
   const patternsUniform = { value: 0 };
   const pixelRatioUniform = { value: 1 };
+  // A 1x1 stand-in until setShore; uShoreOn = 0 skips the lookup anyway.
+  const shorePlaceholder = new THREE.DataTexture(new Uint8Array([128, 128]), 1, 1, THREE.RGFormat);
+  shorePlaceholder.needsUpdate = true;
+  const shoreUniform: { value: THREE.Texture } = { value: shorePlaceholder };
+  const shoreOnUniform = { value: 0 };
 
   const material = new THREE.MeshStandardMaterial({ vertexColors: true });
   material.onBeforeCompile = (shader) => {
@@ -364,9 +420,12 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
     shader.uniforms.uPatternOf = { value: patternOf };
     shader.uniforms.uPatterns = patternsUniform;
     shader.uniforms.uPixelRatio = pixelRatioUniform;
+    shader.uniforms.uShore = shoreUniform;
+    shader.uniforms.uShoreOn = shoreOnUniform;
+    shader.uniforms.uWetHeight = { value: WET_HEIGHT_M * (o.exaggeration ?? 1) };
     patchHabitatShaders(shader);
   };
-  material.customProgramCacheKey = () => "yelamu-habitat-v4";
+  material.customProgramCacheKey = () => "yelamu-habitat-v5";
   return {
     material,
     setPatterns(on: boolean) {
@@ -375,8 +434,13 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
     setPixelRatio(ratio: number) {
       pixelRatioUniform.value = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
     },
+    setShore(texture: THREE.Texture) {
+      shoreUniform.value = texture;
+      shoreOnUniform.value = 1;
+    },
     dispose() {
       material.dispose();
+      shorePlaceholder.dispose();
       habitat.dispose();
       palette.dispose();
       groundNoise.dispose();
