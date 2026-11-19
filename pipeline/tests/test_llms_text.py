@@ -111,7 +111,7 @@ def test_index_html_counts_match_the_overlay():
     html = _index_html()
     assert f"{len(overlay['landmarks'])} modern landmarks" in html
     assert f"about {len(overlay['hotspots'])} landscape features" in html
-    assert len(overlay["villages"]) == 5 and "the five primary Yelamu villages" in html
+    assert len(overlay["villages"]) == 5 and "five village sites named by SFEI" in html
 
 
 def test_index_html_json_ld_parses_and_names_the_site():

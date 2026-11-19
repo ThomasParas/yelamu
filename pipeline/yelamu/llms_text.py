@@ -21,7 +21,7 @@ LLMS_FULL_FILE = "llms-full.txt"
 # Wording approved by the owner on 2026-11-18 (see docs/research/llm-metadata-draft.md).
 SUMMARY = (
     "Yelamu is an interactive 3D map of the San Francisco peninsula as its land and water may have "
-    "lain around 1769, the homeland of the Ramaytush Ohlone. It is a reconstruction from modern "
+    "lain around 1769, the homeland of the Ramaytush. It is a reconstruction from modern "
     "elevation data, SFEI historical ecology and 1850s NOAA shoreline maps. Every layer states its "
     "source and how sure we are (Documented, Inferred or Illustrative). It is not a survey, and it "
     "is not for navigation, engineering or legal use."
@@ -29,9 +29,11 @@ SUMMARY = (
 
 CAVEATS = (
     "It is an informed reconstruction, not a photograph or a survey.",
-    "The five Yelamu village sites are general locations and approximate. The map does not depict "
-    "people and does not show burial or sacred sites.",
-    "The Ramaytush Ohlone are a living community. To learn from them directly, see the Association "
+    "The five village sites are general locations named by SFEI's map; they are approximate, and the "
+    "names and spellings are not official. The Ramaytush Tribe and the Association of Ramaytush Ohlone "
+    "are preparing their own mapping with SFEI. The map does not depict people and does not show burial "
+    "or sacred sites.",
+    "The Ramaytush are a living community. To learn from them directly, see the Association "
     "of Ramaytush Ohlone: https://www.ramaytush.org/",
     "Modern landmarks (Ferry Building, Oracle Park and so on) are labelled for orientation; several "
     "stand where this map draws water.",

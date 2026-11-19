@@ -61,14 +61,15 @@ MAX_STREET_POINTS = 400_000
 MAX_PLACES = 5000  # per section (landmarks, hotspots)
 MAX_NAME_CHARS = 120
 MAX_SOURCES = 20
-DESCRIPTION_MIN, DESCRIPTION_MAX = 20, 400
+DESCRIPTION_MIN, DESCRIPTION_MAX = 20, 600
 # Village discs: the owner-approved size (SFEI draws about 530 m) with room to adjust. The
 # viewer's own cap is 3000 m.
 VILLAGE_RADIUS_MIN, VILLAGE_RADIUS_MAX = 100, 2000
 # Wording approved by the owner on 2026-11-18. The "Village sites" row of the Sources panel.
 VILLAGES_SOURCE_NOTE = (
     "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of "
-    "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate."
+    "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. "
+    "Not official; superseded when the Ramaytush mapping with SFEI is published."
 )
 VILLAGES_LAYER = "villages"
 

@@ -42,7 +42,7 @@ function paragraph(...parts: Array<string | Node>): HTMLElement {
 
 /**
  * `context`: the dataset has the grey surrounding terrain, so the About text describes it.
- * `villages`: the dataset marks the primary Yelamu villages, so the About text says so.
+ * `villages`: the dataset marks the village sites, so the About text says so.
  */
 export function createAbout(options: { context?: boolean; villages?: boolean } = {}): AboutDialog {
   const dialog = el("dialog", "about");
@@ -78,9 +78,9 @@ export function createAbout(options: { context?: boolean; villages?: boolean } =
   // Wording approved by the owner on 2026-11-17 (launch review)
   inner.appendChild(
     section(
-      "The Ramaytush Ohlone",
+      "The Ramaytush",
       paragraph(
-        "The San Francisco peninsula is the homeland of the Ramaytush Ohlone. The Ramaytush Ohlone are a " +
+        "The San Francisco peninsula is the homeland of the Ramaytush. The Ramaytush are a " +
           "living community today, not only a people of the past. To learn from them directly, visit the ",
         safeLink("https://www.ramaytush.org/", "Association of Ramaytush Ohlone"),
         ".",

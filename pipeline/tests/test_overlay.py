@@ -410,9 +410,9 @@ def test_hotspot_description_length():
     with pytest.raises(ValueError, match="the-id.*description"):
         validate_hotspots([hs(id="the-id", description="too short")], BBOX)
     with pytest.raises(ValueError, match="the-id.*description"):
-        validate_hotspots([hs(id="the-id", description="x" * 401)], BBOX)
+        validate_hotspots([hs(id="the-id", description="x" * 601)], BBOX)
     validate_hotspots([hs(description="x" * 20)], BBOX)
-    validate_hotspots([hs(description="x" * 400)], BBOX)
+    validate_hotspots([hs(description="x" * 600)], BBOX)
     with pytest.raises(ValueError, match="the-id.*description"):
         validate_hotspots([hs(id="the-id", description=None)], BBOX)
 
@@ -478,9 +478,9 @@ class TestViewerParserLimits:
 
 
 def test_hotspot_description_length_counts_utf16_units():
-    validate_hotspots([hs(description="\U0001F332" * 200)], BBOX)  # 400 units
+    validate_hotspots([hs(description="\U0001F332" * 300)], BBOX)  # 600 units
     with pytest.raises(ValueError, match="the-id.*description"):
-        validate_hotspots([hs(id="the-id", description="\U0001F332" * 201)], BBOX)  # 402 units
+        validate_hotspots([hs(id="the-id", description="\U0001F332" * 301)], BBOX)  # 602 units
 
 
 def test_hotspot_source_count_limit():
@@ -719,13 +719,15 @@ def test_data_files_in_the_repo_are_valid():
 
 VILLAGES_SOURCE_NOTE = (
     "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of "
-    "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate."
+    "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. "
+    "Not official; superseded when the Ramaytush mapping with SFEI is published."
 )
 CARD_TEXT = (
-    "General location of a Yelamu village site {place}, around the time of Spanish contact. "
+    "General location of a village site {place}, around the time of Spanish contact. "
     "Approximate: villages were places and the people who lived there, and they moved "
-    "seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) "
-    "and the National Park Service (2009)."
+    "seasonally and over time. The name, spelling and location are not official; the Ramaytush "
+    "Tribe and the Association of Ramaytush Ohlone are preparing their own mapping with SFEI. "
+    "Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009)."
 )
 SHIPPED_VILLAGES = {
     "village-sitlintac": ("Sitlintac", -122.4152, 37.7714, "along Mission Creek"),
@@ -761,12 +763,12 @@ def test_village_missing_field(key):
         validate_villages([item], BBOX)
 
 
-@pytest.mark.parametrize("description", [None, "", "   ", "too short", "x" * 401, 12])
+@pytest.mark.parametrize("description", [None, "", "   ", "too short", "x" * 601, 12])
 def test_village_description_rules(description):
     with pytest.raises(ValueError, match="village-test.*description"):
         validate_villages([vg(description=description)], BBOX)
     validate_villages([vg(description="x" * 20)], BBOX)
-    validate_villages([vg(description="x" * 400)], BBOX)
+    validate_villages([vg(description="x" * 600)], BBOX)
 
 
 @pytest.mark.parametrize("sources", [None, [], "https://a.org", [{"title": "T"}],
@@ -1193,12 +1195,12 @@ def test_villages_file_that_is_not_a_list_is_rejected(tmp_path, grid):
 
 def test_village_description_length_counts_utf16_units_like_the_viewer():
     star = "\U0001F332"  # one code point, two UTF-16 units
-    validate_villages([vg(description=star * 200)], BBOX)  # exactly 400 units
-    validate_villages([vg(description=star * 199 + "x" * 2)], BBOX)  # 400 units, mixed
+    validate_villages([vg(description=star * 300)], BBOX)  # exactly 600 units
+    validate_villages([vg(description=star * 299 + "x" * 2)], BBOX)  # 600 units, mixed
     with pytest.raises(ValueError, match="the-id.*description"):
-        validate_villages([vg(id="the-id", description=star * 200 + "x")], BBOX)  # 401 units
+        validate_villages([vg(id="the-id", description=star * 300 + "x")], BBOX)  # 601 units
     with pytest.raises(ValueError, match="the-id.*description"):
-        validate_villages([vg(id="the-id", description=star * 201)], BBOX)  # 402 units, 201 code points
+        validate_villages([vg(id="the-id", description=star * 301)], BBOX)  # 602 units, 301 code points
 
 
 def test_village_description_minimum_counts_utf16_units_too():

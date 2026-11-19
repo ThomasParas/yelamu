@@ -237,12 +237,12 @@ describe("parseOverlay: coordinate range", () => {
 });
 
 describe("parseOverlay: hotspots", () => {
-  it("enforces the description length 20..400", () => {
-    expect(() => parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(19) })] }))).toThrow(/20 to 400 characters \(got 19\)/);
-    expect(() => parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(401) })] }))).toThrow(/got 401/);
+  it("enforces the description length 20..600", () => {
+    expect(() => parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(19) })] }))).toThrow(/20 to 600 characters \(got 19\)/);
+    expect(() => parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(601) })] }))).toThrow(/got 601/);
     expect(() => parseOverlay(doc({ hotspots: [hotspot({ description: 5 })] }))).toThrow(/not a string/);
     parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(20) })] }));
-    parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(400) })] }));
+    parseOverlay(doc({ hotspots: [hotspot({ description: "x".repeat(600) })] }));
   });
 
   it("requires a non-empty sources array", () => {
@@ -355,8 +355,8 @@ describe("parseOverlay: villages", () => {
   });
 
   it("applies the hotspot description, sources and confidence rules", () => {
-    expect(() => parseOverlay(withVillages(village({ description: "x".repeat(19) })))).toThrow(/20 to 400 characters \(got 19\)/);
-    expect(() => parseOverlay(withVillages(village({ description: "x".repeat(401) })))).toThrow(/got 401/);
+    expect(() => parseOverlay(withVillages(village({ description: "x".repeat(19) })))).toThrow(/20 to 600 characters \(got 19\)/);
+    expect(() => parseOverlay(withVillages(village({ description: "x".repeat(601) })))).toThrow(/got 601/);
     expect(() => parseOverlay(withVillages(village({ description: 5 })))).toThrow(/not a string/);
     expect(() => parseOverlay(withVillages(village({ sources: [] })))).toThrow(/sources must be a non-empty array/);
     expect(() => parseOverlay(withVillages(village({ sources: [{ title: "t", url: "javascript:alert(1)" }] })))).toThrow(

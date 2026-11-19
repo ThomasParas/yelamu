@@ -109,6 +109,8 @@ const HAND_LAYERS: ReadonlyArray<readonly [string, { label: string; one: string;
   ["modelled_streams", { label: "Modelled streams", one: "channel", many: "channels" }],
 ];
 const MAX_LAYER_CHARS = 60;
+// A Sources-panel source sentence may run longer than a generic value (the village note carries a caveat).
+const MAX_SOURCE_CHARS = 300;
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -143,7 +145,7 @@ export function handSourceRows(items: readonly HandSource[] | undefined): HandSo
     rows.push({
       layer,
       label: entry ? entry.info.label : clip(humanize(layer), MAX_LAYER_CHARS),
-      source: clip(source, MAX_VALUE_CHARS),
+      source: clip(source, MAX_SOURCE_CHARS),
       confidence: typeof item.confidence === "string" ? item.confidence : "",
       countText,
       order: entry ? entry.order : HAND_LAYERS.length,

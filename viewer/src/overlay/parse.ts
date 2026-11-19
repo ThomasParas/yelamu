@@ -25,7 +25,7 @@ export const MAX_SOURCES = 20;
  */
 export const MAX_COORD_M = 1e6;
 export const DESCRIPTION_MIN = 20;
-export const DESCRIPTION_MAX = 400;
+export const DESCRIPTION_MAX = 600;
 /**
  * Village disc radius, metres. The pipeline allows 100 to 2000; the viewer is deliberately a
  * little more tolerant so a slightly larger future value does not break the whole overlay.
@@ -86,7 +86,7 @@ function placeId(v: unknown, where: string, seen: Map<string, string>): string {
   return v;
 }
 
-/** The card text shared by hotspots and villages: 20 to 400 characters. */
+/** The card text shared by hotspots and villages: 20 to 600 characters. */
 function description(v: unknown, label: string): string {
   if (typeof v !== "string" || v.length < DESCRIPTION_MIN || v.length > DESCRIPTION_MAX) {
     const len = typeof v === "string" ? v.length : "not a string";

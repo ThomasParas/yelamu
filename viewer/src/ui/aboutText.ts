@@ -5,11 +5,14 @@ export const ABOUT_LAND_AND_WATER_ONLY =
   "This map shows land and water only. It does not depict villages, people or sacred sites.";
 
 // Wording approved by the owner on 2026-11-18
-/** Replaces ABOUT_LAND_AND_WATER_ONLY when the dataset marks the primary Yelamu villages. */
+// Reworded by the owner's approval on 2026-11-19, after the Ramaytush Tribe's reply (names and locations not official).
+/** Replaces ABOUT_LAND_AND_WATER_ONLY when the dataset marks the village sites. */
 export const ABOUT_VILLAGES =
-  "The map marks the general locations of the five primary Yelamu villages named by SFEI's Hidden Nature SF, " +
-  "because leaving them out would erase the people who lived here. The locations are approximate. " +
-  "The map does not depict people, and it does not show burial or sacred sites.";
+  "The map marks the general locations of five villages named by SFEI's Hidden Nature SF, " +
+  "because leaving them out would erase the people who lived here. The locations are approximate, " +
+  "and the names and spellings are SFEI's, not official ones. The Ramaytush Tribe and the Association of " +
+  "Ramaytush Ohlone are preparing their own mapping of villages and trails with SFEI; we will update this map " +
+  "when it is published. The map does not depict people, and it does not show burial or sacred sites.";
 
 // Wording requested by the owner on 2026-11-18: "Built by Thomas Paras", the name a link to ThomasParas.com.
 /** The byline at the very end of the About dialog: lead text, linked name, closing full stop. */

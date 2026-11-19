@@ -80,7 +80,7 @@ describe("symbolRows (Map symbols list)", () => {
 
   it("uses the exact wording the owner approved on 2026-11-18", () => {
     expect(VILLAGES_LEGEND_NOTE).toBe(
-      "General locations of the five primary Yelamu villages around the time of Spanish contact. Approximate.",
+      "General locations of five villages named by SFEI, around the time of Spanish contact. Approximate; names and locations are not official.",
     );
   });
 

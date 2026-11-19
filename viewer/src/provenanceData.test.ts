@@ -100,7 +100,8 @@ describe.skipIf(shippedMeta.length === 0)("shipped real-city meta: Village sites
         label: "Village sites",
         source:
           "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), " +
-          "after Milliken (1983, 1995) and the NPS (2009). Approximate.",
+          "after Milliken (1983, 1995) and the NPS (2009). Approximate. " +
+          "Not official; superseded when the Ramaytush mapping with SFEI is published.",
         confidence: "inferred",
         countText: "5 villages",
       },
@@ -219,7 +220,7 @@ describe("handSourceRows", () => {
 
   it("clips very long text", () => {
     const row = handSourceRows([hs({ source: "s".repeat(1000), layer: "q".repeat(500) })])[0];
-    expect(row.source.length).toBe(200);
+    expect(row.source.length).toBe(300);
     expect(row.label.length).toBeLessThanOrEqual(60);
   });
 

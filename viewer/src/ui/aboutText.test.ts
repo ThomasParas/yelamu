@@ -22,11 +22,13 @@ describe("About: the byline at the very end", () => {
 });
 
 describe("About: the villages sentence", () => {
-  it("uses the exact wording the owner approved on 2026-11-18", () => {
+  it("uses the exact wording the owner approved on 2026-11-19", () => {
     expect(ABOUT_VILLAGES).toBe(
-      "The map marks the general locations of the five primary Yelamu villages named by SFEI's Hidden Nature SF, " +
-        "because leaving them out would erase the people who lived here. The locations are approximate. " +
-        "The map does not depict people, and it does not show burial or sacred sites.",
+      "The map marks the general locations of five villages named by SFEI's Hidden Nature SF, " +
+        "because leaving them out would erase the people who lived here. The locations are approximate, " +
+        "and the names and spellings are SFEI's, not official ones. The Ramaytush Tribe and the Association of " +
+        "Ramaytush Ohlone are preparing their own mapping of villages and trails with SFEI; we will update this map " +
+        "when it is published. The map does not depict people, and it does not show burial or sacred sites.",
     );
   });
 
