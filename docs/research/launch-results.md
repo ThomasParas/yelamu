@@ -223,3 +223,17 @@ Branch `plant-fade-in` (`d367fd5`, on main `71cc05f`): newly planted chunks grow
 | E whole region (grey surround) | 59.7 | 17.2 ms | 3.1 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
 
 C and D plant chunks during the run and match the haze run (C 59.5 fps / 17.6 ms both times), so the matrix uploads while growing cost no frames. Desktop bench A-E at the Mac's 60 Hz cap, render p95 and counts unchanged. Bare rock on steep slopes was tried and dropped first: in the 10 m DEM only 0.4% of land is steeper than 28 degrees (none past 35), and 97% of land over 20 degrees is the grey unmapped south-west hills, so the rock barely showed. Not measured: battery and warmth, an older phone, an iPhone.
+
+## Ring edge mist on the phone (2026-11-18)
+
+Branch `ring-edge-fade` (`8d7419e`, on main `625d3f8`): the grey ring's outer edge fades into the haze colour over its last 3.5 km (`viewer/src/haze.ts`, edge term in the fog step; rectangle baked in before the first frame). Same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.1 ms | 3.8 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.5 | 17.2 ms | 2.1 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.4 ms | 3.4 ms | 2 -> 2 | 1,935,944 | 112 | **PASS** |
+| D close-up, vegetation + water | 59.5 | 20.8 ms | 2.5 ms | 2 -> 2 | 1,920,863 | 110 | **PASS** |
+| E whole region (grey surround) | 60 | 17.6 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+D's gap is within the 17-20.5 ms seen across earlier runs (render p95 unchanged), read as noise. Desktop bench A-E ~120 fps, counts unchanged. A canopy texture for zoomed-out woodland was tried and dropped first: at those zooms the woodland is mostly ribbons 4-10 px wide, so crowns (16 m, then 36 m) only lightened it. Not measured: battery and warmth, an older phone, an iPhone.
