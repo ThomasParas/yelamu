@@ -19,6 +19,7 @@
  * four are sea.
  */
 import * as THREE from "three";
+import { PATTERN_GLSL } from "./habitatPatterns";
 
 /** How far (in 10 m cells) the noise can push an edge. */
 export const EDGE_WARP_CELLS = 1.3;
@@ -123,6 +124,8 @@ export interface HabitatMaterialOptions {
   exaggeration?: number;
   /** LINEAR rgb for ground above the water where every nearby sample is sea. */
   shoreColor?: readonly [number, number, number];
+  /** Pattern code per class id (index = id), see habitatPatterns.ts; missing ids get none. */
+  patterns?: ArrayLike<number>;
 }
 
 const f = (n: number) => n.toFixed(4);
@@ -148,6 +151,9 @@ uniform float uWaterY;        // world y of the water surface
 uniform float uDryBand;       // world-y band above it over which sea colours fade out
 uniform vec3 uShoreColor;     // linear colour where all four samples are sea, above water
 uniform sampler2D uGroundNoise; // RGBA8 tiling noise (R broad, G fine, B hue), repeat, mipmapped
+uniform sampler2D uPatternOf; // 256 x 1 float: pattern code per class id
+uniform float uPatterns;      // 1 = draw the habitat patterns, 0 = off
+uniform float uPixelRatio;    // device pixels per CSS pixel
 varying vec2 vHabitatXZ;
 varying float vHabitatY;
 
@@ -165,10 +171,15 @@ float habNoise( vec2 p ) {
 	float d = habHash( i + vec2( 1.0, 1.0 ) );
 	return mix( mix( a, b, u.x ), mix( c, d, u.x ), u.y ) * 2.0 - 1.0;
 }
-vec4 habColorAt( vec2 cell ) {
+float habIdAt( vec2 cell ) {
 	cell = clamp( cell, vec2( 0.0 ), uGridSize - 1.0 );
-	float id = texture2D( uHabitat, ( cell + 0.5 ) / uGridSize ).r * 255.0;
-	return texture2D( uPalette, vec2( ( floor( id + 0.5 ) + 0.5 ) / 256.0, 0.5 ) );
+	return floor( texture2D( uHabitat, ( cell + 0.5 ) / uGridSize ).r * 255.0 + 0.5 );
+}
+vec4 habPaletteOf( float id ) {
+	return texture2D( uPalette, vec2( ( id + 0.5 ) / 256.0, 0.5 ) );
+}
+vec4 habColorAt( vec2 cell ) {
+	return habPaletteOf( habIdAt( cell ) );
 }
 // The 8 neighbours of a cell, for habLandNear.
 const vec2 HAB_RING[8] = vec2[8](
@@ -189,7 +200,7 @@ vec3 habLandNear( vec2 cell ) {
 	}
 	return uShoreColor;
 }
-vec3 habitatColor( vec2 worldXZ, float worldY ) {
+vec3 habitatColor( vec2 worldXZ, float worldY, out float pattern ) {
 	// Fractional raster position: sample (0, 0) is the north-west corner, at world
 	// ( -(w-1)/2, -(h-1)/2 ) * cell (see terrainMesh.ts).
 	vec2 p = worldXZ / uCellM + ( uGridSize - 1.0 ) * 0.5;
@@ -203,13 +214,25 @@ vec3 habitatColor( vec2 worldXZ, float worldY ) {
 	vec2 base = floor( p );
 	vec2 t = clamp( ( fract( p ) - 0.5 ) * ${f(EDGE_SHARPNESS)} + 0.5, 0.0, 1.0 );
 	t = t * t * ( 3.0 - 2.0 * t );
-	vec4 c00 = habColorAt( base );
-	vec4 c10 = habColorAt( base + vec2( 1.0, 0.0 ) );
-	vec4 c01 = habColorAt( base + vec2( 0.0, 1.0 ) );
-	vec4 c11 = habColorAt( base + vec2( 1.0, 1.0 ) );
+	vec4 ids = vec4( habIdAt( base ), habIdAt( base + vec2( 1.0, 0.0 ) ),
+		habIdAt( base + vec2( 0.0, 1.0 ) ), habIdAt( base + vec2( 1.0, 1.0 ) ) );
+	vec4 c00 = habPaletteOf( ids.x );
+	vec4 c10 = habPaletteOf( ids.y );
+	vec4 c01 = habPaletteOf( ids.z );
+	vec4 c11 = habPaletteOf( ids.w );
 	// Bilinear weights; above the water a sea sample's weight goes to its land neighbours.
 	float dry = smoothstep( uWaterY, uWaterY + uDryBand, worldY );
 	vec4 w = vec4( ( 1.0 - t.x ) * ( 1.0 - t.y ), t.x * ( 1.0 - t.y ), ( 1.0 - t.x ) * t.y, t.x * t.y );
+	// The pattern of the class with the most weight, so pattern edges follow the colour edges.
+	pattern = 0.0;
+	if ( uPatterns > 0.5 && dry > 0.0 ) {
+		float id = ids.x;
+		float best = w.x;
+		if ( w.y > best ) { best = w.y; id = ids.y; }
+		if ( w.z > best ) { best = w.z; id = ids.z; }
+		if ( w.w > best ) { id = ids.w; }
+		pattern = floor( texture2D( uPatternOf, vec2( ( id + 0.5 ) / 256.0, 0.5 ) ).r + 0.5 );
+	}
 	w *= 1.0 - dry * vec4( c00.a, c10.a, c01.a, c11.a );
 	float kept = w.x + w.y + w.z + w.w;
 	vec3 c = c00.rgb * w.x + c10.rgb * w.y + c01.rgb * w.z + c11.rgb * w.w;
@@ -219,6 +242,7 @@ vec3 habitatColor( vec2 worldXZ, float worldY ) {
 	if ( lost < 1e-4 ) return c / kept;
 	return ( c + habLandNear( floor( p0 + 0.5 ) ) * lost ) / ( kept + lost );
 }
+${PATTERN_GLSL}
 // Colour gain for ground variation (1 = unchanged): broad patches leaning warm or cool and a
 // little lighter or darker, plus fine mottling. Two fetches from a baked tiling noise texture;
 // its mipmaps average the mottling away where a pixel covers more ground than a blotch.
@@ -241,7 +265,14 @@ vec3 habGroundVary( vec2 worldXZ, float worldY ) {
 `;
 /** Replaces #include <color_fragment>: habitat colour times the vertex colour (shade factors). */
 export const FRAGMENT_COLOR = /* glsl */ `
-diffuseColor.rgb *= habitatColor( vHabitatXZ, vHabitatY ) * habGroundVary( vHabitatXZ, vHabitatY ) * vColor.rgb;
+float habPatternHere;
+vec3 habGround = habitatColor( vHabitatXZ, vHabitatY, habPatternHere ) * habGroundVary( vHabitatXZ, vHabitatY );
+if ( habPatternHere > 0.5 ) {
+	// Metres per device pixel here, then per CSS pixel, so marks keep their size on dense screens.
+	float px = max( length( dFdx( vHabitatXZ ) ), length( dFdy( vHabitatXZ ) ) ) / uPixelRatio;
+	habGround = habApplyPattern( habGround, habPatternHere, habPattern( habPatternHere, vHabitatXZ, px ) );
+}
+diffuseColor.rgb *= habGround * vColor.rgb;
 `;
 
 function replaceOnce(source: string, anchor: string, withText: string): string {
@@ -278,6 +309,10 @@ export function paletteTextureData(
 
 export interface HabitatMaterial {
   material: THREE.MeshStandardMaterial;
+  /** Draw the habitat patterns (habitatPatterns.ts) or not. */
+  setPatterns(on: boolean): void;
+  /** Device pixels per CSS pixel (renderer.getPixelRatio()), so marks keep their on-screen size. */
+  setPixelRatio(ratio: number): void;
   dispose(): void;
 }
 
@@ -306,6 +341,16 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
   groundNoise.colorSpace = THREE.NoColorSpace; // data, not colour
   groundNoise.needsUpdate = true;
 
+  const patternData = new Float32Array(256);
+  for (let id = 0; o.patterns && id < Math.min(256, o.patterns.length); id++) patternData[id] = o.patterns[id] ?? 0;
+  const patternOf = new THREE.DataTexture(patternData, 256, 1, THREE.RedFormat, THREE.FloatType);
+  patternOf.magFilter = patternOf.minFilter = THREE.NearestFilter;
+  patternOf.generateMipmaps = false;
+  patternOf.colorSpace = THREE.NoColorSpace;
+  patternOf.needsUpdate = true;
+  const patternsUniform = { value: 0 };
+  const pixelRatioUniform = { value: 1 };
+
   const material = new THREE.MeshStandardMaterial({ vertexColors: true });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uHabitat = { value: habitat };
@@ -316,16 +361,26 @@ export function createHabitatMaterial(o: HabitatMaterialOptions): HabitatMateria
     shader.uniforms.uDryBand = { value: DRY_BAND_M * (o.exaggeration ?? 1) };
     shader.uniforms.uShoreColor = { value: new THREE.Vector3(...(o.shoreColor ?? o.fallback)) };
     shader.uniforms.uGroundNoise = { value: groundNoise };
+    shader.uniforms.uPatternOf = { value: patternOf };
+    shader.uniforms.uPatterns = patternsUniform;
+    shader.uniforms.uPixelRatio = pixelRatioUniform;
     patchHabitatShaders(shader);
   };
-  material.customProgramCacheKey = () => "yelamu-habitat-v3";
+  material.customProgramCacheKey = () => "yelamu-habitat-v4";
   return {
     material,
+    setPatterns(on: boolean) {
+      patternsUniform.value = on ? 1 : 0;
+    },
+    setPixelRatio(ratio: number) {
+      pixelRatioUniform.value = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+    },
     dispose() {
       material.dispose();
       habitat.dispose();
       palette.dispose();
       groundNoise.dispose();
+      patternOf.dispose();
     },
   };
 }

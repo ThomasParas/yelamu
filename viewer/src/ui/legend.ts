@@ -1,5 +1,6 @@
 /** Legend panel: what the ground colours and map symbols mean. */
 import type { HeightmapMeta } from "../heightmap";
+import { patternNameForGroup } from "../habitatPatterns";
 import { legendEntries, legendNotes, symbolRows } from "../legendEntries";
 import { VEGETATION_NOTE } from "../provenanceData";
 import type { Shell } from "./shell";
@@ -20,7 +21,8 @@ export function createLegend(
     const li = document.createElement("li");
     li.className = "legend__row";
     const swatch = document.createElement("span");
-    swatch.className = "swatch";
+    // The pattern class only shows while the Habitat patterns layer is on (see ui.css).
+    swatch.className = `swatch swatch--${patternNameForGroup(e.group)}`;
     swatch.style.backgroundColor = e.color; // our own constant, never data
     swatch.setAttribute("aria-hidden", "true");
     const text = document.createElement("span");

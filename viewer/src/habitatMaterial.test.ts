@@ -77,7 +77,7 @@ describe("createHabitatMaterial", () => {
   it("keeps vertex colours on and gets its own program cache key", () => {
     const { material } = createHabitatMaterial(options());
     expect(material.vertexColors).toBe(true);
-    expect(material.customProgramCacheKey()).toBe("yelamu-habitat-v3");
+    expect(material.customProgramCacheKey()).toBe("yelamu-habitat-v4");
   });
 
   it("binds the water surface, the dry band in world units and the shore colour", () => {

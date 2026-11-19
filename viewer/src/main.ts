@@ -6,6 +6,7 @@ import { decodeState, encodeState, type AppState } from "./appState";
 import { attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, makeShadeFactorAt, paletteToLinear, seaClassIds, shadeByDepth } from "./habitat";
 import { createHabitatMaterial } from "./habitatMaterial";
+import { patternById } from "./habitatPatterns";
 import { loadHabitat, loadHeightmap, loadShadeBytes, type HeightmapMeta } from "./heightmap";
 import { datasetFromSearch } from "./dataset";
 import { loadFailureMessage } from "./loadError";
@@ -109,6 +110,7 @@ async function start() {
         waterY: meta.water_level_m * VERTICAL_EXAGGERATION,
         exaggeration: VERTICAL_EXAGGERATION,
         shoreColor: new THREE.Color(GROUP_COLORS.beach).toArray() as [number, number, number],
+        patterns: patternById(meta.habitat_classes ?? []),
       })
     : null;
   const baseColorAt = habitatMaterial
@@ -421,6 +423,7 @@ async function start() {
     requestRender,
     requestIdleRender,
     quality,
+    habitatMaterial,
     vegetation,
     water: waterFx,
     assetBase: ASSET_BASE,

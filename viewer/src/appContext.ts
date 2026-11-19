@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import type { HabitatMaterial } from "./habitatMaterial";
 import type { HeightmapMeta } from "./heightmap";
 import type { LayerSelection } from "./layerSelection";
 import type { PlaceSelection } from "./placeSelection";
@@ -62,6 +63,8 @@ export interface AppContext {
   requestIdleRender(): void;
   /** Watches interaction frame gaps and steps the effects level down/up. */
   quality: QualityController;
+  /** The terrain's per-pixel habitat colouring (patterns on/off); null without a habitat raster. */
+  habitatMaterial: HabitatMaterial | null;
   /** Plants on the full-resolution chunks; null when the dataset has no habitat raster. */
   vegetation: VegetationLayer | null;
   /** The water surface material (animation on/off, time). */
