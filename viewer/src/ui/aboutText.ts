@@ -10,9 +10,8 @@ export const ABOUT_LAND_AND_WATER_ONLY =
 export const ABOUT_VILLAGES =
   "The map marks the general locations of five villages named by SFEI's Hidden Nature SF, " +
   "because leaving them out would erase the people who lived here. The locations are approximate, " +
-  "and the names and spellings are SFEI's, not official ones. The Ramaytush Tribe and the Association of " +
-  "Ramaytush Ohlone are preparing their own mapping of villages and trails with SFEI; we will update this map " +
-  "when it is published. The map does not depict people, and it does not show burial or sacred sites.";
+  "and the names and spellings are SFEI's, not official ones. We will update this map as better " +
+  "information becomes available. The map does not depict people, and it does not show burial or sacred sites.";
 
 // Wording requested by the owner on 2026-11-18: "Built by Thomas Paras", the name a link to ThomasParas.com.
 /** The byline at the very end of the About dialog: lead text, linked name, closing full stop. */

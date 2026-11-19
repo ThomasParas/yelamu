@@ -69,7 +69,7 @@ VILLAGE_RADIUS_MIN, VILLAGE_RADIUS_MAX = 100, 2000
 VILLAGES_SOURCE_NOTE = (
     "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of "
     "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. "
-    "Not official; superseded when the Ramaytush mapping with SFEI is published."
+    "Not official."
 )
 VILLAGES_LAYER = "villages"
 

@@ -720,13 +720,12 @@ def test_data_files_in_the_repo_are_valid():
 VILLAGES_SOURCE_NOTE = (
     "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of "
     "San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. "
-    "Not official; superseded when the Ramaytush mapping with SFEI is published."
+    "Not official."
 )
 CARD_TEXT = (
     "General location of a village site {place}, around the time of Spanish contact. "
     "Approximate: villages were places and the people who lived there, and they moved "
-    "seasonally and over time. The name, spelling and location are not official; the Ramaytush "
-    "Tribe and the Association of Ramaytush Ohlone are preparing their own mapping with SFEI. "
+    "seasonally and over time. The name, spelling and location are not official. "
     "Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009)."
 )
 SHIPPED_VILLAGES = {

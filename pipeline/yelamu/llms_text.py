@@ -30,8 +30,7 @@ SUMMARY = (
 CAVEATS = (
     "It is an informed reconstruction, not a photograph or a survey.",
     "The five village sites are general locations named by SFEI's map; they are approximate, and the "
-    "names and spellings are not official. The Ramaytush Tribe and the Association of Ramaytush Ohlone "
-    "are preparing their own mapping with SFEI. The map does not depict people and does not show burial "
+    "names and spellings are not official. The map does not depict people and does not show burial "
     "or sacred sites.",
     "The Ramaytush are a living community. To learn from them directly, see the Association "
     "of Ramaytush Ohlone: https://www.ramaytush.org/",

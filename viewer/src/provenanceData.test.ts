@@ -101,7 +101,7 @@ describe.skipIf(shippedMeta.length === 0)("shipped real-city meta: Village sites
         source:
           "General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), " +
           "after Milliken (1983, 1995) and the NPS (2009). Approximate. " +
-          "Not official; superseded when the Ramaytush mapping with SFEI is published.",
+          "Not official.",
         confidence: "inferred",
         countText: "5 villages",
       },
