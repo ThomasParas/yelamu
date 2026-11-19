@@ -16,6 +16,7 @@ import { PlaceSelection } from "./placeSelection";
 import { QualityController } from "./quality";
 import { pickSurpriseTarget, type SurpriseTarget } from "./surprise";
 import { pickRandomLandPoint } from "./randomLand";
+import { createHaze } from "./haze";
 import { SCENE_BACKGROUND } from "./theme";
 import { TerrainChunks } from "./terrainChunks";
 import { copyText } from "./ui/clipboard";
@@ -70,6 +71,7 @@ async function start() {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SCENE_BACKGROUND);
+  scene.fog = createHaze(); // distance haze, see haze.ts
   scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7f6a, 0.7));
   const sun = new THREE.DirectionalLight(0xfff3d6, 2.6);
   sun.position.set(...SUN_DIRECTION); // the baked ground shading assumes this direction
