@@ -53,15 +53,45 @@ export interface VegetationLayerOptions {
   maxBuildsPerRefresh?: number;
   /** Soft contact shadows under trees and shrubs (see shadows.ts). Default true. */
   shadows?: boolean;
+  /**
+   * Newly planted chunks grow in over this many ms (from GROW_FROM of full size) instead of
+   * popping in. 0 = no animation. Default DEFAULT_GROW_MS; see setGrowMs (reduced motion).
+   */
+  growMs?: number;
 }
 
 export const DEFAULT_VEGETATION_SEED = 0x59454c41; // "YELA"
 export const DEFAULT_MAX_INSTANCES_PER_CHUNK = 1500;
 export const DEFAULT_SIZE_BOOST = 1.5;
+export const DEFAULT_GROW_MS = 400;
+/** Size a newly planted plant starts at, as a share of its full size. */
+export const GROW_FROM = 0.3;
+
+/** Grow-in scale at `t` (0..1 of the animation): ease-out cubic from GROW_FROM to 1. */
+export function growScale(t: number): number {
+  const u = Math.min(1, Math.max(0, t));
+  return GROW_FROM + (1 - GROW_FROM) * (1 - (1 - u) ** 3);
+}
+
+/** Write `full` into `out` with the upper 3x3 of every 4x4 matrix scaled by `g` (positions kept). */
+export function scaleInstances(full: Float32Array, out: Float32Array, g: number): void {
+  for (let o = 0; o < full.length; o += 16) {
+    for (let k = 0; k < 11; k++) out[o + k] = k % 4 === 3 ? full[o + k] : full[o + k] * g;
+    for (let k = 11; k < 16; k++) out[o + k] = full[o + k];
+  }
+}
 
 interface Built {
   meshes: THREE.InstancedMesh[];
   instances: number;
+}
+
+/** A chunk's plants growing in: their full-size matrices and when the growth started. */
+interface Growing {
+  meshes: THREE.InstancedMesh[];
+  full: Float32Array[];
+  /** Set at the first animate() call, so a slow build frame does not eat the animation. */
+  start: number | null;
 }
 
 export class VegetationLayer {
@@ -86,6 +116,9 @@ export class VegetationLayer {
   private readonly built = new Map<THREE.Mesh, Built>();
   /** Attached chunks that have no vegetation yet (attached while disabled). */
   private readonly pending = new Set<THREE.Mesh>();
+  /** Chunks whose plants are still growing in. */
+  private readonly growing = new Map<THREE.Mesh, Growing>();
+  private growMs: number;
 
   private readonly m4 = new THREE.Matrix4();
   private readonly pos = new THREE.Vector3();
@@ -109,6 +142,44 @@ export class VegetationLayer {
     this.maxInstances = opts.maxInstancesPerChunk ?? DEFAULT_MAX_INSTANCES_PER_CHUNK;
     this.sizeBoost = opts.sizeBoost ?? DEFAULT_SIZE_BOOST;
     this.maxBuilds = opts.maxBuildsPerRefresh ?? 3;
+    this.growMs = opts.growMs ?? DEFAULT_GROW_MS;
+  }
+
+  /** Grow-in time for chunks planted from now on (0 = appear at once, e.g. reduced motion). */
+  setGrowMs(ms: number): void {
+    this.growMs = Math.max(0, ms);
+    if (this.growMs === 0) for (const mesh of [...this.growing.keys()]) this.finishGrowing(mesh);
+  }
+
+  /**
+   * Advance the grow-in of newly planted chunks to time `now` (ms, e.g. performance.now()).
+   * Returns true while any chunk is still growing, i.e. the caller should render again.
+   */
+  animate(now: number): boolean {
+    for (const [mesh, g] of this.growing) {
+      if (g.start === null) g.start = now;
+      const t = this.growMs > 0 ? (now - g.start) / this.growMs : 1;
+      if (t >= 1) {
+        this.finishGrowing(mesh);
+        continue;
+      }
+      const scale = growScale(t);
+      g.meshes.forEach((im, i) => {
+        scaleInstances(g.full[i], im.instanceMatrix.array as Float32Array, scale);
+        im.instanceMatrix.needsUpdate = true;
+      });
+    }
+    return this.growing.size > 0;
+  }
+
+  private finishGrowing(mesh: THREE.Mesh): void {
+    const g = this.growing.get(mesh);
+    if (!g) return;
+    this.growing.delete(mesh);
+    g.meshes.forEach((im, i) => {
+      (im.instanceMatrix.array as Float32Array).set(g.full[i]);
+      im.instanceMatrix.needsUpdate = true;
+    });
   }
 
   isEnabled(): boolean {
@@ -127,6 +198,7 @@ export class VegetationLayer {
   detach(mesh: THREE.Mesh): void {
     this.chunks.delete(mesh);
     this.pending.delete(mesh);
+    this.growing.delete(mesh);
     const b = this.built.get(mesh);
     if (!b) return;
     this.built.delete(mesh);
@@ -260,6 +332,11 @@ export class VegetationLayer {
       meshes.push(shadows);
     }
     this.built.set(mesh, { meshes, instances: placed });
+    if (this.growMs > 0 && meshes.length > 0) {
+      const full = meshes.map((im) => (im.instanceMatrix.array as Float32Array).slice());
+      meshes.forEach((im, i) => scaleInstances(full[i], im.instanceMatrix.array as Float32Array, GROW_FROM));
+      this.growing.set(mesh, { meshes, full, start: null });
+    }
   }
 
   /** One instanced mesh with a shadow under every tree and shrub of the chunk, or null if none. */

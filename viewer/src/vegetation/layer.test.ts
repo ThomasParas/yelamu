@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { planChunks, type ChunkPlan } from "../chunks";
 import type { HabitatClass } from "../habitat";
-import { VegetationLayer, type VegetationLayerOptions } from "./layer";
+import { GROW_FROM, VegetationLayer, growScale, scaleInstances, type VegetationLayerOptions } from "./layer";
 
 const CLASSES: HabitatClass[] = [
   { id: 0, name: "Unmapped", group: "unmapped" },
@@ -22,7 +22,7 @@ function options(over: Partial<VegetationLayerOptions> = {}): VegetationLayerOpt
   for (let y = 0; y < SIZE.height; y++) {
     for (let x = 0; x < SIZE.width; x++) habitat[y * SIZE.width + x] = x === 64 ? 1 : x > 64 ? 10 : y < 32 ? 5 : 9; // column 64 (shared border) is water
   }
-  return { size: SIZE, heights, habitat, classes: CLASSES, waterLevelM: 0.6, exaggeration: 3, seed: 7, ...over };
+  return { size: SIZE, heights, habitat, classes: CLASSES, waterLevelM: 0.6, exaggeration: 3, seed: 7, growMs: 0, ...over };
 }
 
 const chunkMesh = () => new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
@@ -324,5 +324,64 @@ describe("VegetationLayer.setGeometries", () => {
     layer.setGeometries({});
     expect(veg(west)).toEqual(kids);
     layer.dispose();
+  });
+});
+
+describe("grow-in of newly planted chunks", () => {
+  const scaleOf = (im: THREE.InstancedMesh, i = 0) => {
+    const m = new THREE.Matrix4();
+    im.getMatrixAt(i, m);
+    return new THREE.Vector3().setFromMatrixScale(m).x;
+  };
+
+  it("eases from GROW_FROM to full size", () => {
+    expect(growScale(0)).toBeCloseTo(GROW_FROM);
+    expect(growScale(1)).toBe(1);
+    expect(growScale(2)).toBe(1);
+    for (let t = 0.1; t < 1; t += 0.1) expect(growScale(t)).toBeGreaterThan(growScale(t - 0.1));
+  });
+
+  it("scales the 3x3 part only, so a plant grows on its spot", () => {
+    const full = new THREE.Matrix4().compose(new THREE.Vector3(5, 6, 7), new THREE.Quaternion(), new THREE.Vector3(2, 2, 2));
+    const out = new Float32Array(16);
+    scaleInstances(new Float32Array(full.elements), out, 0.5);
+    const m = new THREE.Matrix4().fromArray(out);
+    expect(new THREE.Vector3().setFromMatrixPosition(m).toArray()).toEqual([5, 6, 7]);
+    expect(new THREE.Vector3().setFromMatrixScale(m).x).toBeCloseTo(1);
+  });
+
+  it("plants start small, grow over growMs, then hold their full matrices", () => {
+    const still = new VegetationLayer(options({ growMs: 0 }));
+    const grow = new VegetationLayer(options({ growMs: 400 }));
+    const a = chunkMesh();
+    const b = chunkMesh();
+    still.attach(a, PLANS[0]);
+    grow.attach(b, PLANS[0]);
+    const full = veg(a)[0];
+    const im = veg(b)[0];
+    expect(scaleOf(im) / scaleOf(full)).toBeCloseTo(GROW_FROM);
+    expect(grow.animate(1000)).toBe(true); // starts the clock
+    expect(grow.animate(1200)).toBe(true);
+    expect(scaleOf(im) / scaleOf(full)).toBeCloseTo(growScale(0.5));
+    expect(grow.animate(1400)).toBe(false);
+    expect(Array.from(im.instanceMatrix.array)).toEqual(Array.from(full.instanceMatrix.array));
+    expect(still.animate(0)).toBe(false);
+  });
+
+  it("setGrowMs(0) finishes growing chunks at once, and detach drops them", () => {
+    const layer = new VegetationLayer(options({ growMs: 400 }));
+    const a = chunkMesh();
+    const b = chunkMesh();
+    layer.attach(a, PLANS[0]);
+    layer.attach(b, PLANS[1]);
+    layer.detach(b);
+    layer.setGrowMs(0);
+    expect(layer.animate(0)).toBe(false);
+    const ref = new VegetationLayer(options());
+    const c = chunkMesh();
+    ref.attach(c, PLANS[0]);
+    expect(Array.from(veg(a)[0].instanceMatrix.array)).toEqual(
+      Array.from(veg(c)[0].instanceMatrix.array),
+    );
   });
 });

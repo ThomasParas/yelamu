@@ -8,6 +8,7 @@ import {
   effectiveEffects,
   type EffectiveEffects,
 } from "./effects";
+import { DEFAULT_GROW_MS } from "./vegetation/layer";
 import { createIdleAnimator } from "./water/idleAnimator";
 
 /** How often the water is redrawn while the camera is still. */
@@ -71,6 +72,7 @@ export const effectsModule: AppModule = (ctx) => {
     const before = current;
     current = effective();
     vegetation?.setEnabled(current.vegetation);
+    vegetation?.setGrowMs(reduced() ? 0 : DEFAULT_GROW_MS);
     water.setAnimated(current.waterAnimation);
     if (current.waterAnimation) idle.start();
     else idle.stop();
@@ -102,7 +104,9 @@ export const effectsModule: AppModule = (ctx) => {
   // here, a few per frame, once it is on and the chunk is in view.
   if (vegetation) {
     ctx.onFrame(() => {
-      if (vegetation.refresh(ctx.terrain.visibleLod0Meshes())) ctx.requestRender();
+      // Refresh first: chunks it plants start growing on the next frame's animate().
+      const planted = vegetation.refresh(ctx.terrain.visibleLod0Meshes());
+      if (vegetation.animate(performance.now()) || planted) ctx.requestRender();
     });
   }
 
