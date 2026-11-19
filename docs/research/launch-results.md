@@ -237,3 +237,17 @@ Branch `ring-edge-fade` (`8d7419e`, on main `625d3f8`): the grey ring's outer ed
 | E whole region (grey surround) | 60 | 17.6 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
 
 D's gap is within the 17-20.5 ms seen across earlier runs (render p95 unchanged), read as noise. Desktop bench A-E ~120 fps, counts unchanged. A canopy texture for zoomed-out woodland was tried and dropped first: at those zooms the woodland is mostly ribbons 4-10 px wide, so crowns (16 m, then 36 m) only lightened it. Not measured: battery and warmth, an older phone, an iPhone.
+
+## Habitat patterns on the phone (2026-11-18)
+
+Branch `habitat-patterns` (`c1cad43`, on main `456990c`): an optional "Habitat patterns" layer (off by default) marks dunes (dots), scrub (rings), marsh and wetland (light dashes) and rock (crosses) in the terrain shader, for red-green colour-blind visitors (`viewer/src/habitatPatterns.ts`). Same phone and method as above, run back to back with the layer on and off (set through the share-link hash).
+
+| Scenario | On: fps | On: p95 gap | On: p95 render | Off: fps | Off: p95 gap | Off: p95 render | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 60 | 17.1 ms | 3.1 ms | 59.7 | 17.4 ms | 4.1 ms | **PASS** both |
+| B close-up, vegetation off | 59 | 17.9 ms | 1.9 ms | 59.2 | 17.5 ms | 2.5 ms | **PASS** both |
+| C close-up, vegetation on | 56 | 25.9 ms | 2.9 ms | 57.7 | 26.5 ms | 3.1 ms | **PASS** both |
+| D close-up, vegetation + water | 56 | 25.6 ms | 2.4 ms | 58.2 | 21.2 ms | 2.4 ms | **PASS** both |
+| E whole region (grey surround) | 60 | 17.4 ms | 3.0 ms | 59.5 | 17.7 ms | 3.3 ms | **PASS** both |
+
+C and D were slower than on earlier days with the layer off as well, so the slowdown is the phone that day (more plants were loaded: 33-40k against 17k on the desktop), not the patterns. Desktop bench A-E 60 fps on and off, render p95 1.8-2.9 ms either way. Quality never dropped. Not measured: battery and warmth, an older phone, an iPhone.
