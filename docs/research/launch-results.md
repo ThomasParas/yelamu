@@ -209,3 +209,17 @@ Branch `haze-sky` (`e43f5cc`, on main `4e830e7`): far ground and water fade to a
 | E whole region (grey surround) | 59.7 | 17.4 ms | 3.2 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
 
 Against the trimmed tree run: C within 0.3 ms, D 3 ms better (run-to-run noise). The haze adds no geometry, pass or texture. Desktop bench A-E ~120 fps, counts unchanged. A sky gradient was dropped: the sea planes cover the whole screen at every zoom, so scene.background is never seen. Not measured: battery and warmth, an older phone, an iPhone.
+
+## Plant grow-in on the phone (2026-11-18)
+
+Branch `plant-fade-in` (`d367fd5`, on main `71cc05f`): newly planted chunks grow in over 0.4 s from 30% size (`VegetationLayer.animate`, instance matrices rescaled on the CPU; off under reduced motion). Same phone and method as above (Chrome 158, 411x777 at 2.625x, 60 Hz).
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.1 ms | 3.6 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.0 | 17.2 ms | 1.9 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 59.5 | 17.6 ms | 3.0 ms | 2 -> 2 | 1,935,944 | 112 | **PASS** |
+| D close-up, vegetation + water | 59.7 | 17.2 ms | 2.2 ms | 2 -> 2 | 1,935,944 | 112 | **PASS** |
+| E whole region (grey surround) | 59.7 | 17.2 ms | 3.1 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+C and D plant chunks during the run and match the haze run (C 59.5 fps / 17.6 ms both times), so the matrix uploads while growing cost no frames. Desktop bench A-E at the Mac's 60 Hz cap, render p95 and counts unchanged. Bare rock on steep slopes was tried and dropped first: in the 10 m DEM only 0.4% of land is steeper than 28 degrees (none past 35), and 97% of land over 20 degrees is the grey unmapped south-west hills, so the rock barely showed. Not measured: battery and warmth, an older phone, an iPhone.
