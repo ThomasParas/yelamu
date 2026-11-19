@@ -16,7 +16,9 @@ import { PlaceSelection } from "./placeSelection";
 import { QualityController } from "./quality";
 import { pickSurpriseTarget, type SurpriseTarget } from "./surprise";
 import { pickRandomLandPoint } from "./randomLand";
-import { createHaze } from "./haze";
+import { createHaze, setHazeEdge } from "./haze";
+import { ringRect } from "./context/limits";
+import { loadContextDoc } from "./context/parse";
 import { SCENE_BACKGROUND } from "./theme";
 import { TerrainChunks } from "./terrainChunks";
 import { copyText } from "./ui/clipboard";
@@ -78,7 +80,14 @@ async function start() {
   scene.add(sun);
 
   const { meta, heights } = await loadHeightmap(ASSET_BASE);
-  const [habitat, shadeBytes] = await Promise.all([loadHabitat(ASSET_BASE, meta), loadShadeBytes(ASSET_BASE, meta)]);
+  const [habitat, shadeBytes, ringDoc] = await Promise.all([
+    loadHabitat(ASSET_BASE, meta),
+    loadShadeBytes(ASSET_BASE, meta),
+    // Only the small description, for the edge mist (contextModule loads the ring itself later).
+    loadContextDoc(ASSET_BASE, meta).catch(() => null),
+  ]);
+  // Before the first frame: the edge is compiled into the shaders (see haze.ts).
+  setHazeEdge(ringDoc ? ringRect(ringDoc) : null);
 
   // Palette entries are sRGB; vertex colours are read as linear by three.js.
   const palette = paletteToLinear(buildPalette(habitat ? (meta.habitat_classes ?? []) : []));
