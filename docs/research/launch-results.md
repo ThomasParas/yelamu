@@ -265,3 +265,17 @@ Branch `tap-identify` (`2a1518f` tap-to-identify, `cbce92c` wet shore band, on m
 | E whole region (grey surround) | 59.7 | 17.0 ms | 2.9 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
 
 The day before, with neither feature, C and D gave 26.5 and 21.2 ms with the same 33,000 plants, so C and D sit in this phone's recent 21-26 ms range; no cost measured. Desktop bench A-E ~120 fps, p95 gap 9.7-10.1 ms (9.0-9.3 ms without them, within noise at 120 Hz). The identify card was checked with a touch tap in a phone-sized browser, not on the phone. Not measured: battery and warmth, an older phone, an iPhone.
+
+## Compact desktop menu and zoom buttons on the phone (2026-11-19)
+
+Branch `menu-compact` (`c11eab4`, on main `aeb334d`): the desktop top bar is one row (54 px at 1280 px, was about 140 px) with the layer toggles in a Layers popover and a collapsible Menu; zoom buttons in the menu and on the map (mouse screens only). Requested by the owner via the Map Maker session. Interface only, nothing added to the drawing; phones keep their Menu layout plus + and - next to the rotate buttons. Same phone and method as above.
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.7 | 17.4 ms | 3.6 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 59.2 | 17.3 ms | 2.3 ms | 2 -> 2 | 1,073,900 | 50 | **PASS** |
+| C close-up, vegetation on | 57.5 | 25.1 ms | 3.0 ms | 2 -> 2 | 1,935,944 | 112 | **PASS** |
+| D close-up, vegetation + water | 57.7 | 28.0 ms | 2.1 ms | 2 -> 2 | 1,920,863 | 110 | **PASS** |
+| E whole region (grey surround) | 59.7 | 17.6 ms | 3.1 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+D's 28 ms gap is the highest this phone has shown (21-26.5 ms over the previous runs with 33,000 plants), with render p95 unchanged; the change adds no drawing work, so it is read as the phone's variation. Desktop bench A-E ~120 fps, p95 gap 8.9-9.3 ms. Menu behaviour checked in a browser at 1280 px, 1024 px and phone size; not on the phone itself.
