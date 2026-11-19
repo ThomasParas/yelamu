@@ -1,0 +1,183 @@
+# Yelamu: full description
+
+> Yelamu is an interactive 3D map of the San Francisco peninsula as its land and water may have lain around 1769, the homeland of the Ramaytush Ohlone. It is a reconstruction from modern elevation data, SFEI historical ecology and 1850s NOAA shoreline maps. Every layer states its source and how sure we are (Documented, Inferred or Illustrative). It is not a survey, and it is not for navigation, engineering or legal use.
+
+Map: https://yelamu.thomasparas.com/
+
+## Things to know when describing this map
+
+- It is an informed reconstruction, not a photograph or a survey.
+- The five Yelamu village sites are general locations and approximate. The map does not depict people and does not show burial or sacred sites.
+- The Ramaytush Ohlone are a living community. To learn from them directly, see the Association of Ramaytush Ohlone: https://www.ramaytush.org/
+- Modern landmarks (Ferry Building, Oracle Park and so on) are labelled for orientation; several stand where this map draws water.
+- The grey ground beyond the mapped area is today's terrain, not a reconstruction.
+
+## How sure are we
+
+- Documented: Stated by a cited source.
+- Inferred: Reconstructed by this project from other data.
+- Illustrative: Drawn to give an impression, not a record.
+
+## Layers
+
+- terrain: USGS 3DEP, modified (Inferred). Credit: USGS 3DEP; see the project's source code repository.
+- water: SFEI historical ecology (Documented). Credit: SFEI; see the project's source code repository.
+- open_water_gap_fill: modern DEM where SFEI maps no habitat (Inferred). Credit: USGS 3DEP; gap fill by this project.
+- hand_water: each source is listed below (Inferred). Credit: this project.
+- landforms: each source is listed below (Inferred). Credit: this project.
+- ponds: each source is listed below (Inferred). Credit: SFEI; this project.
+- context: USGS 3DEP elevation data: modern terrain and shoreline, resampled to about 60 m. Shown for orientation only; not a reconstruction of 1769. (Illustrative). Credit: USGS 3DEP; this project.
+
+### Hand-drawn, hand-sculpted and added layers
+
+- hand_water (Inferred, 1): NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-islais-marsh
+- hand_water (Inferred, 1): NOAA Shoreline Data Rescue Project, CA37A02, sheet T-00352 (1852), mean high water line; area classed by seed a02-open-bay-east
+- hand_water (Inferred, 1): NOAA Shoreline Data Rescue Project, CA37B08, sheet T-00687 (1857), mean high water line; area classed by seed b08-open-bay-east
+- hand_water (Inferred, 1): US Navy BRAC PMO: Treasure Island is 1936-37 fill on the Yerba Buena shoals; extent is the modern 3DEP DEM land north of lat 37.8153; drawn as bay, shoal depth not mapped
+- landforms (Inferred, 1): FoundSF 'Mission Plank Road': an 80-ft (24.4 m) sand hill between Second and Third Streets; DEM there 10.7 m; +13.7 m added. Radius 150 m assumed
+- landforms (Inferred, 1): Lockwood, SPUR 2003: Rincon Hill rose 120 ft (36.6 m); DEM peak today 31.6 m; +5.0 m added. Footprint radius 180 m assumed
+- ponds (Inferred, 3): Extent: flat 5.55 to 5.70 m lake surface of the USGS 3DEP DEM (modern lake; 1769 outline not known); level 5.6 m from the same DEM
+- creeks (Inferred, 26): Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from 19th-century maps and a historical elevation model. Approximate.
+- modelled_streams (Illustrative, 225): Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed.
+- villages (Inferred, 5): General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate.
+
+## Hotspots (18 landscape features with a card)
+
+- Arroyo Dolores (creek; 37.7610, -122.4320; Documented). Link: https://yelamu.thomasparas.com/#p=creek-arroyo-dolores
+  Arroyo Dolores, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Goddard 1869. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b)
+- Chutchui Creek (creek; 37.7679, -122.4214; Inferred). Link: https://yelamu.thomasparas.com/#p=creek-chutchui
+  Chutchui Creek, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Horner 1854; Goddard 1869; Seep City. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b); Yelamu: the Native Peoples of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f)
+- Coyote Gulch (creek; 37.7970, -122.4802; Inferred). Link: https://yelamu.thomasparas.com/#p=creek-coyote-gulch
+  Coyote Gulch, a historical creek as mapped by SFEI's Hidden Nature SF, after Seep City; Warner 1847. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b)
+- El Polin (creek; 37.7951, -122.4560; Inferred). Link: https://yelamu.thomasparas.com/#p=creek-el-polin
+  El Polin, a historical creek as mapped by SFEI's Hidden Nature SF, after Hall 1870; Wheeler 1870. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b)
+- Islais Creek estuary (creek; 37.7485, -122.3925; Documented). Link: https://yelamu.thomasparas.com/#p=islais-creek
+  Fresh water from uphill springs flowed into saltwater marshlands on the bay's east shore, before the shoreline and creek were filled in and the creek channelized.
+  Sources: Islais Creek (Port of San Francisco) (https://www.sfport.com/islaiscreek)
+- Laguna Honda (lake; 37.7505, -122.4610; Documented). Link: https://yelamu.thomasparas.com/#p=laguna-honda
+  A natural lake before it was dammed and enlarged for the city's water supply; a second natural lake, near Seventh Avenue and Lawton, was filled in early last century.
+  Sources: Laguna Honda (FoundSF, quoting Gilliam, The Natural World of San Francisco) (https://www.foundsf.org/Laguna_Honda)
+- Lake Merced (lake; 37.7268, -122.4945; Documented). Link: https://yelamu.thomasparas.com/#p=lake-merced
+  A freshwater lake that was once a lagoon fed by streams, groundwater and an ocean channel; drifting dunes cut that link, though storms and quakes reopened it, and a tail ran to Ocean Beach as late as the 1800s.
+  Sources: San Francisco's Lake Merced: Native Wetland (Western Neighborhoods Project) (https://www.outsidelands.org/lakemerced1.php); Lake Merced (Wikipedia) (https://en.wikipedia.org/wiki/Lake_Merced)
+- Lobos Creek (creek; 37.7892, -122.4838; Documented). Link: https://yelamu.thomasparas.com/#p=lobos-creek
+  One of the few small flowing creeks of the old peninsula, its banks lined with riparian woodland and scrub of coast live oak, willow and Pacific wax myrtle.
+  Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
+- Mission Bay and Mission Creek marsh (marsh; 37.7705, -122.3985; Documented). Link: https://yelamu.thomasparas.com/#p=mission-bay
+  An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th.
+  Sources: Natural History of Mission Bay, Chris Carlsson (FoundSF) (https://www.foundsf.org/Natural_History_of_Mission_Bay)
+- Mountain Lake (lake; 37.7887, -122.4711; Documented). Link: https://yelamu.thomasparas.com/#p=mountain-lake
+  A dune-dammed headwater lake: drainage pooled behind sand mounds. Dune-dammed lakes like this provided habitat for species such as California red-legged frogs and San Francisco garter snakes.
+  Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
+- Ojo de Agua de Figueroa (creek; 37.7973, -122.4458; Inferred). Link: https://yelamu.thomasparas.com/#p=creek-ojo-de-agua-de-figueroa
+  Ojo de Agua de Figueroa, a historical creek as mapped by SFEI's Hidden Nature SF, after USDC 1854; Sanchez 1854; Seep City. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b)
+- Old Arroyo Dolores (creek; 37.7701, -122.4303; Inferred). Link: https://yelamu.thomasparas.com/#p=creek-old-arroyo-dolores
+  Old Arroyo Dolores, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Horner 1854; Seep City. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b)
+- Petlenuc Creek (creek; 37.7959, -122.4535; Documented). Link: https://yelamu.thomasparas.com/#p=creek-petlenuc
+  Petlenuc Creek, a historical creek as mapped by SFEI's Hidden Nature SF, after Hall 1870; Wheeler 1870. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
+  Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b); Yelamu: the Native Peoples of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f)
+- Precita Creek (creek; 37.7473, -122.4103; Documented). Link: https://yelamu.thomasparas.com/#p=precita-creek
+  A small stream running from near Market and 24th Streets along today's Precita Avenue and Cesar Chavez Street into Islais Creek's estuarine bog.
+  Sources: Precita Creek (Wikipedia) (https://en.wikipedia.org/wiki/Precita_Creek)
+- South of Market fens (marsh; 37.7835, -122.4040; Documented). Link: https://yelamu.thomasparas.com/#p=soma-fens
+  Rare peat-soil fens, likely relics of the last ice age, lay in low ground between dune ridges and along tidal marsh edges in today's SoMa; in 1896 a botanist described one as an 'Arctic oasis' amid California vegetation.
+  Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
+- Washerwoman's Lagoon (lagoon; 37.8004, -122.4283; Documented). Link: https://yelamu.thomasparas.com/#p=washerwomans-lagoon
+  A freshwater lagoon held back by dunes and beaches, in what is now the Marina District, beyond Russian Hill and toward the Presidio.
+  Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f); Washerwoman's Lagoon (FoundSF) (https://www.foundsf.org/WASHERWOMAN%27S_LAGOON)
+- Western mobile dune sheet (dune; 37.7594, -122.4930; Documented). Link: https://yelamu.thomasparas.com/#p=western-dune-sheet
+  A vast sheet of loose, shifting sand on the peninsula's west side, sparsely vegetated; Coast Survey maps show its edge moved up to a quarter mile in about twenty years.
+  Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
+- Yerba Buena Cove (bay; 37.7955, -122.3975; Documented). Link: https://yelamu.thomasparas.com/#p=yerba-buena-cove
+  A cove on the bay shore between Clarks Point and Rincon Point; its beach lay as far back as today's Montgomery Street until Gold Rush filling put downtown over it.
+  Sources: Yerba Buena Cove (Wikipedia) (https://en.wikipedia.org/wiki/Yerba_Buena_Cove)
+
+## Village sites (5; general locations, approximate)
+
+- Amuctac (37.7238, -122.4016; Inferred). Link: https://yelamu.thomasparas.com/#p=village-amuctac
+  General location of a Yelamu village site around Visitacion Valley, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).
+  Sources: SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f); Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report) (https://digitalcommons.csumb.edu/hornbeck_ind_1/6/)
+- Chutchui (37.7619, -122.4235; Inferred). Link: https://yelamu.thomasparas.com/#p=village-chutchui
+  General location of a Yelamu village site along Mission Creek, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).
+  Sources: SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f); Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report) (https://digitalcommons.csumb.edu/hornbeck_ind_1/6/)
+- Petlenuc (37.7978, -122.4552; Inferred). Link: https://yelamu.thomasparas.com/#p=village-petlenuc
+  General location of a Yelamu village site in the Presidio near Crissy Field, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).
+  Sources: SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f); Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report) (https://digitalcommons.csumb.edu/hornbeck_ind_1/6/)
+- Sitlintac (37.7714, -122.4152; Inferred). Link: https://yelamu.thomasparas.com/#p=village-sitlintac
+  General location of a Yelamu village site along Mission Creek, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).
+  Sources: SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f); Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report) (https://digitalcommons.csumb.edu/hornbeck_ind_1/6/)
+- Tubsinte (37.7109, -122.4148; Inferred). Link: https://yelamu.thomasparas.com/#p=village-tubsinte
+  General location of a Yelamu village site around Visitacion Valley, around the time of Spanish contact. Approximate: villages were places and the people who lived there, and they moved seasonally and over time. Source: SFEI Hidden Nature SF, after Milliken (1983, 1995) and the National Park Service (2009).
+  Sources: SFEI Hidden Nature SF: Yelamu: the Native Peoples of San Francisco (story map, 2026) (https://storymaps.arcgis.com/stories/56b1d134920d46c6ac2462c1344eeb3f); Milliken, Shoup and Ortiz (2009): Ohlone/Costanoan Indians of the San Francisco Peninsula and Their Neighbors, Yesterday and Today (National Park Service report) (https://digitalcommons.csumb.edu/hornbeck_ind_1/6/)
+
+## Landmarks (47; modern, for orientation)
+
+- Alamo Square (park; 37.7764, -122.4347). Link: https://yelamu.thomasparas.com/#p=alamo-square
+- Alcatraz Island (other; 37.8267, -122.4230). Link: https://yelamu.thomasparas.com/#p=alcatraz
+- Baker Beach (beach; 37.7933, -122.4840). Link: https://yelamu.thomasparas.com/#p=baker-beach
+- Bernal Heights summit (hill; 37.7438, -122.4151). Link: https://yelamu.thomasparas.com/#p=bernal-heights
+- Buena Vista Park (hill; 37.7686, -122.4403). Link: https://yelamu.thomasparas.com/#p=buena-vista-park
+- Candlestick Point (park; 37.7137, -122.3863). Link: https://yelamu.thomasparas.com/#p=candlestick-point
+- Chase Center (building; 37.7680, -122.3877). Link: https://yelamu.thomasparas.com/#p=chase-center
+- City College of San Francisco (Ocean Campus) (other; 37.7258, -122.4504). Link: https://yelamu.thomasparas.com/#p=city-college-ocean-campus
+- City Hall (building; 37.7793, -122.4193). Link: https://yelamu.thomasparas.com/#p=city-hall
+- Cliff House (building; 37.7785, -122.5139). Link: https://yelamu.thomasparas.com/#p=cliff-house
+- Coit Tower (building; 37.8024, -122.4058). Link: https://yelamu.thomasparas.com/#p=coit-tower
+- Conservatory of Flowers (building; 37.7724, -122.4601). Link: https://yelamu.thomasparas.com/#p=conservatory-of-flowers
+- Corona Heights (hill; 37.7650, -122.4386). Link: https://yelamu.thomasparas.com/#p=corona-heights
+- Cow Palace (building; 37.7065, -122.4195). Link: https://yelamu.thomasparas.com/#p=cow-palace
+- Crissy Field (park; 37.8037, -122.4650). Link: https://yelamu.thomasparas.com/#p=crissy-field
+- Dolores Park (park; 37.7596, -122.4269). Link: https://yelamu.thomasparas.com/#p=dolores-park
+- Ferry Building (building; 37.7955, -122.3937). Link: https://yelamu.thomasparas.com/#p=ferry-building
+- Fort Funston (park; 37.7156, -122.5033). Link: https://yelamu.thomasparas.com/#p=fort-funston
+- Fort Mason (fort; 37.8063, -122.4305). Link: https://yelamu.thomasparas.com/#p=fort-mason
+- Fort Point (fort; 37.8106, -122.4770). Link: https://yelamu.thomasparas.com/#p=fort-point
+- Glen Canyon Park (park; 37.7389, -122.4421). Link: https://yelamu.thomasparas.com/#p=glen-canyon-park
+- Golden Gate Bridge (south end) (bridge; 37.8087, -122.4757). Link: https://yelamu.thomasparas.com/#p=golden-gate-bridge
+- Lands End (park; 37.7853, -122.5108). Link: https://yelamu.thomasparas.com/#p=lands-end
+- Legion of Honor (building; 37.7846, -122.5010). Link: https://yelamu.thomasparas.com/#p=legion-of-honor
+- Lombard Street (crooked block) (other; 37.8020, -122.4189). Link: https://yelamu.thomasparas.com/#p=lombard-street
+- McLaren Park (park; 37.7175, -122.4175). Link: https://yelamu.thomasparas.com/#p=mclaren-park
+- Mission Dolores (building; 37.7644, -122.4268). Link: https://yelamu.thomasparas.com/#p=mission-dolores
+- Mount Davidson (hill; 37.7383, -122.4547). Link: https://yelamu.thomasparas.com/#p=mount-davidson
+- Mountain Lake Park (park; 37.7871, -122.4716). Link: https://yelamu.thomasparas.com/#p=mountain-lake-park
+- Nob Hill (hill; 37.7920, -122.4130). Link: https://yelamu.thomasparas.com/#p=nob-hill
+- Ocean Beach (Judah St) (beach; 37.7601, -122.5098). Link: https://yelamu.thomasparas.com/#p=ocean-beach
+- Oracle Park (building; 37.7786, -122.3893). Link: https://yelamu.thomasparas.com/#p=oracle-park
+- Palace of Fine Arts (building; 37.8029, -122.4484). Link: https://yelamu.thomasparas.com/#p=palace-of-fine-arts
+- Pier 39 (other; 37.8087, -122.4098). Link: https://yelamu.thomasparas.com/#p=pier-39
+- Potrero Hill (hill; 37.7572, -122.3995). Link: https://yelamu.thomasparas.com/#p=potrero-hill
+- Presidio Main Post (fort; 37.7983, -122.4608). Link: https://yelamu.thomasparas.com/#p=presidio-main-post
+- Russian Hill (hill; 37.8010, -122.4190). Link: https://yelamu.thomasparas.com/#p=russian-hill
+- San Francisco General Hospital (building; 37.7568, -122.4053). Link: https://yelamu.thomasparas.com/#p=san-francisco-general-hospital
+- San Francisco State University (other; 37.7245, -122.4800). Link: https://yelamu.thomasparas.com/#p=san-francisco-state-university
+- Stern Grove (park; 37.7366, -122.4758). Link: https://yelamu.thomasparas.com/#p=stern-grove
+- Sutro Tower (building; 37.7552, -122.4528). Link: https://yelamu.thomasparas.com/#p=sutro-tower
+- Telegraph Hill (hill; 37.8015, -122.4045). Link: https://yelamu.thomasparas.com/#p=telegraph-hill
+- Transamerica Pyramid (building; 37.7952, -122.4028). Link: https://yelamu.thomasparas.com/#p=transamerica-pyramid
+- Twin Peaks (hill; 37.7544, -122.4477). Link: https://yelamu.thomasparas.com/#p=twin-peaks
+- UCSF (Parnassus Heights) (other; 37.7631, -122.4574). Link: https://yelamu.thomasparas.com/#p=ucsf-parnassus
+- Union Square (park; 37.7879, -122.4075). Link: https://yelamu.thomasparas.com/#p=union-square
+- Yerba Buena Island (other; 37.8095, -122.3630). Link: https://yelamu.thomasparas.com/#p=yerba-buena-island
+
+## Licence and attribution
+
+- The code and the data behind this map are free software under the GNU General Public License, version 3 or any later version: https://github.com/ThomasParas/yelamu
+- San Francisco Historical Habitats is part of Hidden Nature SF, which is free data under the GNU General Public License, version 3 or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty. SFEI data are available without restriction upon use with these caveats: prudent usage, knowledge of the data quality and professional courtesy should be considered. The data are not a survey document, so they must not be used as one or beyond the limits of the source scale. Questions about SFEI data can go to the SFEI GIS team at eigis@sfei.org.
+
+### Credits
+
+- San Francisco Estuary Institute. 2021. Hidden Nature SF, version 1.0. https://hidden-nature.org/
+- U.S. Geological Survey 3D Elevation Program.
+- U.S. Census Bureau TIGER/Line.
+- NOAA National Geodetic Survey, Shoreline Data Rescue Project (historical shoreline vectors, 1850s).
+- three.js.
+
+Sources and their terms: https://github.com/ThomasParas/yelamu/blob/main/NOTICE.md
+Built by Thomas Paras: https://thomasparas.com/

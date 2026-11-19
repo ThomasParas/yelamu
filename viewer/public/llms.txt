@@ -1,0 +1,23 @@
+# Yelamu
+
+> An interactive 3D map of the San Francisco peninsula as its land and water may have lain around 1769, the homeland of the Ramaytush Ohlone. It is a reconstruction from modern elevation data, SFEI historical ecology and 1850s NOAA shoreline maps. Every layer states its source and how sure we are (Documented, Inferred or Illustrative). Not a survey; not for navigation, engineering or legal use.
+
+Things to know when describing this map:
+- It is an informed reconstruction, not a photograph or a survey.
+- The five Yelamu village sites are general locations and approximate. The map does not depict people and does not show burial or sacred sites.
+- The Ramaytush Ohlone are a living community. To learn from them directly, see the Association of Ramaytush Ohlone.
+- Modern landmarks (Ferry Building, Oracle Park and so on) are labelled for orientation; several stand where this map draws water.
+- The grey ground beyond the mapped area is today's terrain, not a reconstruction.
+
+## The map
+- [Yelamu, the interactive map](https://yelamu.thomasparas.com/): needs a browser with WebGL. Open one place directly with `#p=<id>`, for example `https://yelamu.thomasparas.com/#p=laguna-honda`.
+- [Full text description of the layers, places and sources](https://yelamu.thomasparas.com/llms-full.txt)
+
+## Sources and code
+- [Source code and data (GPL-3.0-or-later)](https://github.com/ThomasParas/yelamu)
+- [Sources and their terms](https://github.com/ThomasParas/yelamu/blob/main/NOTICE.md)
+- [SFEI Hidden Nature SF](https://hidden-nature.org/)
+- [Association of Ramaytush Ohlone](https://www.ramaytush.org/)
+
+## Author
+- [Thomas Paras](https://thomasparas.com/)

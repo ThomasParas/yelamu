@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://yelamu.thomasparas.com/sitemap.xml

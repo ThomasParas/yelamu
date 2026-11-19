@@ -14,7 +14,57 @@
     <meta property="og:description" content="An interactive 3D map of the peninsula's land and water before the city, with the source and confidence of every layer." />
     <meta property="og:url" content="https://yelamu.thomasparas.com/" />
     <meta property="og:image" content="https://yelamu.thomasparas.com/og.png" />
+    <meta property="og:image:alt" content="A 3D view of the San Francisco peninsula as it may have looked around 1769, with creeks, marshes and dunes." />
+    <meta name="author" content="Thomas Paras" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Yelamu: the landscape of San Francisco around 1769" />
+    <meta name="twitter:description" content="An interactive 3D map of the peninsula's land and water before the city, with the source and confidence of every layer." />
+    <meta name="twitter:image" content="https://yelamu.thomasparas.com/og.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "@id": "https://yelamu.thomasparas.com/#app",
+            "name": "Yelamu",
+            "url": "https://yelamu.thomasparas.com/",
+            "description": "An interactive 3D map of the San Francisco peninsula as its land and water may have lain around 1769, the homeland of the Ramaytush Ohlone. Every layer says where it comes from and how sure we are.",
+            "applicationCategory": "EducationalApplication",
+            "operatingSystem": "Any (a web browser with WebGL)",
+            "isAccessibleForFree": true,
+            "inLanguage": "en",
+            "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+            "creator": { "@type": "Person", "name": "Thomas Paras", "url": "https://thomasparas.com/" },
+            "codeRepository": "https://github.com/ThomasParas/yelamu"
+          },
+          {
+            "@type": "Dataset",
+            "@id": "https://yelamu.thomasparas.com/#dataset",
+            "name": "Yelamu: reconstructed landscape of San Francisco around 1769",
+            "description": "Terrain, water, habitat, ponds, creeks, modelled stream channels and approximate village locations for the San Francisco peninsula around 1769, as a reconstruction. Each layer carries its source and a confidence level (Documented, Inferred or Illustrative).",
+            "url": "https://github.com/ThomasParas/yelamu",
+            "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+            "creator": { "@type": "Person", "name": "Thomas Paras", "url": "https://thomasparas.com/" },
+            "temporalCoverage": "1769",
+            "spatialCoverage": {
+              "@type": "Place",
+              "name": "San Francisco peninsula (Yelamu)",
+              "geo": { "@type": "GeoShape", "box": "37.70 -122.53 37.84 -122.33" }
+            },
+            "isBasedOn": [
+              "https://hidden-nature.org/",
+              "https://www.usgs.gov/3d-elevation-program",
+              "https://www.ngs.noaa.gov/"
+            ],
+            "distribution": {
+              "@type": "DataDownload",
+              "contentUrl": "https://github.com/ThomasParas/yelamu/tree/main/viewer/public/assets/real-city"
+            }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <main>
@@ -24,6 +74,12 @@
         tabindex="0"
         aria-label="Interactive 3D map of Yelamu, the historical landscape of San Francisco. Arrow keys pan the map, plus and minus zoom, Q and E rotate, H resets the view."
       ></canvas>
+      <section class="visually-hidden" aria-label="About this map">
+        <h1>Yelamu: an interactive 3D map of San Francisco around 1769</h1>
+        <p>Yelamu is a free, interactive 3D map of the San Francisco peninsula as its land and water may have lain around 1769, before the city. The peninsula is the homeland of the Ramaytush Ohlone, who are a living community today. The map is reconstructed from modern elevation data, from historical ecology maps and, along parts of the bay shore, from 1850s U.S. Coast Survey maps. It is an informed picture, not a photograph or a survey, and it is not for navigation, engineering or legal use.</p>
+        <p>Layers: terrain, water and habitat (bay, marsh, wetland, dunes, grassland, scrub, woodland), freshwater ponds, historical creeks, modelled stream channels, illustrative vegetation shapes, the general locations of the five primary Yelamu villages (approximate), modern streets, and 47 modern landmarks for orientation. Hotspots are cards about 18 landscape features such as Laguna Honda, Lake Merced, Mission Bay marsh and Yerba Buena Cove. Each layer and each card states its source and how sure we are: Documented, Inferred or Illustrative.</p>
+        <p>Data from the San Francisco Estuary Institute (Hidden Nature SF), USGS 3DEP, NOAA and the U.S. Census Bureau. Code and data are free software under the GNU General Public License, version 3 or later: <a href="https://github.com/ThomasParas/yelamu">github.com/ThomasParas/yelamu</a>. Built by <a href="https://thomasparas.com/">Thomas Paras</a>. A plain-text version of this page is at <a href="/llms.txt">/llms.txt</a>.</p>
+      </section>
     </main>
     <div id="ui"></div>
     <noscript>

@@ -25,8 +25,11 @@ uv run python scripts/build_overlay.py --region regions/full-city.json
 uv run python scripts/build_context.py --region regions/full-city.json
 uv run python scripts/build_shade.py ../viewer/public/assets/real-city
 uv run python scripts/build_creeks.py ../viewer/public/assets/real-city
+uv run python scripts/build_llms_full.py ../viewer/public/assets/real-city ../viewer/public/llms-full.txt
 uv run python scripts/verify_overlay_data.py ../viewer/public/assets/real-city
 ```
+
+`build_llms_full.py` writes `viewer/public/llms-full.txt`, the plain-text description for language models, from `meta.json` and `overlay.json`; rerun it after any change to places or meta (a test fails when the committed file is stale). The counts in the hidden description in `viewer/index.html` ("47 modern landmarks", "about 18 landscape features") are checked by the same test file and need a hand edit when places are added.
 
 Run the overlay, context and shade steps after the terrain step (the terrain build rewrites `meta.json`, which drops the overlay's `overlay_villages` count and village `hand_sources` row, so `build_overlay.py` has to be rerun after any city rebuild; it restores them from `pipeline/data/overlay/villages.json`). The terrain build also drops the creek entries (`creeks_file`, `creeks_mapped`, `creeks_modelled` and the two creek `hand_sources` rows), so after a city rebuild rerun `build_creeks.py` too, in this order: `build_overlay.py`, then `build_shade.py`, then `build_creeks.py`, because each of them rewrites `meta.json`. The shade step bakes the ground shading (hill shadows and ambient occlusion) from the built heightmap; it must use the viewer's vertical exaggeration and sun direction (`viewer/src/terrainShade.ts`), and the viewer ignores a bake that does not match. The context step builds the grey surround: modern terrain (USGS 3DEP) around the 1769 map, for orientation only (see `docs/superpowers/specs/2026-11-17-surrounding-terrain-design.md`). The hand
 data files in `pipeline/data/full-city/hand/` are described in the README beside them; three of
