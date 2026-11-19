@@ -251,3 +251,17 @@ Branch `habitat-patterns` (`c1cad43`, on main `456990c`): an optional "Habitat p
 | E whole region (grey surround) | 60 | 17.4 ms | 3.0 ms | 59.5 | 17.7 ms | 3.3 ms | **PASS** both |
 
 C and D were slower than on earlier days with the layer off as well, so the slowdown is the phone that day (more plants were loaded: 33-40k against 17k on the desktop), not the patterns. Desktop bench A-E 60 fps on and off, render p95 1.8-2.9 ms either way. Quality never dropped. Not measured: battery and warmth, an older phone, an iPhone.
+
+## Tap to identify and wet shore band on the phone (2026-11-19)
+
+Branch `tap-identify` (`2a1518f` tap-to-identify, `cbce92c` wet shore band, on main `91caf0f`). Tap to identify (`viewer/src/identify.ts`, `identifyModule.ts`) walks the camera ray over the height grid only when the ground is tapped, so it costs nothing in the bench, which never taps. The wet shore band (`habitatMaterial.ts`, `habWet`) adds one shore-field lookup per ground pixel near the water (the water's texture, shared). Same phone and method as above; compared with the patterns-off run of the day before.
+
+| Scenario | fps | p95 frame gap | p95 render time | Quality | Triangles | Draw calls | Result |
+|---|---|---|---|---|---|---|---|
+| A whole city (opening view) | 59.2 | 17.4 ms | 3.7 ms | 2 -> 2 | 609,127 | 160 | **PASS** |
+| B close-up, vegetation off | 60 | 17.1 ms | 2.1 ms | 2 -> 2 | 1,106,668 | 51 | **PASS** |
+| C close-up, vegetation on | 57.7 | 24.5 ms | 2.9 ms | 2 -> 2 | 2,347,494 | 130 | **PASS** |
+| D close-up, vegetation + water | 57.7 | 24.6 ms | 2.1 ms | 2 -> 2 | 1,935,944 | 112 | **PASS** |
+| E whole region (grey surround) | 59.7 | 17.0 ms | 2.9 ms | 2 -> 2 | 1,084,283 | 276 | **PASS** |
+
+The day before, with neither feature, C and D gave 26.5 and 21.2 ms with the same 33,000 plants, so C and D sit in this phone's recent 21-26 ms range; no cost measured. Desktop bench A-E ~120 fps, p95 gap 9.7-10.1 ms (9.0-9.3 ms without them, within noise at 120 Hz). The identify card was checked with a touch tap in a phone-sized browser, not on the phone. Not measured: battery and warmth, an older phone, an iPhone.
