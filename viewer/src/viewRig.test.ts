@@ -494,7 +494,7 @@ describe("ViewRig limits", () => {
   it("reports the current limits as a copy", () => {
     const rig = make();
     const limits = rig.getLimits();
-    expect(limits).toEqual({ bounds: BOUNDS, minZoom: 0.8 });
+    expect(limits).toEqual({ bounds: BOUNDS, minZoom: 0.8, maxZoom: 40 });
     limits.bounds.halfWidth = 1;
     expect(rig.getLimits().bounds.halfWidth).toBe(1000);
   });

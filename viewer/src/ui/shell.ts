@@ -47,6 +47,10 @@ export interface Shell {
   onReset(handler: () => void): void;
   /** -1 = rotate left (Q), +1 = rotate right (E). */
   onRotate(handler: (dir: 1 | -1) => void): void;
+  /** +1 = zoom in (+), -1 = zoom out (-), from the menu or the on-map buttons. */
+  onZoom(handler: (dir: 1 | -1) => void): void;
+  /** Enable or grey out the zoom buttons (false at that zoom limit). */
+  setZoomLimits(canZoomIn: boolean, canZoomOut: boolean): void;
   onSurprise(handler: () => void): void;
   onCopyLink(handler: () => void): void;
   /** Replace the text of the polite live status line (empty hides it). */
@@ -80,6 +84,27 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (text !== undefined) node.textContent = text;
   return node;
 }
+
+/** Wide-screen menu open (true) or collapsed (false), remembered per visitor; never throws. */
+export const MENU_OPEN_KEY = "yelamu-menu-open";
+function storedMenuOpen(): boolean | null {
+  try {
+    const v = localStorage.getItem(MENU_OPEN_KEY);
+    return v === null ? null : v === "1";
+  } catch {
+    return null;
+  }
+}
+function storeMenuOpen(open: boolean): void {
+  try {
+    localStorage.setItem(MENU_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Private mode or blocked storage: the choice just is not remembered.
+  }
+}
+/** The phone layout (ui.css uses the same breakpoint). */
+export const NARROW_QUERY = "(max-width: 640px)";
+const isNarrow = () => typeof window.matchMedia === "function" && window.matchMedia(NARROW_QUERY).matches;
 
 function actionButton(
   className: string,
@@ -119,48 +144,93 @@ export function createShell(root: HTMLElement): Shell {
   const title = el("h1", "topbar__title", undefined, "Yelamu");
   const searchSlot = el("div", "topbar__search");
 
-  // Everything except the title and the search sits in the menu: inline on wide screens,
-  // behind a disclosure button on phones (see ui.css).
+  // Everything except the title and the search sits in the menu, behind a disclosure
+  // button: closed by default on phones, open by default on wide screens, where it sits
+  // inline in the bar and a visitor's choice to collapse it is remembered (see ui.css).
   const MENU_ID = "topbar-menu";
   const menuBtn = el("button", "btn topbar__menu-btn", {
     type: "button",
     "aria-expanded": "false",
     "aria-controls": MENU_ID,
+    title: "Show or hide the menu",
   });
   menuBtn.append(el("span", "btn-text", undefined, "Menu"));
   const menu = el("div", "topbar__menu", { id: MENU_ID });
   const links = el("div", "topbar__links", { role: "group", "aria-label": "About this map" });
 
-  const toggles = el("fieldset", "toggles");
+  // The layer toggles: a popover behind the Layers button on wide screens, inline in the
+  // Menu on phones.
+  const LAYERS_ID = "topbar-layers";
+  const layersBtn = el("button", "btn topbar__layers-btn", {
+    type: "button",
+    "aria-expanded": "false",
+    "aria-controls": LAYERS_ID,
+  }, "Layers");
+  const toggles = el("fieldset", "toggles", { id: LAYERS_ID });
   toggles.hidden = true; // nothing to show until a layer registers a toggle
+  layersBtn.hidden = true;
   toggles.appendChild(el("legend", "visually-hidden", undefined, "Layers"));
 
   const actions = el("div", "topbar__actions", { role: "group", "aria-label": "View controls" });
   const resetBtn = actionButton("btn", "Reset", "Reset view", "Reset view (H)");
   const rotLeftBtn = actionButton("btn btn--icon", "↺", "Rotate left", "Rotate left (Q)", true);
   const rotRightBtn = actionButton("btn btn--icon", "↻", "Rotate right", "Rotate right (E)", true);
+  const zoomInBtn = actionButton("btn btn--icon", "+", "Zoom in", "Zoom in (+)", true);
+  const zoomOutBtn = actionButton("btn btn--icon", "\u2212", "Zoom out", "Zoom out (\u2212)", true);
   const surpriseBtn = actionButton("btn", "Surprise me", "Surprise me", "Fly to a random place");
   const copyBtn = actionButton("btn", "Copy link", "Copy link", "Copy a link to this view");
-  actions.append(resetBtn, rotLeftBtn, rotRightBtn, surpriseBtn, copyBtn);
+  actions.append(resetBtn, rotLeftBtn, rotRightBtn, zoomInBtn, zoomOutBtn, surpriseBtn, copyBtn);
 
-  menu.append(links, toggles, actions);
+  menu.append(links, layersBtn, toggles, actions);
   header.append(title, searchSlot, menuBtn, menu);
+
+  let layersOpen = false;
+  const setLayersOpen = (open: boolean) => {
+    layersOpen = open;
+    layersBtn.setAttribute("aria-expanded", String(open));
+    toggles.dataset.open = String(open);
+    // Line the popover up under its button (both are positioned within the top bar).
+    if (open) toggles.style.setProperty("--layers-left", `${layersBtn.offsetLeft}px`);
+  };
+  setLayersOpen(false);
+  layersBtn.addEventListener("click", () => setLayersOpen(!layersOpen));
+  // A press anywhere outside the button and the popover closes it (ticking boxes does not).
+  document.addEventListener("pointerdown", (e) => {
+    const t = e.target as Node;
+    if (layersOpen && !layersBtn.contains(t) && !toggles.contains(t)) setLayersOpen(false);
+  });
 
   let menuOpen = false;
   const setMenuOpen = (open: boolean) => {
     menuOpen = open;
     menuBtn.setAttribute("aria-expanded", String(open));
     menu.dataset.open = String(open);
+    if (!open) setLayersOpen(false);
   };
-  setMenuOpen(false);
-  menuBtn.addEventListener("click", () => setMenuOpen(!menuOpen));
-  // Choosing an action closes the menu so the result is not hidden behind it.
+  const defaultMenuOpen = () => (isNarrow() ? false : (storedMenuOpen() ?? true));
+  setMenuOpen(defaultMenuOpen());
+  menuBtn.addEventListener("click", () => {
+    setMenuOpen(!menuOpen);
+    if (!isNarrow()) storeMenuOpen(menuOpen);
+  });
+  // Crossing the phone breakpoint (rotating a tablet, resizing a window) starts that layout's default.
+  if (typeof window.matchMedia === "function") {
+    window.matchMedia(NARROW_QUERY).addEventListener?.("change", () => setMenuOpen(defaultMenuOpen()));
+  }
+  // On phones, choosing an action closes the menu so the result is not hidden behind it.
+  // The Layers button only opens its popover, so it is left out.
   menu.addEventListener("click", (e) => {
-    if ((e.target as Element).closest("button")) setMenuOpen(false);
+    const button = (e.target as Element).closest("button");
+    if (button && button !== layersBtn && isNarrow()) setMenuOpen(false);
   });
   header.addEventListener("keydown", (e) => {
-    // Only when the Menu button is actually shown (phones); on wide screens Esc keeps its usual job.
-    if (e.key === "Escape" && menuOpen && menuBtn.offsetParent !== null) {
+    if (e.key !== "Escape") return;
+    if (layersOpen) {
+      setLayersOpen(false);
+      layersBtn.focus();
+      e.stopPropagation();
+    } else if (menuOpen && isNarrow()) {
+      // Phones only; on wide screens Esc keeps its usual job (closing a panel).
       setMenuOpen(false);
       menuBtn.focus();
       e.stopPropagation();
@@ -179,7 +249,13 @@ export function createShell(root: HTMLElement): Shell {
   const turnLeftBtn = actionButton("turn__btn turn__btn--left", "↺", "Rotate left", "Rotate left (Q)", true);
   const turnRightBtn = actionButton("turn__btn turn__btn--right", "↻", "Rotate right", "Rotate right (E)", true);
   turn.append(turnLeftBtn, turnRightBtn);
-  root.append(header, status, announcer, toastEl, turn, panelHost);
+  // Zoom buttons stacked above the turn-right button, drawn the same way; wide screens with a
+  // mouse only (phones pinch). ui.css places and hides them.
+  const zoomGroup = el("div", "zoom", { role: "group", "aria-label": "Zoom the map" });
+  const mapZoomInBtn = actionButton("turn__btn zoom__btn zoom__btn--in", "+", "Zoom in", "Zoom in (+)", true);
+  const mapZoomOutBtn = actionButton("turn__btn zoom__btn zoom__btn--out", "\u2212", "Zoom out", "Zoom out (\u2212)", true);
+  zoomGroup.append(mapZoomInBtn, mapZoomOutBtn);
+  root.append(header, status, announcer, toastEl, turn, zoomGroup, panelHost);
 
   // Panels sit below the top bar, which wraps to a variable height on narrow screens.
   const syncBarHeight = () =>
@@ -198,6 +274,9 @@ export function createShell(root: HTMLElement): Shell {
   const rotateHandlers: Array<(dir: 1 | -1) => void> = [];
   const surpriseHandlers: Array<() => void> = [];
   const copyHandlers: Array<() => void> = [];
+  const zoomHandlers: Array<(dir: 1 | -1) => void> = [];
+  for (const b of [zoomInBtn, mapZoomInBtn]) b.addEventListener("click", () => zoomHandlers.forEach((h) => h(1)));
+  for (const b of [zoomOutBtn, mapZoomOutBtn]) b.addEventListener("click", () => zoomHandlers.forEach((h) => h(-1)));
   resetBtn.addEventListener("click", () => resetHandlers.forEach((h) => h()));
   rotLeftBtn.addEventListener("click", () => rotateHandlers.forEach((h) => h(-1)));
   rotRightBtn.addEventListener("click", () => rotateHandlers.forEach((h) => h(1)));
@@ -252,6 +331,7 @@ export function createShell(root: HTMLElement): Shell {
       const why = el("span", "visually-hidden", { id: whyId });
       toggles.append(wrap, why);
       toggles.hidden = false;
+      layersBtn.hidden = false;
       input.addEventListener("change", () => {
         // A checkbox already announces its own state; this also covers the layer's effect.
         announce(layerAnnouncement(label, input.checked));
@@ -282,6 +362,11 @@ export function createShell(root: HTMLElement): Shell {
     onRotate: (h) => void rotateHandlers.push(h),
     onSurprise: (h) => void surpriseHandlers.push(h),
     onCopyLink: (h) => void copyHandlers.push(h),
+    onZoom: (h) => void zoomHandlers.push(h),
+    setZoomLimits(canZoomIn, canZoomOut) {
+      zoomInBtn.disabled = mapZoomInBtn.disabled = !canZoomIn;
+      zoomOutBtn.disabled = mapZoomOutBtn.disabled = !canZoomOut;
+    },
 
     setStatus(text) {
       status.textContent = text;

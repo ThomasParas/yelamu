@@ -203,12 +203,25 @@ main {
   gap: 6px;
   margin-left: auto;
 }
-/* Wide screens: the menu's children sit directly in the top bar's row. */
+/* Wide screens: the menu's children sit directly in the top bar's row, and the Menu button
+   (last in the row) collapses them to just the title and the search. */
 .topbar__menu {
   display: contents;
 }
-.topbar__menu-btn {
+.topbar__menu[data-open="false"] {
   display: none;
+}
+.topbar__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  order: 1;
+}
+.topbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--surface-strong);
+  color: var(--text);
 }
 .topbar__links {
   display: flex;
@@ -280,6 +293,26 @@ main {
 }
 .toggle input:disabled {
   cursor: not-allowed;
+}
+/* Wide screens: the toggles are a popover under the Layers button (left set by shell.ts). */
+@media (min-width: 641px) {
+  .toggles {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: var(--layers-left, 12px);
+    z-index: 1;
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    padding: 6px 14px;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .toggles[data-open="true"]:not([hidden]) {
+    display: flex;
+  }
 }
 
 /* --- status line and toast --- */
@@ -392,6 +425,29 @@ main {
     border: 1px solid ButtonText;
   }
 }
+/* Zoom buttons: stacked above the turn-right button, drawn like it. Mouse screens only:
+   phones pinch, and their bottom corners are left to the turn buttons. */
+.zoom {
+  display: block; /* zero height: the buttons are position: fixed */
+}
+.zoom__btn {
+  right: calc(var(--edge) + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--edge) + var(--safe-bottom) + var(--status-h, 0px) + var(--gap) + 56px);
+}
+.zoom__btn--in {
+  bottom: calc(var(--edge) + var(--safe-bottom) + var(--status-h, 0px) + var(--gap) + 112px);
+}
+.turn__btn:disabled,
+.turn__btn:disabled:hover {
+  opacity: 0.35;
+  cursor: default;
+  transform: none;
+}
+@media (max-width: 640px), (pointer: coarse) {
+  .zoom__btn {
+    display: none;
+  }
+}
 
 /* --- side panel (bottom sheet on narrow screens) --- */
 .panel {
@@ -455,10 +511,11 @@ main {
     flex: 1 1 0;
   }
   .topbar__menu-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    order: 0;
     margin-left: auto;
+  }
+  .topbar__layers-btn {
+    display: none;
   }
   .topbar__menu {
     display: none;

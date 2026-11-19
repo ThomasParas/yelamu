@@ -3,7 +3,7 @@ import { createIsoCamera, fitViewSize } from "./camera";
 import { switchZoomFor } from "./chunks";
 import type { AppContext } from "./appContext";
 import { decodeState, encodeState, type AppState } from "./appState";
-import { attachKeyboard, attachPointerControls } from "./controls";
+import { KEY_ZOOM_FACTOR, attachKeyboard, attachPointerControls } from "./controls";
 import { GROUP_COLORS, buildPalette, makeColorAt, makeShadeFactorAt, paletteToLinear, seaClassIds, shadeByDepth } from "./habitat";
 import { createHabitatMaterial } from "./habitatMaterial";
 import { patternById } from "./habitatPatterns";
@@ -366,6 +366,16 @@ async function start() {
 
   shell.onReset(() => rig.reset());
   shell.onRotate((dir) => rig.rotate(dir));
+  shell.onZoom((dir) => rig.zoomBy(dir > 0 ? KEY_ZOOM_FACTOR : 1 / KEY_ZOOM_FACTOR));
+  // Grey out a zoom button at its limit (a small tolerance: the limits are floats).
+  const syncZoomButtons = () => {
+    const { zoom } = rig.getState();
+    const { minZoom, maxZoom } = rig.getLimits();
+    shell.setZoomLimits(zoom < maxZoom * 0.999, zoom > minZoom * 1.001);
+  };
+  rig.onChange(syncZoomButtons);
+  window.addEventListener("resize", syncZoomButtons); // the minimum zoom follows the window
+  syncZoomButtons();
   shell.onSurprise(() => {
     const target = pickSurpriseTarget(surpriseTargets, Math.random);
     if (target) {

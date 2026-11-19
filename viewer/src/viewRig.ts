@@ -135,9 +135,9 @@ export class ViewRig {
     return { x: this.x, z: this.z, zoom: this.zoom, rot: normalizeRot(this.rotTarget) };
   }
 
-  /** The current pan bounds (a copy) and minimum zoom. */
-  getLimits(): { bounds: MapBounds; minZoom: number } {
-    return { bounds: { ...this.options.bounds }, minZoom: this.options.minZoom };
+  /** The current pan bounds (a copy) and the zoom limits. */
+  getLimits(): { bounds: MapBounds; minZoom: number; maxZoom: number } {
+    return { bounds: { ...this.options.bounds }, minZoom: this.options.minZoom, maxZoom: this.options.maxZoom };
   }
 
   /**
