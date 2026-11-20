@@ -81,6 +81,25 @@ export const identifyModule = (ctx: AppContext) => {
     if (!close()) prevEscape();
   };
 
+  // A wrapped name keeps its box as wide as the space it was offered, not as its longest
+  // line, which leaves a gap before the close button. Measure the lines and shrink to them.
+  const range = document.createRange();
+  const fitText = () => {
+    text.style.width = "";
+    let left = Infinity;
+    let right = -Infinity;
+    // The text nodes only: a range over the elements would also return their full-width boxes.
+    for (const el of [title, detail]) {
+      if (el.hidden || !el.firstChild) continue;
+      range.selectNodeContents(el.firstChild);
+      for (const r of range.getClientRects()) {
+        left = Math.min(left, r.left);
+        right = Math.max(right, r.right);
+      }
+    }
+    if (right > left) text.style.width = `${Math.ceil(right - left)}px`;
+  };
+
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const identifyAt = (clientX: number, clientY: number) => {
@@ -102,6 +121,7 @@ export const identifyModule = (ctx: AppContext) => {
     swatch.style.backgroundColor = hexToCss(GROUP_COLORS[what.group] ?? GROUP_COLORS.unmapped);
     pinned = new THREE.Vector3(hit.x, hit.y, hit.z);
     card.hidden = false;
+    fitText();
     place();
     shell.announce(what.detail ? `${what.title}, ${what.detail}` : what.title);
   };
