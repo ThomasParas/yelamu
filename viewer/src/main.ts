@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createIsoCamera, fitViewSize } from "./camera";
 import { switchZoomFor } from "./chunks";
+import { createFrameSampler } from "./frameSampler";
 import type { AppContext } from "./appContext";
 import { decodeState, encodeState, type AppState } from "./appState";
 import { KEY_ZOOM_FACTOR, attachKeyboard, attachPointerControls } from "./controls";
@@ -198,6 +199,9 @@ async function start() {
     document.body.appendChild(overlay);
   }
   const quality = new QualityController();
+  // Gaps between on-demand frames are mostly the wait for input (mouse-wheel notches), not
+  // frame cost: the sampler measures what the device can do instead (frameSampler.ts).
+  const sampler = createFrameSampler({ raf: (cb) => requestAnimationFrame(cb), record: (gap) => quality.record(gap) });
   const frameTimes: number[] = [];
   let lastFrame = 0;
   const trackFrame = (now: number, buildingChunks: boolean) => {
@@ -205,11 +209,11 @@ async function start() {
     if (lastFrame && now - lastFrame < 500) {
       frameTimes.push(now - lastFrame);
       if (frameTimes.length > 60) frameTimes.shift();
-      // The burst of full-resolution chunk builds after a zoom-in is not steady-state
-      // cost, so those frames do not count towards the quality level.
-      if (!buildingChunks) quality.record(now - lastFrame);
     }
     lastFrame = now;
+    // The burst of full-resolution chunk builds after a zoom-in is not steady-state
+    // cost, so those frames do not count towards the quality level.
+    sampler.frame(now, buildingChunks);
   };
   const updateOverlay = () => {
     if (!overlay) return;
