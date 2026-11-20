@@ -1121,7 +1121,7 @@ main {
   /* The card's bottom-centre sits just above the point; the ::after pin marks the point itself. */
   margin: 0;
   translate: -50% calc(-100% - 12px);
-  padding: 6px 10px 6px 6px;
+  padding: 6px 4px 6px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
@@ -1159,4 +1159,36 @@ main {
 .identify__detail {
   color: var(--text-muted);
   font-size: 12px;
+}
+/* Close: never shrinks, so long names wrap beside it instead of running under it. The layer
+   ignores the pointer (drags pass to the map); this button takes it back. */
+.identify__close {
+  flex: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.identify__close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+@media (pointer: coarse) {
+  .identify__close {
+    width: 32px;
+    height: 32px;
+    margin: -4px 0;
+  }
 }

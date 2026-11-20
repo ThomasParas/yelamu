@@ -8,8 +8,8 @@ import { projectToScreen } from "./overlay/labels";
 
 /**
  * Tap (or click) the ground to see which habitat is there: a small card pinned to the point,
- * also announced to screen readers. Another tap moves it, a tap off the mapped grid or Escape
- * closes it. Drags, pinches and long presses are left to the camera controls.
+ * also announced to screen readers. Another tap moves it; its close button, a tap off the
+ * mapped grid or Escape closes it. Drags, pinches and long presses are left to the camera controls.
  */
 export const identifyModule = (ctx: AppContext) => {
   const { habitat, meta, canvas, camera, shell } = ctx;
@@ -43,7 +43,17 @@ export const identifyModule = (ctx: AppContext) => {
   const detail = document.createElement("span");
   detail.className = "identify__detail";
   text.append(title, detail);
-  card.append(swatch, text);
+  // The only part of the card that takes pointer input: the rest lets drags reach the map.
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "identify__close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.title = "Close (Esc)";
+  const glyph = document.createElement("span");
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.textContent = "×";
+  closeBtn.append(glyph);
+  card.append(swatch, text, closeBtn);
   layer.append(card);
 
   let pinned: THREE.Vector3 | null = null;
@@ -59,9 +69,13 @@ export const identifyModule = (ctx: AppContext) => {
   const close = () => {
     if (!pinned) return false;
     pinned = null;
+    // Focus on the close button would be lost with the card: hand it back to the map.
+    const hadFocus = card.contains(document.activeElement);
     card.hidden = true;
+    if (hadFocus) canvas.focus({ preventScroll: true });
     return true;
   };
+  closeBtn.addEventListener("click", () => void close());
   const prevEscape = ctx.handlers.escape;
   ctx.handlers.escape = () => {
     if (!close()) prevEscape();
