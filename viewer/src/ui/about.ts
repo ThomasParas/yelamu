@@ -70,7 +70,7 @@ export function createAbout(options: { context?: boolean; villages?: boolean } =
       ...(options.context
         ? [
             paragraph(
-              "The grey-brown ground beyond the mapped area is today's terrain and coastline, shown only so the peninsula " +
+              "The grey ground beyond the mapped area is today's terrain and coastline, shown only so the peninsula " +
                 "is not floating on its own. It is not a reconstruction: along the Bay shore it includes land that was " +
                 "filled in after 1769.",
             ),

@@ -10,6 +10,7 @@ export const GROUP_COLORS: Record<string, number> = {
   unmapped: 0x9a9484,
   water: 0x3f7fa6,
   marsh: 0x7fa06a,
+  mudflat: 0x7a6d58, // grey-brown: bare intertidal mud, darker than marsh so it reads apart without hue
   dune: 0xd8c58a,
   beach: 0xe6d9a8,
   woodland: 0x4f6b3f,

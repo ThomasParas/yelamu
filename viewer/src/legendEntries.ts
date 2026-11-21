@@ -10,7 +10,8 @@ export interface LegendEntry {
 /** Visitor-facing names for the habitat groups, in legend order. */
 export const GROUP_LABELS: ReadonlyArray<readonly [string, string]> = [
   ["water", "Bay, ocean and ponds"],
-  ["marsh", "Tidal marsh and flats"],
+  ["marsh", "Tidal marsh"],
+  ["mudflat", "Tidal mud flat"],
   ["wetland", "Freshwater wetland and riparian"],
   ["beach", "Beach"],
   ["dune", "Dunes"],
@@ -47,7 +48,7 @@ export const PONDS_LEGEND_NOTE = "Ponds and lagoons sit at their own water level
 // Wording approved by the owner on 2026-11-17
 /** Legend line for datasets with the grey surrounding terrain (those with `context_file`). */
 export const CONTEXT_LEGEND_NOTE =
-  "Beyond the area mapped for 1769, the grey-brown ground is today's terrain and coastline, shown only for orientation. It is not a reconstruction.";
+  "Beyond the area mapped for 1769, the grey ground is today's terrain and coastline, shown only for orientation. It is not a reconstruction.";
 
 // Wording approved by the owner on 2026-11-18
 // Reworded by the owner's approval on 2026-11-19

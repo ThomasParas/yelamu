@@ -35,6 +35,7 @@ export const VEGETATION_BY_GROUP: Readonly<Record<string, VegSpec | null>> = {
   dune: { kind: "shrub", perHectare: 8, minScale: 1.2, maxScale: 2.0 },
   wetland: { kind: "reed", perHectare: 60, minScale: 3, maxScale: 5 },
   marsh: { kind: "reed", perHectare: 90, minScale: 2.5, maxScale: 4 },
+  mudflat: null,
   beach: null,
   water: null,
   rock: null,
