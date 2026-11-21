@@ -34,12 +34,35 @@
     "confidence": "inferred"
   },
   {
+    "id": "laguna-salada",
+    "name": "Laguna Salada",
+    "kind": "lagoon",
+    "lon": -122.404,
+    "lat": 37.7964,
+    "description": "A small salt lagoon in what is now the Financial District, behind the beach of Yerba Buena Cove and joined to it by a tidal inlet. SFEI maps it as a tidal coastal lagoon near Montgomery and Pacific Streets, and Eldredge describes it crossing Montgomery between Clay and Pacific, with a bridge built across its neck at Jackson Street in 1844. The name, Spanish for \"salt lagoon\", comes from the 1840s accounts, so it is a later name for a feature that probably existed in 1769.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      },
+      {
+        "title": "The Beginnings of San Francisco, chapter XV (Eldredge, 1912)",
+        "url": "https://legacy.sfgenealogy.org/sf/history/hbbeg15.htm"
+      },
+      {
+        "title": "Yerba Buena Walk (Douglas S. Watson, E Clampus Vitus Yerba Buena Chapter)",
+        "url": "https://legacy.sfgenealogy.org/sf/history/hgybw.htm"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
     "id": "mission-bay",
     "name": "Mission Bay and Mission Creek marsh",
     "kind": "marsh",
     "lon": -122.3985,
     "lat": 37.7705,
-    "description": "An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th. Salt marsh fringed the open water, and freshwater marsh lay further inland, as far west as about Guerrero and Valencia Streets. The map draws the tidal flat and marsh that SFEI maps here as shallow wet ground, not open water. The long inlet toward the Mission is still drawn as open water, from an 1850s shoreline outline, which overstates it.",
+    "description": "An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th. Salt marsh fringed the open water, and freshwater marsh lay further inland, as far west as about Guerrero and Valencia Streets. The map follows SFEI, which maps most of this, including the creek's arm toward 19th Street, as tidal marsh and mud flat. How far salt water reached inland, compared with freshwater marsh, is uncertain.",
     "sources": [
       {
         "title": "Natural History of Mission Bay, Chris Carlsson (FoundSF)",
@@ -156,7 +179,7 @@
     "kind": "dune",
     "lon": -122.493,
     "lat": 37.7594,
-    "description": "A vast sheet of loose, shifting sand on the peninsula's west side, sparsely vegetated; Coast Survey maps show its edge moved up to a quarter mile in about twenty years.",
+    "description": "A vast sheet of loose, shifting sand on the peninsula's west side, sparsely vegetated. SFEI calls these \"mobile\" dunes because the wind kept moving the sand, so few plants could hold it; the older \"stabilized\" dunes further inland were held in place by dune scrub, grassland and oak woodland. Coast Survey maps show its edge moved up to a quarter mile in about twenty years.",
     "sources": [
       {
         "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",

@@ -38,11 +38,11 @@ Map: https://yelamu.thomasparas.com/
 - landforms (Inferred, 1): FoundSF 'Mission Plank Road': an 80-ft (24.4 m) sand hill between Second and Third Streets; DEM there 10.7 m; +13.7 m added. Radius 150 m assumed
 - landforms (Inferred, 1): Lockwood, SPUR 2003: Rincon Hill rose 120 ft (36.6 m); DEM peak today 31.6 m; +5.0 m added. Footprint radius 180 m assumed
 - ponds (Inferred, 3): Extent: flat 5.55 to 5.70 m lake surface of the USGS 3DEP DEM (modern lake; 1769 outline not known); level 5.6 m from the same DEM
-- villages (Inferred, 5): General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. Not official.
 - creeks (Inferred, 28): Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from 19th-century maps and a historical elevation model. Approximate.
 - modelled_streams (Illustrative, 228): Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed.
+- villages (Inferred, 5): General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. Not official.
 
-## Hotspots (19 landscape features with a card)
+## Hotspots (20 landscape features with a card)
 
 - Arroyo Dolores (creek; 37.7610, -122.4320; Documented). Link: https://yelamu.thomasparas.com/#p=creek-arroyo-dolores
   Arroyo Dolores, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Goddard 1869. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
@@ -65,6 +65,9 @@ Map: https://yelamu.thomasparas.com/
 - Laguna Honda (lake; 37.7505, -122.4610; Documented). Link: https://yelamu.thomasparas.com/#p=laguna-honda
   A natural lake before it was dammed and enlarged for the city's water supply; a second natural lake, near Seventh Avenue and Lawton, was filled in early last century.
   Sources: Laguna Honda (FoundSF, quoting Gilliam, The Natural World of San Francisco) (https://www.foundsf.org/Laguna_Honda)
+- Laguna Salada (lagoon; 37.7964, -122.4040; Inferred). Link: https://yelamu.thomasparas.com/#p=laguna-salada
+  A small salt lagoon in what is now the Financial District, behind the beach of Yerba Buena Cove and joined to it by a tidal inlet. SFEI maps it as a tidal coastal lagoon near Montgomery and Pacific Streets, and Eldredge describes it crossing Montgomery between Clay and Pacific, with a bridge built across its neck at Jackson Street in 1844. The name, Spanish for "salt lagoon", comes from the 1840s accounts, so it is a later name for a feature that probably existed in 1769.
+  Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f); The Beginnings of San Francisco, chapter XV (Eldredge, 1912) (https://legacy.sfgenealogy.org/sf/history/hbbeg15.htm); Yerba Buena Walk (Douglas S. Watson, E Clampus Vitus Yerba Buena Chapter) (https://legacy.sfgenealogy.org/sf/history/hgybw.htm)
 - Lake Merced (lake; 37.7268, -122.4945; Documented). Link: https://yelamu.thomasparas.com/#p=lake-merced
   A freshwater lake that was once a lagoon fed by streams, groundwater and an ocean channel; drifting dunes cut that link, though storms and quakes reopened it, and a tail ran to Ocean Beach as late as the 1800s.
   Sources: San Francisco's Lake Merced: Native Wetland (Western Neighborhoods Project) (https://www.outsidelands.org/lakemerced1.php); Lake Merced (Wikipedia) (https://en.wikipedia.org/wiki/Lake_Merced)
@@ -72,7 +75,7 @@ Map: https://yelamu.thomasparas.com/
   One of the few small flowing creeks of the old peninsula, its banks lined with riparian woodland and scrub of coast live oak, willow and Pacific wax myrtle.
   Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
 - Mission Bay and Mission Creek marsh (marsh; 37.7705, -122.3985; Documented). Link: https://yelamu.thomasparas.com/#p=mission-bay
-  An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th. Salt marsh fringed the open water, and freshwater marsh lay further inland, as far west as about Guerrero and Valencia Streets. The map draws the tidal flat and marsh that SFEI maps here as shallow wet ground, not open water. The long inlet toward the Mission is still drawn as open water, from an 1850s shoreline outline, which overstates it.
+  An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th. Salt marsh fringed the open water, and freshwater marsh lay further inland, as far west as about Guerrero and Valencia Streets. The map follows SFEI, which maps most of this, including the creek's arm toward 19th Street, as tidal marsh and mud flat. How far salt water reached inland, compared with freshwater marsh, is uncertain.
   Sources: Natural History of Mission Bay, Chris Carlsson (FoundSF) (https://www.foundsf.org/Natural_History_of_Mission_Bay); Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
 - Mountain Lake (lake; 37.7887, -122.4711; Documented). Link: https://yelamu.thomasparas.com/#p=mountain-lake
   A dune-dammed headwater lake: drainage pooled behind sand mounds. Dune-dammed lakes like this provided habitat for species such as California red-legged frogs and San Francisco garter snakes.
@@ -96,7 +99,7 @@ Map: https://yelamu.thomasparas.com/
   A freshwater lagoon held back by dunes and beaches, in what is now the Marina District, beyond Russian Hill and toward the Presidio.
   Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f); Washerwoman's Lagoon (FoundSF) (https://www.foundsf.org/WASHERWOMAN%27S_LAGOON)
 - Western mobile dune sheet (dune; 37.7594, -122.4930; Documented). Link: https://yelamu.thomasparas.com/#p=western-dune-sheet
-  A vast sheet of loose, shifting sand on the peninsula's west side, sparsely vegetated; Coast Survey maps show its edge moved up to a quarter mile in about twenty years.
+  A vast sheet of loose, shifting sand on the peninsula's west side, sparsely vegetated. SFEI calls these "mobile" dunes because the wind kept moving the sand, so few plants could hold it; the older "stabilized" dunes further inland were held in place by dune scrub, grassland and oak woodland. Coast Survey maps show its edge moved up to a quarter mile in about twenty years.
   Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
 - Yerba Buena Cove (bay; 37.7955, -122.3975; Documented). Link: https://yelamu.thomasparas.com/#p=yerba-buena-cove
   A cove on the bay shore between Clarks Point and Rincon Point; its beach lay as far back as today's Montgomery Street until Gold Rush filling put downtown over it.
