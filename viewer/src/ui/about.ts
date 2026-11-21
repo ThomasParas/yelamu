@@ -5,6 +5,10 @@
 import { CONFIDENCE_INFO } from "../confidence";
 import { takeFirstVisit } from "../aboutSeen";
 import {
+  ABOUT_NAME_LINK_TEXT,
+  ABOUT_NAME_SOURCE_LEAD,
+  ABOUT_NAME_TEXT,
+  ABOUT_NAME_URL,
   ABOUT_BYLINE_LEAD,
   ABOUT_BYLINE_NAME,
   ABOUT_BYLINE_TAIL,
@@ -86,6 +90,11 @@ export function createAbout(options: { context?: boolean; villages?: boolean } =
         ".",
       ),
       paragraph(aboutPeopleSentence(options.villages)),
+      paragraph(
+        ABOUT_NAME_TEXT + ABOUT_NAME_SOURCE_LEAD,
+        safeLink(ABOUT_NAME_URL, ABOUT_NAME_LINK_TEXT),
+        ".",
+      ),
     ),
   );
 
