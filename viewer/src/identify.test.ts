@@ -83,6 +83,19 @@ describe("habitatIdAt", () => {
   });
 });
 
+describe("describeHabitat notes", () => {
+  it("adds a plain-language note to the two dune classes only", () => {
+    const dunes = [
+      { id: 1, name: "Mobile dunes", group: "dune" },
+      { id: 2, name: "Stabilized dune/dune scrub/grassland", group: "dune" },
+      { id: 3, name: "Coastal scrub", group: "scrub" },
+    ];
+    expect(describeHabitat(dunes, 1).note).toBe("Sand the wind kept moving, with few plants");
+    expect(describeHabitat(dunes, 2).note).toBe("Older dunes held in place by plants");
+    expect(describeHabitat(dunes, 3).note).toBeUndefined();
+  });
+});
+
 describe("describeHabitat", () => {
   const classes = [
     { id: 0, name: "Unmapped", group: "unmapped" },

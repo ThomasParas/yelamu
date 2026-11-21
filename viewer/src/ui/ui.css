@@ -1160,6 +1160,10 @@ main {
   color: var(--text-muted);
   font-size: 12px;
 }
+/* The plain-language note under a few names: even line lengths, no single word left alone. */
+.identify__note {
+  text-wrap: balance;
+}
 /* Close: never shrinks, so long names wrap beside it instead of running under it. The layer
    ignores the pointer (drags pass to the map); this button takes it back. */
 .identify__close {

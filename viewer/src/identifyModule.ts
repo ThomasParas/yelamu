@@ -42,7 +42,9 @@ export const identifyModule = (ctx: AppContext) => {
   const title = document.createElement("strong");
   const detail = document.createElement("span");
   detail.className = "identify__detail";
-  text.append(title, detail);
+  const note = document.createElement("span");
+  note.className = "identify__detail identify__note";
+  text.append(title, detail, note);
   // The only part of the card that takes pointer input: the rest lets drags reach the map.
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
@@ -89,7 +91,7 @@ export const identifyModule = (ctx: AppContext) => {
     let left = Infinity;
     let right = -Infinity;
     // The text nodes only: a range over the elements would also return their full-width boxes.
-    for (const el of [title, detail]) {
+    for (const el of [title, detail, note]) {
       if (el.hidden || !el.firstChild) continue;
       range.selectNodeContents(el.firstChild);
       for (const r of range.getClientRects()) {
@@ -117,13 +119,15 @@ export const identifyModule = (ctx: AppContext) => {
     title.textContent = what.title;
     detail.textContent = what.detail;
     detail.hidden = !what.detail;
+    note.textContent = what.note ?? "";
+    note.hidden = !what.note;
     swatch.className = `swatch identify__swatch swatch--${patternNameForGroup(what.group)}`;
     swatch.style.backgroundColor = hexToCss(GROUP_COLORS[what.group] ?? GROUP_COLORS.unmapped);
     pinned = new THREE.Vector3(hit.x, hit.y, hit.z);
     card.hidden = false;
     fitText();
     place();
-    shell.announce(what.detail ? `${what.title}, ${what.detail}` : what.title);
+    shell.announce([what.title, what.detail, what.note].filter(Boolean).join(", "));
   };
 
   // Tap detection alongside the camera controls (which keep their own listeners).

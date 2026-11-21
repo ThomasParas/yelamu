@@ -115,6 +115,8 @@ export interface Identified {
   title: string;
   /** Second line: the legend group it belongs to, or "" when it would repeat the title. */
   detail: string;
+  /** Optional third line: a plain-language note on what the habitat name means. */
+  note?: string;
 }
 
 const groupLabel = new Map(GROUP_LABELS);
@@ -131,6 +133,15 @@ export const DISPLAY_NAMES: Readonly<Record<string, string>> = {
   "Pond (hand-drawn)": "Pond",
 };
 
+/**
+ * Short plain-language notes for SFEI habitat names that read as jargon (by class name;
+ * owner-approved wording, after SFEI's Hidden Nature SF story map).
+ */
+export const CLASS_NOTES: Readonly<Record<string, string>> = {
+  "Mobile dunes": "Sand the wind kept moving, with few plants",
+  "Stabilized dune/dune scrub/grassland": "Older dunes held in place by plants",
+};
+
 /** Label text for class `id` (an id missing from `classes` counts as unmapped, like the colouring). */
 export function describeHabitat(classes: readonly HabitatClass[], id: number): Identified {
   const cls = classes.find((c) => c.id === id);
@@ -140,7 +151,9 @@ export function describeHabitat(classes: readonly HabitatClass[], id: number): I
   }
   const label = groupLabel.get(group)!;
   const title = DISPLAY_NAMES[cls.name] ?? cls.name;
-  return { group, title, detail: title.toLowerCase() === label.toLowerCase() ? "" : label };
+  const detail = title.toLowerCase() === label.toLowerCase() ? "" : label;
+  const note = CLASS_NOTES[cls.name];
+  return note ? { group, title, detail, note } : { group, title, detail };
 }
 
 /** A pointer press and release that count as a tap: short, still and one finger. */
