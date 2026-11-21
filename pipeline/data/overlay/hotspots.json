@@ -39,11 +39,15 @@
     "kind": "marsh",
     "lon": -122.3985,
     "lat": 37.7705,
-    "description": "An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th.",
+    "description": "An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th. Salt marsh fringed the open water, and freshwater marsh lay further inland, as far west as about Guerrero and Valencia Streets. The map draws the tidal flat and marsh that SFEI maps here as shallow wet ground, not open water. The long inlet toward the Mission is still drawn as open water, from an 1850s shoreline outline, which overstates it.",
     "sources": [
       {
         "title": "Natural History of Mission Bay, Chris Carlsson (FoundSF)",
         "url": "https://www.foundsf.org/Natural_History_of_Mission_Bay"
+      },
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
       }
     ],
     "confidence": "documented"

@@ -73,7 +73,8 @@ def classify(heights: np.ndarray, habitat: np.ndarray | None, meta: dict) -> np.
         lut = np.array([by_id.get(i, "") for i in range(256)], dtype=object)
         group = lut[np.asarray(habitat, dtype=np.uint8)]
     at_marsh_level = np.abs(h - MARSH_LEVEL_M) <= tol
-    marsh = below & at_marsh_level & ((group == "marsh") if habitat is not None else True)
+    wet_ground = np.isin(group, ["marsh", "mudflat"]) if habitat is not None else True
+    marsh = below & at_marsh_level & wet_ground
     pond = ~below & (group == "water")
     out = np.zeros(h.shape, dtype=np.uint8)
     out[below] = WATER

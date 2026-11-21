@@ -36,6 +36,7 @@ META = {
         {"id": 5, "name": "Pond class", "group": "water"},
         {"id": 6, "name": "Tidal marsh", "group": "marsh"},
         {"id": 7, "name": "Beach", "group": "beach"},
+        {"id": 8, "name": "Tidal flat", "group": "mudflat"},
     ],
 }
 
@@ -46,6 +47,12 @@ def test_classify_bay_marsh_pond_and_land():
     out = classify(heights, habitat, META)
     assert out.tolist() == [[WATER, MARSH, POND, LAND, LAND, WATER]]
     assert out.dtype == np.uint8 and (LAND, WATER, MARSH, POND) == (0, 1, 2, 3)
+
+
+def test_classify_mudflat_group_at_marsh_height_is_marsh():
+    heights = np.array([[0.5, -3.0]], dtype="float32")
+    habitat = np.array([[8, 8]], dtype=np.uint8)  # tidal flat: marsh-level, or still bay floor
+    assert classify(heights, habitat, META).tolist() == [[MARSH, WATER]]
 
 
 def test_classify_without_habitat_uses_heights_only():

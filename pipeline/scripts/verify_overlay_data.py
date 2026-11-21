@@ -24,7 +24,7 @@ from yelamu.geo import Grid, lonlat_to_utm
 
 HILL_MIN_M = 60.0
 LOW_MAX_M = 30.0
-WET_GROUPS = {"water", "marsh", "wetland", "unmapped"}
+WET_GROUPS = {"water", "marsh", "mudflat", "wetland", "unmapped"}
 
 
 def load_assets(asset_dir: Path):

@@ -13,7 +13,13 @@ import numpy as np
 from yelamu.checks import load_expectations, run_checks
 from yelamu.export import Layer, write_assets
 from yelamu.geo import Grid
-from yelamu.habitat import apply_overrides, rasterize_habitats
+from yelamu.habitat import (
+    SFEI_BEATS_BAY,
+    SFEI_MARSH_BEATS_BAY,
+    apply_overrides,
+    let_sfei_win_over_bay,
+    rasterize_habitats,
+)
 from yelamu.landforms import apply_landforms, landform_provenance, load_landforms
 from yelamu.ponds import (
     DEFAULT_BANK_M,
@@ -110,13 +116,28 @@ def build(
     hand_marsh = water_mask([f.geometry for f in hand_marsh_feats], grid)
     hand_water_feats = hand_bay_feats + hand_marsh_feats
     hand_used = bool(hand_water_feats)
+    habitat_collection = json.loads(Path(habitats_path).read_text()) if habitats_path else None
+
+    # Where SFEI maps tidal marsh, flat, slough or willow grove inside a bay, SFEI's class wins:
+    # those cells are not bay (the marsh classes become marsh ground, so they are shallow
+    # rather than the bay floor). This covers the hand-drawn bay (a whole 1850s embayment
+    # drawn as one polygon) and SFEI's own bay layer, which also covers its tidal flats. The
+    # hand bay still counts as mapped area below.
+    hand_bay_drawn = hand_bay
+    freed_marsh = np.zeros_like(hand_bay)
+    if habitat_collection is not None:
+        sfei_wet = water_mask(sfei_class_polygons(habitat_collection, SFEI_BEATS_BAY), grid)
+        sfei_marsh = water_mask(sfei_class_polygons(habitat_collection, SFEI_MARSH_BEATS_BAY), grid)
+        hand_bay, freed_hand = let_sfei_win_over_bay(hand_bay, sfei_wet, sfei_marsh)
+        bay, freed_sfei = let_sfei_win_over_bay(bay, sfei_wet, sfei_marsh)
+        freed_marsh = freed_hand | freed_sfei
+
     # Where both are drawn, bay wins (apply_historical_water's usual rule).
     bay = bay | hand_bay
-    marsh = marsh | hand_marsh
+    marsh = marsh | hand_marsh | freed_marsh
 
     # Ponds: SFEI polygons of the pond classes plus the hand-drawn ones. Hand ponds count
     # as mapped area for the gap rule, like the other hand-drawn water.
-    habitat_collection = json.loads(Path(habitats_path).read_text()) if habitats_path else None
     if habitat_collection is not None and marsh_classes:
         marsh = marsh | water_mask(sfei_class_polygons(habitat_collection, marsh_classes), grid)
     pond_specs = list(hand_pond_specs_all)
@@ -132,7 +153,7 @@ def build(
     coverage_src = coverage_path or habitats_path
     if coverage_src:
         # Hand-drawn polygons are mapped area too, so the gap fill never overrides them.
-        coverage = (water_mask(load_polygons(coverage_src), grid) | hand_bay | hand_marsh
+        coverage = (water_mask(load_polygons(coverage_src), grid) | hand_bay_drawn | hand_marsh
                     | hand_pond_cells)
         gap = unmapped_open_water(dem, coverage, open_water_max_m)
         bay = bay | gap

@@ -12,14 +12,17 @@ from yelamu.habitat import (
     ID_HAND_POND,
     ID_OPEN_BAY_INFERRED,
     ID_UNMAPPED,
+    SFEI_BEATS_BAY,
+    SFEI_MARSH_BEATS_BAY,
     apply_overrides,
+    let_sfei_win_over_bay,
     rasterize_habitats,
 )
 
 BBOX = (-122.42, 37.755, -122.37, 37.805)
 RAW = Path(__file__).resolve().parent.parent / "data" / "raw" / "sf_habitats.geojson"
 
-GROUPS = {"unmapped", "water", "marsh", "dune", "beach", "woodland", "grassland", "scrub",
+GROUPS = {"unmapped", "water", "marsh", "mudflat", "dune", "beach", "woodland", "grassland", "scrub",
           "wetland", "rock"}
 
 
@@ -64,7 +67,8 @@ def test_group_mapping_is_the_agreed_one():
         "water": ["Deep ocean/bay", "Shallow ocean/bay", "Other pond or lake",
                   "Dune-dammed pond or lake", "Dune-dammed headwater lake",
                   "Barrier beach-impounded freshwater lagoon"],
-        "marsh": ["Tidal marsh", "Tidal slough", "Tidal flat", "Tidal coastal lagoon"],
+        "marsh": ["Tidal marsh", "Tidal slough", "Tidal coastal lagoon"],
+        "mudflat": ["Tidal flat"],
         "wetland": ["Fen", "Wet meadow", "Willow grove", "Riparian woodland", "Dune slack",
                     "Serpentine slope wetland/serpentine maritime chaparral complex"],
         "dune": ["Mobile dunes", "Stabilized dune/dune scrub/grassland"],
@@ -208,6 +212,25 @@ def test_apply_overrides_precedence_and_purity():
         9,  # untouched
     ]
     assert (out[1] == 9).all()
+
+
+def test_sfei_wet_habitat_is_taken_back_from_the_hand_bay():
+    hand_bay = np.array([[1, 1, 1, 1, 0]], dtype=bool)
+    sfei_wet = np.array([[0, 1, 1, 0, 1]], dtype=bool)  # marsh, flat, slough or willow
+    sfei_marsh = np.array([[0, 1, 0, 0, 1]], dtype=bool)  # the marsh-like part of it
+    bay_before, marsh_before = hand_bay.copy(), sfei_marsh.copy()
+
+    kept, freed = let_sfei_win_over_bay(hand_bay, sfei_wet, sfei_marsh)
+
+    assert kept.tolist() == [[True, False, False, True, False]]
+    assert freed.tolist() == [[False, True, False, False, False]]  # only inside the hand bay
+    assert (hand_bay == bay_before).all() and (sfei_marsh == marsh_before).all()
+
+
+def test_the_classes_that_beat_the_hand_bay_are_real_sfei_classes():
+    assert set(SFEI_BEATS_BAY) <= set(GROUP_BY_CLASS)
+    assert set(SFEI_MARSH_BEATS_BAY) < set(SFEI_BEATS_BAY)  # willow stays land
+    assert {GROUP_BY_CLASS[c] for c in SFEI_MARSH_BEATS_BAY} == {"marsh", "mudflat"}
 
 
 def test_apply_overrides_accepts_none_masks():

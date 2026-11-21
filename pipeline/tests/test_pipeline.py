@@ -714,6 +714,78 @@ def test_hand_marsh_is_stamped_on_the_habitat_raster(tmp_path):
     assert raster[_pixel(grid, -122.372, 37.79)] == ID_OPEN_BAY_INFERRED  # rest of the gap
 
 
+def _sfei_wet_habitats(tmp_path):
+    """SFEI polygons: tidal marsh and flat inside the hand bay, willow grove at its edge,
+    and a tidal marsh far outside it."""
+    def rect(lon0, lat0, lon1, lat1):
+        return {"type": "Polygon", "coordinates": [[
+            [lon0, lat0], [lon1, lat0], [lon1, lat1], [lon0, lat1], [lon0, lat0]]]}
+    feats = [
+        {"type": "Feature", "properties": {"HabitatCla": "Tidal marsh"},
+         "geometry": rect(-122.395, 37.775, -122.390, 37.785)},
+        {"type": "Feature", "properties": {"HabitatCla": "Tidal flat"},
+         "geometry": rect(-122.390, 37.775, -122.385, 37.785)},
+        {"type": "Feature", "properties": {"HabitatCla": "Willow grove"},
+         "geometry": rect(-122.385, 37.775, -122.382, 37.785)},
+        {"type": "Feature", "properties": {"HabitatCla": "Tidal marsh"},
+         "geometry": rect(-122.415, 37.760, -122.410, 37.765)},
+    ]
+    path = tmp_path / "wet.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+    return path
+
+
+def test_sfei_wet_habitat_wins_over_the_hand_bay(tmp_path):
+    """The 1850s outline fills a whole embayment with 'bay'; where SFEI maps tidal marsh,
+    tidal flat or willow grove inside it, SFEI's class is kept and the ground is not bay."""
+    _write_hand_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.38, 37.79)
+    grid, out, meta, heights = _hand_run(
+        tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"),
+        "--habitats", str(_sfei_wet_habitats(tmp_path)))
+    ids = {e["name"]: e["id"] for e in meta["habitat_classes"]}
+    raster = _habitat(out, meta)
+
+    marsh, flat, willow = (-122.3925, 37.78), (-122.3875, 37.78), (-122.3835, 37.78)
+    assert raster[_pixel(grid, *marsh)] == ids["Tidal marsh"]
+    assert raster[_pixel(grid, *flat)] == ids["Tidal flat"]
+    assert raster[_pixel(grid, *willow)] == ids["Willow grove"]
+    assert abs(heights[_pixel(grid, *marsh)] - MARSH_LEVEL_M) < 0.01  # shallow, not the bay floor
+    assert abs(heights[_pixel(grid, *flat)] - MARSH_LEVEL_M) < 0.01
+    assert abs(heights[_pixel(grid, *willow)] - 5.0) < 0.01  # willow grove stays dry ground
+
+    open_bay = (-122.398, 37.772)  # hand bay with no SFEI polygon on it
+    assert raster[_pixel(grid, *open_bay)] == ID_HAND_BAY
+    assert abs(heights[_pixel(grid, *open_bay)] - (-3.0)) < 0.01
+
+
+def test_sfei_flat_and_marsh_are_not_bay_floor_when_the_sfei_bay_layer_covers_them(tmp_path):
+    """SFEI's bay layer also covers its tidal flats. Where SFEI's own habitat map calls a cell
+    tidal flat, marsh or slough, it is marsh-level ground, not the -3 m bay floor."""
+    _write_bay_geojson(tmp_path / "bay.geojson", -122.40, 37.77, -122.38, 37.79)
+    _write_dem(tmp_path / "dem.tif", Grid.from_lonlat_bbox(*BBOX, cell=10), 5.0)
+    out = tmp_path / "out"
+    assert main(["--dem", str(tmp_path / "dem.tif"), "--bbox", *map(str, BBOX), "--out", str(out),
+                 "--bay", str(tmp_path / "bay.geojson"),
+                 "--habitats", str(_sfei_wet_habitats(tmp_path)), *_FLAT]) == 0
+    grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
+    meta = json.loads((out / "meta.json").read_text())
+    heights = _read_heights(out, meta)
+    for lon in (-122.3925, -122.3875):  # tidal marsh, tidal flat
+        assert abs(heights[_pixel(grid, lon, 37.78)] - MARSH_LEVEL_M) < 0.01
+    assert abs(heights[_pixel(grid, -122.3835, 37.78)] - 5.0) < 0.01  # willow grove is not in the bay
+    assert abs(heights[_pixel(grid, -122.398, 37.772)] - (-3.0)) < 0.01  # open bay is unchanged
+
+
+def test_sfei_tidal_marsh_outside_the_hand_bay_does_not_change_the_terrain(tmp_path):
+    """Only the cells taken back from the hand bay become marsh: SFEI marsh elsewhere keeps
+    the ground it had."""
+    _write_hand_geojson(tmp_path / "hb.geojson", -122.40, 37.77, -122.38, 37.79)
+    grid, _, _, heights = _hand_run(
+        tmp_path, "--hand-bay", str(tmp_path / "hb.geojson"),
+        "--habitats", str(_sfei_wet_habitats(tmp_path)))
+    assert abs(heights[_pixel(grid, -122.4125, 37.7625)] - 5.0) < 0.01
+
+
 def test_thin_pier_removed_from_water_is_inferred_open_bay_in_the_raster(tmp_path):
     grid = Grid.from_lonlat_bbox(*BBOX, cell=10)
     _write_dem_with_block(tmp_path / "dem.tif", grid, 0.0, (-122.38200, 37.780, -122.38175, 37.783),

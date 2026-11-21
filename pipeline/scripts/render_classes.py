@@ -14,6 +14,7 @@ from PIL import Image
 
 GROUP_RGB = {
     "unmapped": (154, 148, 132), "water": (40, 90, 160), "marsh": (110, 190, 190),
+    "mudflat": (122, 109, 88),
     "dune": (235, 215, 140), "beach": (255, 245, 200), "woodland": (30, 110, 40),
     "grassland": (170, 200, 90), "scrub": (140, 110, 50), "wetland": (130, 60, 160),
     "rock": (30, 30, 30),

@@ -1,6 +1,6 @@
 """Habitat classes as a raster the viewer can colour the ground with.
 
-The SFEI layer's `HabitatCla` values (about thirty) are grouped into ten coarse groups
+The SFEI layer's `HabitatCla` values (about thirty) are grouped into eleven coarse groups
 for colouring. The raster stores one uint8 id per cell; `legend` maps ids back to names
 and groups. Ids 0..4 are fixed synthetic classes; SFEI classes get ids 5.. in sorted
 name order (only those present in the data).
@@ -35,7 +35,8 @@ _GROUPS = {
     "water": ["Deep ocean/bay", "Shallow ocean/bay", "Other pond or lake",
               "Dune-dammed pond or lake", "Dune-dammed headwater lake",
               "Barrier beach-impounded freshwater lagoon"],
-    "marsh": ["Tidal marsh", "Tidal slough", "Tidal flat", "Tidal coastal lagoon"],
+    "marsh": ["Tidal marsh", "Tidal slough", "Tidal coastal lagoon"],
+    "mudflat": ["Tidal flat"],
     "wetland": ["Fen", "Wet meadow", "Willow grove", "Riparian woodland", "Dune slack",
                 "Serpentine slope wetland/serpentine maritime chaparral complex"],
     "dune": ["Mobile dunes", "Stabilized dune/dune scrub/grassland"],
@@ -107,6 +108,28 @@ def rasterize_habitats(
             dtype="uint8",
         )
     return raster, legend, unknown
+
+
+# SFEI classes that beat a bay polygon, hand-drawn (NOAA) or SFEI's own bay layer. The 1850s
+# mean-high-water outline closes a whole embayment (Mission Bay) as one "bay" polygon, and
+# SFEI's bay layer also covers its tidal flats, but SFEI's habitat map calls most of that
+# tidal flat and tidal marsh, so its class is kept where it exists. The marsh classes also
+# get the marsh ground level there; willow grove stays dry ground.
+SFEI_BEATS_BAY = ("Tidal marsh", "Tidal flat", "Tidal slough", "Willow grove")
+SFEI_MARSH_BEATS_BAY = ("Tidal marsh", "Tidal flat", "Tidal slough")
+
+
+def let_sfei_win_over_bay(
+    hand_bay: np.ndarray,
+    sfei_wet: np.ndarray,
+    sfei_marsh: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """(hand bay without the cells SFEI maps as wet habitat, cells that become marsh).
+
+    The second mask is the part of the hand bay that SFEI maps as tidal marsh, flat or
+    slough. Inputs are not modified.
+    """
+    return hand_bay & ~sfei_wet, hand_bay & sfei_marsh
 
 
 def apply_overrides(

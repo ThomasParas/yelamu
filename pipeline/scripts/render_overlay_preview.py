@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-WATER_GROUPS = {"water", "marsh"}
+WATER_GROUPS = {"water", "marsh", "mudflat"}
 STREET_STYLE = {"primary": ((20, 20, 20), 3), "secondary": ((70, 70, 70), 2), "local": ((150, 150, 150), 1)}
 
 

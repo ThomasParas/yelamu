@@ -38,9 +38,9 @@ Map: https://yelamu.thomasparas.com/
 - landforms (Inferred, 1): FoundSF 'Mission Plank Road': an 80-ft (24.4 m) sand hill between Second and Third Streets; DEM there 10.7 m; +13.7 m added. Radius 150 m assumed
 - landforms (Inferred, 1): Lockwood, SPUR 2003: Rincon Hill rose 120 ft (36.6 m); DEM peak today 31.6 m; +5.0 m added. Footprint radius 180 m assumed
 - ponds (Inferred, 3): Extent: flat 5.55 to 5.70 m lake surface of the USGS 3DEP DEM (modern lake; 1769 outline not known); level 5.6 m from the same DEM
-- creeks (Inferred, 26): Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from 19th-century maps and a historical elevation model. Approximate.
-- modelled_streams (Illustrative, 225): Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed.
 - villages (Inferred, 5): General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. Not official.
+- creeks (Inferred, 28): Creek lines from SFEI's 'San Francisco Historical Creeks' layer (Hidden Nature SF), mapped from 19th-century maps and a historical elevation model. Approximate.
+- modelled_streams (Illustrative, 228): Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed.
 
 ## Hotspots (19 landscape features with a card)
 
@@ -72,8 +72,8 @@ Map: https://yelamu.thomasparas.com/
   One of the few small flowing creeks of the old peninsula, its banks lined with riparian woodland and scrub of coast live oak, willow and Pacific wax myrtle.
   Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
 - Mission Bay and Mission Creek marsh (marsh; 37.7705, -122.3985; Documented). Link: https://yelamu.thomasparas.com/#p=mission-bay
-  An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th.
-  Sources: Natural History of Mission Bay, Chris Carlsson (FoundSF) (https://www.foundsf.org/Natural_History_of_Mission_Bay)
+  An estuary of freshwater marsh, saltwater marsh, tidal mudflats and shallow bay, fed by Mission Creek, whose mouth lay near today's Berry Street between 7th and 8th. Salt marsh fringed the open water, and freshwater marsh lay further inland, as far west as about Guerrero and Valencia Streets. The map draws the tidal flat and marsh that SFEI maps here as shallow wet ground, not open water. The long inlet toward the Mission is still drawn as open water, from an 1850s shoreline outline, which overstates it.
+  Sources: Natural History of Mission Bay, Chris Carlsson (FoundSF) (https://www.foundsf.org/Natural_History_of_Mission_Bay); Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
 - Mountain Lake (lake; 37.7887, -122.4711; Documented). Link: https://yelamu.thomasparas.com/#p=mountain-lake
   A dune-dammed headwater lake: drainage pooled behind sand mounds. Dune-dammed lakes like this provided habitat for species such as California red-legged frogs and San Francisco garter snakes.
   Sources: Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map) (https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f)
