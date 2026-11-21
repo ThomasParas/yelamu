@@ -6,6 +6,7 @@ import {
   SHORE_DIST_SCALE,
   chamferDistance,
   computeShoreField,
+  dryMask,
 } from "./shoreField";
 
 /** Signed distance in cells from a G byte. */
@@ -72,7 +73,34 @@ describe("computeShoreField", () => {
     expect(signed(g(5))).toBeCloseTo(0.5, 6);
   });
 
+  it("counts dry cells (tidal marsh, flat) as land although they are under the water level", () => {
+    // Columns 5..7 are 10 cm under water but marked dry: the shore moves out to column 8.
+    const marsh = strip((x) => (x < 8 ? 0.1 : Math.min(10, (x - 4) * 2)));
+    const dry = new Uint8Array(width * 3);
+    for (let y = 0; y < 3; y++) for (let x = 5; x < 8; x++) dry[y * width + x] = 1;
+    const m = computeShoreField(marsh, width, 3, level, dry);
+    expect(r(6, m)).toBe(0); // no depth on the marsh
+    expect(signed(g(7, m))).toBeCloseTo(-0.5, 6); // last marsh cell: land side of the line
+    expect(signed(g(8, m))).toBeCloseTo(0.5, 6); // first open water cell
+    expect(() => computeShoreField(marsh, width, 3, level, new Uint8Array(4))).toThrow(/dry mask/);
+  });
+
   it("refuses heights that do not match the grid", () => {
     expect(() => computeShoreField(new Float32Array(5), 3, 2, 0)).toThrow(/expected 6/);
+  });
+});
+
+describe("dryMask", () => {
+  it("flags tidal marsh, tidal flat and hand-drawn marsh, not sloughs, lagoons or bay", () => {
+    const classes = [
+      { id: 2, name: "Bay (hand-drawn)" },
+      { id: 3, name: "Marsh (hand-drawn)" },
+      { id: 30, name: "Tidal coastal lagoon" },
+      { id: 31, name: "Tidal flat" },
+      { id: 32, name: "Tidal marsh" },
+      { id: 33, name: "Tidal slough" },
+    ];
+    const m = dryMask(Uint8Array.from([2, 3, 30, 31, 32, 33, 99]), classes);
+    expect(Array.from(m)).toEqual([0, 1, 0, 1, 1, 0, 0]);
   });
 });

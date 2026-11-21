@@ -93,6 +93,11 @@ export interface WaterShore {
   width: number;
   height: number;
   cellM: number;
+  /**
+   * Optional, one byte per sample: 1 where the ground just under the water level is tidal
+   * marsh or mud flat (shoreField.ts dryMask). The sea is left clear there.
+   */
+  dry?: Uint8Array | null;
 }
 
 export interface WaterMaterial {
@@ -234,6 +239,7 @@ if ( uAmp > 0.0 ) {
 export const FRAGMENT_SHORE_PARS = /* glsl */ `
 uniform float uShoreOn;     // 0 until a shore field is set
 uniform sampler2D uShore;   // RG8, LINEAR: R depth, G signed distance (shoreField.ts)
+uniform sampler2D uDry;     // R8, LINEAR: 1 over tidal marsh and flat (water left clear)
 uniform vec2 uShoreGrid;    // samples
 uniform float uShoreCellM;
 uniform vec3 uShallowColor; // linear
@@ -260,7 +266,9 @@ if ( uShoreOn > 0.5 ) {
 	vec2 uv = ( p + 0.5 ) / uShoreGrid;
 	float depthM = ${f(SHORE_DEPTH_RANGE_M)};
 	float distM = 1e4;
+	float dry = 0.0;
 	if ( uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0 ) {
+		dry = texture2D( uDry, uv ).r;
 		vec2 s = texture2D( uShore, uv ).rg;
 		depthM = s.r * ${f(SHORE_DEPTH_RANGE_M)};
 		distM = ( s.g * 255.0 - 128.0 ) / ${f(SHORE_DIST_SCALE)} * uShoreCellM;
@@ -290,6 +298,11 @@ if ( uShoreOn > 0.5 ) {
 	foam *= ${f(FOAM_STRENGTH)} * ( 1.0 - smoothstep( 3.0, 8.0, metresPerPixel ) );
 	diffuseColor.rgb = mix( diffuseColor.rgb, uFoamColor, foam );
 	diffuseColor.a = mix( diffuseColor.a, 1.0, foam );
+	// Tidal marsh and mud flat lie just under the water level but are ground, not open water:
+	// no blue sheet over them. Fully clear pixels are dropped, so they do not hide lines and
+	// markers drawn on that ground afterwards.
+	diffuseColor.a *= 1.0 - smoothstep( 0.25, 0.75, dry );
+	if ( diffuseColor.a < 0.004 ) discard;
 }
 `;
 
@@ -340,6 +353,21 @@ export function createShoreTexture(shore: WaterShore): THREE.DataTexture {
   return t;
 }
 
+/** R8 texture over the dry mask (0/1 per sample), scaled to 0/255; linear for a soft edge. */
+export function createDryTexture(dry: Uint8Array, width: number, height: number): THREE.DataTexture {
+  if (dry.length !== width * height) throw new Error(`dry mask has ${dry.length} bytes, expected ${width * height}`);
+  const bytes = new Uint8Array(dry.length);
+  for (let i = 0; i < dry.length; i++) bytes[i] = dry[i] ? 255 : 0;
+  const t = new THREE.DataTexture(bytes, width, height, THREE.RedFormat, THREE.UnsignedByteType);
+  t.unpackAlignment = 1;
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.flipY = false;
+  t.colorSpace = THREE.NoColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+
 export function createWaterMaterial(): WaterMaterial {
   // Shared uniform objects: updating .value reaches every compiled program.
   const uTime = { value: 0 };
@@ -347,6 +375,7 @@ export function createWaterMaterial(): WaterMaterial {
   // Placeholder 1x1 texture until setShore; uShoreOn = 0 skips the shore code anyway.
   const shoreUniforms = {
     uShore: { value: createShoreTexture({ field: new Uint8Array([255, 255]), width: 1, height: 1, cellM: 1 }) },
+    uDry: { value: createDryTexture(new Uint8Array(1), 1, 1) },
     uShoreGrid: { value: new THREE.Vector2(1, 1) },
     uShoreCellM: { value: 1 },
     uShallowColor: { value: new THREE.Color(SHALLOW_COLOR) }, // converted to linear
@@ -361,7 +390,7 @@ export function createWaterMaterial(): WaterMaterial {
       patchWaterShaders(shader);
     };
     // Both materials share one patch, so they share one program (uniforms stay per material).
-    m.customProgramCacheKey = () => "yelamu-water-v2";
+    m.customProgramCacheKey = () => "yelamu-water-v3";
     return m;
   };
   const seaShoreOn = { value: 0 };
@@ -379,6 +408,8 @@ export function createWaterMaterial(): WaterMaterial {
       const texture = createShoreTexture(shore);
       shoreUniforms.uShore.value.dispose();
       shoreUniforms.uShore.value = texture;
+      shoreUniforms.uDry.value.dispose();
+      shoreUniforms.uDry.value = createDryTexture(shore.dry ?? new Uint8Array(shore.width * shore.height), shore.width, shore.height);
       shoreUniforms.uShoreGrid.value.set(shore.width, shore.height);
       shoreUniforms.uShoreCellM.value = shore.cellM;
       seaShoreOn.value = 1;

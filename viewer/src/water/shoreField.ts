@@ -10,6 +10,10 @@
  *   paint whole tidal flats. In sheltered water (lagoons and channels far from water deeper
  *   than OPEN_WATER_DEPTH_M) the distance is pushed outward, so foam fades there gradually;
  *   there are no waves to make it.
+ *
+ * Tidal marsh and mud flat sit just below the water level in the heightmap (tides covered
+ * them twice a day), but they read as ground, not open water: cells flagged in `dry` count as
+ * land here, so the water shader leaves them clear and the shoreline runs along their edge.
  */
 
 /** Depths beyond this (metres) all read as "deep" to the shader. */
@@ -69,28 +73,45 @@ export function computeShoreField(
   width: number,
   height: number,
   waterLevelM: number,
+  dry?: Uint8Array | null,
 ): Uint8Array {
   const n = width * height;
   if (heights.length !== n) throw new Error(`heights has ${heights.length} samples, expected ${n}`);
+  if (dry && dry.length !== n) throw new Error(`dry mask has ${dry.length} samples, expected ${n}`);
   const water = new Uint8Array(n);
   const land = new Uint8Array(n);
   const open = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    const w = heights[i] < waterLevelM ? 1 : 0;
+    const w = heights[i] < waterLevelM && !dry?.[i] ? 1 : 0;
     water[i] = w;
     land[i] = 1 - w;
-    open[i] = waterLevelM - heights[i] > OPEN_WATER_DEPTH_M ? 1 : 0;
+    open[i] = w && waterLevelM - heights[i] > OPEN_WATER_DEPTH_M ? 1 : 0;
   }
   const toOpen = chamferDistance(open, width, height, EXPOSED_CELLS + MAX_DIST_CELLS);
   const toLand = chamferDistance(land, width, height, MAX_DIST_CELLS + 1);
   const toWater = chamferDistance(water, width, height, MAX_DIST_CELLS + 1);
   const out = new Uint8Array(n * 2);
   for (let i = 0; i < n; i++) {
-    const depth = waterLevelM - heights[i];
+    const depth = water[i] ? waterLevelM - heights[i] : 0;
     out[i * 2] = Math.round(Math.min(Math.max(depth / SHORE_DEPTH_RANGE_M, 0), 1) * 255);
     const shelter = Math.max(0, toOpen[i] - EXPOSED_CELLS) * SHELTER_PUSH;
     const signed = water[i] ? toLand[i] - 0.5 + shelter : -(toWater[i] - 0.5);
     out[i * 2 + 1] = Math.round(Math.min(Math.max(128 + signed * SHORE_DIST_SCALE, 0), 255));
   }
+  return out;
+}
+
+/**
+ * Habitat classes drawn as ground although they lie just under the water level. Tidal
+ * sloughs and lagoons are left out: they are channels and open water, and stay blue.
+ */
+export const DRY_CLASS_NAMES: readonly string[] = ["Tidal marsh", "Tidal flat", "Marsh (hand-drawn)"];
+
+/** 1 for every cell whose habitat class is in DRY_CLASS_NAMES (for computeShoreField). */
+export function dryMask(habitat: Uint8Array, classes: readonly { id: number; name: string }[]): Uint8Array {
+  const dryIds = new Uint8Array(256);
+  for (const c of classes) if (DRY_CLASS_NAMES.includes(c.name)) dryIds[c.id] = 1;
+  const out = new Uint8Array(habitat.length);
+  for (let i = 0; i < habitat.length; i++) out[i] = dryIds[habitat[i]];
   return out;
 }

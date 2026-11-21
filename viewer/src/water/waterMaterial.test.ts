@@ -7,6 +7,7 @@ import {
   WATER_OPACITY,
   WAVES,
   WAVE_SLOPE,
+  createDryTexture,
   createShoreTexture,
   createWaterMaterial,
   patchWaterShaders,
@@ -154,6 +155,23 @@ describe("shore effects", () => {
     expect(t.unpackAlignment).toBe(2);
     expect(t.colorSpace).toBe(THREE.NoColorSpace);
     expect(() => createShoreTexture({ ...shore(), width: 4 })).toThrow(/expected 16/);
+  });
+  it("leaves the sea clear over tidal marsh and flat, and drops fully clear pixels", () => {
+    const m = createWaterMaterial();
+    const s = compile(m) as unknown as { fragmentShader: string; uniforms: Record<string, { value: unknown }> };
+    expect(s.fragmentShader).toContain("uniform sampler2D uDry;");
+    const iFoamAlpha = s.fragmentShader.indexOf("diffuseColor.a = mix( diffuseColor.a, 1.0, foam );");
+    const iClear = s.fragmentShader.indexOf("diffuseColor.a *= 1.0 - smoothstep( 0.25, 0.75, dry );");
+    expect(iClear).toBeGreaterThan(iFoamAlpha); // foam does not paint over the marsh either
+    expect(s.fragmentShader).toContain("if ( diffuseColor.a < 0.004 ) discard;");
+    const dry = new Uint8Array(6);
+    dry[4] = 1;
+    m.setShore({ ...shore(), dry });
+    const t = s.uniforms.uDry.value as THREE.DataTexture;
+    expect(t.format).toBe(THREE.RedFormat);
+    expect(t.magFilter).toBe(THREE.LinearFilter);
+    expect(Array.from(t.image.data as Uint8Array)).toEqual([0, 0, 0, 0, 255, 0]);
+    expect(() => createDryTexture(new Uint8Array(5), 3, 2)).toThrow(/expected 6/);
   });
 });
 
