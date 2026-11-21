@@ -15,6 +15,25 @@
     "confidence": "documented"
   },
   {
+    "id": "laguna-dulce",
+    "name": "Laguna Dulce",
+    "kind": "lagoon",
+    "lon": -122.403,
+    "lat": 37.7939,
+    "description": "A small freshwater pond in what is now the Financial District, near Montgomery and Sacramento Streets, by the shore of Yerba Buena Cove. SFEI maps it as a freshwater lagoon behind the cove's beach, with a stream nearby that ran down Sacramento Street from Nob Hill. The name, Spanish for \"fresh-water lake\", appears in accounts of the 1839 survey of Yerba Buena, so it is a later name for a feature that probably existed in 1769.",
+    "sources": [
+      {
+        "title": "Hidden in Plain Sight: the unique natural landscape of San Francisco (SFEI Hidden Nature SF story map)",
+        "url": "https://storymaps.arcgis.com/stories/e42ea1a97f4f480b85ffc056734ba14f"
+      },
+      {
+        "title": "The Beginnings of San Francisco, chapter XV (Eldredge, 1912)",
+        "url": "https://legacy.sfgenealogy.org/sf/history/hbbeg15.htm"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
     "id": "mission-bay",
     "name": "Mission Bay and Mission Creek marsh",
     "kind": "marsh",
