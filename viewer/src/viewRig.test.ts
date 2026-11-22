@@ -460,6 +460,27 @@ describe("ViewRig.reset", () => {
   });
 });
 
+describe("ViewRig home view", () => {
+  it("starts at the home view and resets to it, asking again each time", () => {
+    let home = { x: -300, z: 50, zoom: 1.6 };
+    const { rig, run } = harness({ home: () => home });
+    expect(rig.getState()).toEqual({ x: -300, z: 50, zoom: 1.6, rot: 0 });
+    rig.setState({ x: 500, zoom: 9, rot: 2 });
+    home = { x: -200, z: 0, zoom: 2 }; // e.g. the window changed shape
+    rig.reset();
+    run(1500);
+    expect(rig.getState()).toEqual({ x: -200, z: 0, zoom: 2, rot: 0 });
+  });
+
+  it("keeps a home zoom within the zoom limits", () => {
+    const { rig } = harness({ home: () => ({ x: 0, z: 0, zoom: 100 }), reduced: true });
+    expect(rig.getState().zoom).toBe(40);
+    rig.setState({ zoom: 3 });
+    rig.reset();
+    expect(rig.getState().zoom).toBe(40);
+  });
+});
+
 describe("ViewRig user input during a rotation", () => {
   it("panning lets a running rotation finish", () => {
     const { rig, run } = harness();

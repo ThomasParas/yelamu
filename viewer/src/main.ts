@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createIsoCamera, fitViewSize } from "./camera";
+import { homeView, mappedLandBounds } from "./homeView";
 import { switchZoomFor } from "./chunks";
 import { createFrameSampler } from "./frameSampler";
 import type { AppContext } from "./appContext";
@@ -300,12 +301,18 @@ async function start() {
   const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const halfWidth = widthM / 2;
   const halfDepth = depthM / 2;
+  // Start (and Reset) framed on San Francisco's mapped land, fitted to the window's shape.
+  const land = habitat ? mappedLandBounds(habitat, meta.width, meta.height, meta.cell_m, meta.habitat_classes ?? []) : null;
+  const home = land
+    ? () => homeView(land, widthM, depthM, maxHeightM, canvas.clientWidth / Math.max(1, canvas.clientHeight))
+    : undefined;
   const rig = new ViewRig(camera, {
     bounds: { halfWidth, halfDepth },
     margin: TARGET_MARGIN_FRACTION * Math.max(halfWidth, halfDepth),
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
     reducedMotion,
+    home,
   });
 
   // Shared state from the URL hash: view pose and enabled layers.

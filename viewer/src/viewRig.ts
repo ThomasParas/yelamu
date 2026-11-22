@@ -90,6 +90,11 @@ export interface ViewRigOptions {
   now?: () => number;
   /** Request one callback on the next frame; defaults to requestAnimationFrame. */
   schedule?: (cb: (t: number) => void) => void;
+  /**
+   * The start view, asked again on every reset (it can follow the window shape). Without it
+   * the start view is the camera's own target and zoom at construction.
+   */
+  home?: () => ViewTarget;
 }
 
 interface Animation {
@@ -128,7 +133,8 @@ export class ViewRig {
     this.schedule = options.schedule ?? ((cb) => void requestAnimationFrame(cb));
     this.zoom = clampZoom(camera.zoom, options.minZoom, options.maxZoom);
     this.initial = this.getState();
-    this.place();
+    if (options.home) this.setState(options.home());
+    else this.place();
   }
 
   getState(): ViewState {
@@ -212,14 +218,16 @@ export class ViewRig {
     this.begin(undefined, ROTATE_MS);
   }
 
-  /** Back to the view the rig was created with, by the shortest turn. */
+  /** Back to the start view (options.home, else the view at construction), by the shortest turn. */
   reset(): void {
+    const h = this.options.home?.() ?? this.initial;
+    const to = { x: h.x, z: h.z, zoom: clampZoom(h.zoom, this.options.minZoom, this.options.maxZoom) };
     if (this.options.reducedMotion()) {
-      this.setState(this.initial);
+      this.setState({ ...to, rot: this.initial.rot });
       return;
     }
     this.rotTarget += shortestTurn(normalizeRot(this.rotTarget), this.initial.rot);
-    this.begin({ x: this.initial.x, z: this.initial.z, zoom: this.initial.zoom }, FLY_MS);
+    this.begin(to, FLY_MS);
   }
 
   /** Glide to (x, z), optionally changing zoom. Cancels and replaces a running animation. */

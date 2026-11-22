@@ -66,13 +66,13 @@ describe("zoom buttons", () => {
     expect(shell.match(/"Zoom out", "Zoom out \(\\u2212\)"/g)?.length).toBe(2);
   });
 
-  it("on the map: stacked above the turn-right button, mouse screens only", () => {
+  it("on the map: stacked above the turn-right button, on every screen", () => {
     const out = rule(css, ".zoom__btn").match(/bottom:\s*([^;]+);/)![1];
     const inn = rule(css, ".zoom__btn--in").match(/bottom:\s*([^;]+);/)![1];
     expect(out).toContain("var(--status-h");
     expect(out).toContain("+ 56px");
     expect(inn).toContain("+ 112px");
-    expect(rule(media("(max-width: 640px), (pointer: coarse)"), ".zoom__btn")).toMatch(/display:\s*none/);
+    expect(css).not.toMatch(/\.zoom__btn\s*\{[^}]*display:\s*none/);
   });
 
   it("grey out at the zoom limits, wired to the rig", () => {
