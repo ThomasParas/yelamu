@@ -162,3 +162,28 @@ export const TAP_MAX_MS = 500;
 export function isTap(moveSq: number, ms: number, maxPointers: number): boolean {
   return maxPointers === 1 && moveSq <= TAP_MAX_MOVE_PX * TAP_MAX_MOVE_PX && ms <= TAP_MAX_MS;
 }
+
+/** Gap between the card and the point it marks (px; matches the 12px in ui.css). */
+export const CARD_GAP_PX = 12;
+/** Least distance kept between the card and the window edges or the toolbar (px). */
+export const CARD_MARGIN_PX = 8;
+
+/**
+ * Where the card goes for the point (x, y) so it stays in the window: `shiftX` slides it
+ * sideways from centred on the point (the pin stays on the point, at most `w / 2 - 10` from
+ * the card's middle so it still touches the card), and `below` puts it under the point
+ * when there is no room above (under the toolbar, whose bottom edge is `top`).
+ */
+export function clampCard(o: { x: number; y: number; w: number; h: number; vw: number; vh: number; top: number }): {
+  shiftX: number;
+  below: boolean;
+} {
+  const m = CARD_MARGIN_PX;
+  const left = o.x - o.w / 2;
+  const target = Math.max(m, Math.min(left, o.vw - m - o.w));
+  const reach = Math.max(0, o.w / 2 - 10);
+  const shiftX = Math.max(-reach, Math.min(reach, target - left));
+  const roomAbove = o.y - CARD_GAP_PX - o.h >= o.top + m;
+  const roomBelow = o.y + CARD_GAP_PX + o.h <= o.vh - m;
+  return { shiftX, below: !roomAbove && roomBelow };
+}

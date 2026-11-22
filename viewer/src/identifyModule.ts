@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { AppContext } from "./appContext";
 import { GROUP_COLORS } from "./habitat";
-import { describeHabitat, groundHit, habitatIdAt, isTap, type IdentifyGrid } from "./identify";
+import { clampCard, describeHabitat, groundHit, habitatIdAt, isTap, type IdentifyGrid } from "./identify";
 import { hexToCss } from "./legendEntries";
 import { patternNameForGroup } from "./habitatPatterns";
 import { projectToScreen } from "./overlay/labels";
@@ -61,11 +61,31 @@ export const identifyModule = (ctx: AppContext) => {
   let pinned: THREE.Vector3 | null = null;
   const scratch = new THREE.Vector3();
 
+  // Card size and the toolbar's bottom edge, measured when the card is filled and on resize
+  // (not every frame: reading layout right after moving the card would force a reflow).
+  const size = { w: 0, h: 0, top: 0 };
+  const topbar = shell.root.querySelector(".topbar");
+  const measure = () => {
+    size.w = card.offsetWidth;
+    size.h = card.offsetHeight;
+    size.top = topbar ? topbar.getBoundingClientRect().bottom : 0;
+  };
   const place = () => {
     if (!pinned) return;
-    const p = projectToScreen(scratch.copy(pinned), camera, canvas.clientWidth, canvas.clientHeight);
+    const vw = canvas.clientWidth;
+    const vh = canvas.clientHeight;
+    const p = projectToScreen(scratch.copy(pinned), camera, vw, vh);
+    const { shiftX, below } = clampCard({ x: p.x, y: p.y, w: size.w, h: size.h, vw, vh, top: size.top });
     card.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
+    card.style.setProperty("--shift-x", `${shiftX.toFixed(1)}px`);
+    card.toggleAttribute("data-below", below);
   };
+  window.addEventListener("resize", () => {
+    if (!pinned) return;
+    fitText();
+    measure();
+    place();
+  });
   ctx.onFrame(place);
 
   const close = () => {
@@ -126,6 +146,7 @@ export const identifyModule = (ctx: AppContext) => {
     pinned = new THREE.Vector3(hit.x, hit.y, hit.z);
     card.hidden = false;
     fitText();
+    measure();
     place();
     shell.announce([what.title, what.detail, what.note].filter(Boolean).join(", "));
   };

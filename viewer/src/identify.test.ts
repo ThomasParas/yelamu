@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeHabitat, groundHit, habitatIdAt, isTap, surfaceY, type IdentifyGrid } from "./identify";
+import { clampCard, describeHabitat, groundHit, habitatIdAt, isTap, surfaceY, type IdentifyGrid } from "./identify";
 
 // A 5 x 5 grid, 10 m cells, centred on the origin (x and z from -20 to 20 m).
 function grid(heightAt: (col: number, row: number) => number, exaggeration = 2): IdentifyGrid {
@@ -133,5 +133,26 @@ describe("isTap", () => {
     expect(isTap(9 * 9, 100, 1)).toBe(false); // a drag
     expect(isTap(0, 800, 1)).toBe(false); // a long press
     expect(isTap(0, 100, 2)).toBe(false); // a pinch
+  });
+});
+
+describe("clampCard", () => {
+  const base = { w: 200, h: 60, vw: 320, vh: 640, top: 70 };
+  it("leaves a card centred on a point with room around it", () => {
+    expect(clampCard({ ...base, x: 160, y: 300 })).toEqual({ shiftX: 0, below: false });
+  });
+  it("slides it in from the left and right edges, keeping 8 px clear", () => {
+    expect(clampCard({ ...base, x: 50, y: 300 }).shiftX).toBe(58); // left edge 50-100 -> 8
+    expect(clampCard({ ...base, x: 280, y: 300 }).shiftX).toBe(-68); // right edge 380 -> 312
+  });
+  it("never slides so far that the pin leaves the card", () => {
+    expect(clampCard({ ...base, x: 2, y: 300 }).shiftX).toBe(90); // w / 2 - 10
+  });
+  it("goes below the point when the toolbar leaves no room above", () => {
+    expect(clampCard({ ...base, x: 160, y: 120 }).below).toBe(true);
+    expect(clampCard({ ...base, x: 160, y: 150 }).below).toBe(false); // 150 - 12 - 60 = 78 = 70 + 8
+  });
+  it("stays above when there is no room below either", () => {
+    expect(clampCard({ ...base, vh: 160, x: 160, y: 120 }).below).toBe(false);
   });
 });

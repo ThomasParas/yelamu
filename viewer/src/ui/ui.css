@@ -1120,7 +1120,8 @@ main {
   max-width: min(280px, calc(100vw - 32px));
   /* The card's bottom-centre sits just above the point; the ::after pin marks the point itself. */
   margin: 0;
-  translate: -50% calc(-100% - 12px);
+  /* --shift-x and [data-below] keep it inside the window (identify.ts clampCard). */
+  translate: calc(-50% + var(--shift-x, 0px)) calc(-100% - 12px);
   padding: 6px 4px 6px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1133,10 +1134,13 @@ main {
 .identify__card[hidden] {
   display: none;
 }
+.identify__card[data-below] {
+  translate: calc(-50% + var(--shift-x, 0px)) 12px;
+}
 .identify__card::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: calc(50% - var(--shift-x, 0px));
   bottom: -12px;
   width: 10px;
   height: 10px;
@@ -1146,6 +1150,11 @@ main {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 1.5px var(--accent);
+}
+.identify__card[data-below]::after {
+  top: -12px;
+  bottom: auto;
+  translate: -50% -50%;
 }
 .identify__swatch {
   width: 18px;
