@@ -68,6 +68,15 @@ const KEY_PAN_STEP_PX = 60;
 const shell = createShell(document.getElementById("ui")!);
 shell.setStatus("Loading...");
 
+/** Fade out and remove the loading indicator from index.html (once the map is drawn, or on failure). */
+function hideLoading(): void {
+  const el = document.getElementById("loading");
+  if (!el || el.classList.contains("loading--done")) return;
+  el.classList.add("loading--done");
+  el.removeAttribute("role");
+  window.setTimeout(() => el.remove(), 400);
+}
+
 async function start() {
   const canvas = document.getElementById("scene") as HTMLCanvasElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -258,6 +267,7 @@ async function start() {
       }
       const pending = terrain.update(camera);
       renderer.render(scene, camera);
+      hideLoading(); // the first full frame is on screen
       for (const cb of [...frameCallbacks]) {
         try {
           cb();
@@ -466,6 +476,7 @@ async function start() {
 
 start().catch((err) => {
   console.error(err);
+  hideLoading();
   shell.setStatus(loadFailureMessage(err, DEBUG));
 });
 

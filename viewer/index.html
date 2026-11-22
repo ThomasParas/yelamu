@@ -20,6 +20,63 @@
     <meta name="twitter:title" content="Yelamu: the landscape of San Francisco around 1769" />
     <meta name="twitter:description" content="An interactive 3D map of the peninsula's land and water before the city, with the source and confidence of every layer." />
     <meta name="twitter:image" content="https://yelamu.thomasparas.com/og.png" />
+    <!-- Loading indicator: styled here, not in ui.css, so it shows before the script arrives. -->
+    <style>
+      .loading {
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        pointer-events: none;
+        font: 500 15px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #1c2429;
+        transition: opacity 0.35s ease;
+      }
+      .loading--done {
+        opacity: 0;
+      }
+      .loading__ring {
+        width: 44px;
+        height: 44px;
+        box-sizing: border-box;
+        border: 4px solid rgba(29, 106, 135, 0.2);
+        border-top-color: #1d6a87;
+        border-radius: 50%;
+        animation: loading-spin 0.9s linear infinite;
+      }
+      .loading__text {
+        margin: 0;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.8);
+      }
+      @keyframes loading-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .loading__ring {
+          animation-duration: 3s;
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        .loading {
+          color: #e8eef1;
+        }
+        .loading__ring {
+          border-color: rgba(122, 190, 216, 0.25);
+          border-top-color: #7abed8;
+        }
+        .loading__text {
+          background: rgba(28, 36, 41, 0.8);
+        }
+      }
+    </style>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -81,6 +138,10 @@
         <p>Data from the San Francisco Estuary Institute (Hidden Nature SF), USGS 3DEP, NOAA and the U.S. Census Bureau. Code and data are free software under the GNU General Public License, version 3 or later: <a href="https://github.com/ThomasParas/yelamu">github.com/ThomasParas/yelamu</a>. Built by <a href="https://thomasparas.com/">Thomas Paras</a>. A plain-text version of this page is at <a href="/llms.txt">/llms.txt</a>.</p>
       </section>
     </main>
+    <div id="loading" class="loading" role="status">
+      <div class="loading__ring" aria-hidden="true"></div>
+      <p class="loading__text">Loading the map…</p>
+    </div>
     <div id="ui"></div>
     <noscript>
       <p class="noscript-msg" style="font-family: system-ui, sans-serif; padding: 1rem">Yelamu is an interactive 3D map and needs JavaScript to run.</p>
