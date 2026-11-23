@@ -3,6 +3,7 @@
  * No frameworks and no three.js. Every string from data goes through textContent.
  */
 import { nextAnnouncement } from "../a11y";
+import { compassLabel, northDegrees } from "../compass";
 import { layerAnnouncement } from "../placesList";
 import { SEARCH_INPUT_ID } from "./searchBox";
 
@@ -47,6 +48,10 @@ export interface Shell {
   onReset(handler: () => void): void;
   /** -1 = rotate left (Q), +1 = rotate right (E). */
   onRotate(handler: (dir: 1 | -1) => void): void;
+  /** The compass was tapped: turn the map so north is up. */
+  onNorthUp(handler: () => void): void;
+  /** Point the compass needle for this camera azimuth (radians; also north's screen angle). */
+  setCompass(azimuth: number): void;
   /** +1 = zoom in (+), -1 = zoom out (-), from the menu or the on-map buttons. */
   onZoom(handler: (dir: 1 | -1) => void): void;
   /** Enable or grey out the zoom buttons (false at that zoom limit). */
@@ -263,7 +268,28 @@ export function createShell(root: HTMLElement): Shell {
   const mapZoomInBtn = actionButton("turn__btn zoom__btn zoom__btn--in", "+", "Zoom in", "Zoom in (+)", true);
   const mapZoomOutBtn = actionButton("turn__btn zoom__btn zoom__btn--out", "\u2212", "Zoom out", "Zoom out (\u2212)", true);
   zoomGroup.append(mapZoomInBtn, mapZoomOutBtn);
-  root.append(header, status, announcer, toastEl, turn, zoomGroup, panelHost);
+  // Compass above the turn-left button, mirroring the zoom buttons: the needle turns with the
+  // map so N always points to true north; a tap turns the map north-up.
+  const compassBtn = el("button", "turn__btn compass", { type: "button", title: "Turn north up" });
+  compassBtn.innerHTML =
+    '<svg class="compass__rose" viewBox="-26 -26 52 52" aria-hidden="true" focusable="false">' +
+    '<circle class="compass__ring" r="20"/>' +
+    '<g class="compass__needle">' +
+    '<path class="compass__south" d="M0 0 L5 2 L0 15 L-5 2 Z"/>' +
+    '<path class="compass__north" d="M0 0 L5 -2 L0 -15 L-5 -2 Z"/>' +
+    '<g class="compass__letter-pos" transform="translate(0 -20)">' +
+    '<text class="compass__letter" text-anchor="middle" dominant-baseline="central">N</text>' +
+    "</g></g></svg>";
+  const needle = compassBtn.querySelector<SVGGElement>(".compass__needle")!;
+  const letter = compassBtn.querySelector<SVGTextElement>(".compass__letter")!;
+  const setCompass = (azimuth: number) => {
+    const deg = northDegrees(azimuth);
+    needle.setAttribute("transform", `rotate(${deg.toFixed(2)})`);
+    letter.setAttribute("transform", `rotate(${(-deg).toFixed(2)})`); // the N stays upright
+    compassBtn.setAttribute("aria-label", compassLabel(azimuth));
+  };
+  setCompass(0);
+  root.append(header, status, announcer, toastEl, turn, zoomGroup, compassBtn, panelHost);
 
   // Panels sit below the top bar, which wraps to a variable height on narrow screens.
   const syncBarHeight = () => {
@@ -282,6 +308,8 @@ export function createShell(root: HTMLElement): Shell {
 
   const resetHandlers: Array<() => void> = [];
   const rotateHandlers: Array<(dir: 1 | -1) => void> = [];
+  const northUpHandlers: Array<() => void> = [];
+  compassBtn.addEventListener("click", () => northUpHandlers.forEach((h) => h()));
   const surpriseHandlers: Array<() => void> = [];
   const copyHandlers: Array<() => void> = [];
   const zoomHandlers: Array<(dir: 1 | -1) => void> = [];
@@ -370,6 +398,8 @@ export function createShell(root: HTMLElement): Shell {
 
     onReset: (h) => void resetHandlers.push(h),
     onRotate: (h) => void rotateHandlers.push(h),
+    onNorthUp: (h) => void northUpHandlers.push(h),
+    setCompass,
     onSurprise: (h) => void surpriseHandlers.push(h),
     onCopyLink: (h) => void copyHandlers.push(h),
     onZoom: (h) => void zoomHandlers.push(h),

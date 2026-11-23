@@ -1,15 +1,15 @@
 import * as THREE from "three";
 import { ISO_AZIMUTH, ISO_ELEVATION, isoOffset, panDelta } from "./camera";
-import { normalizeRot } from "./appState";
+import { normalizeRot, ROT_UNIT } from "./appState";
 
 /** Distance of the camera from its target. Irrelevant for orthographic projection. */
 export const CAMERA_DISTANCE = 20000;
-/** One rotation step: a quarter turn. */
+/** Azimuth of one rot unit (a quarter turn); the buttons turn by ROT_UNIT of it. */
 export const ROT_STEP = Math.PI / 2;
 export const ROTATE_MS = 350;
 export const FLY_MS = 600;
 
-/** Camera azimuth for a number of quarter turns (may be negative or above 3). */
+/** Camera azimuth for a number of quarter turns (may be negative or above 3.5). */
 export function azimuthFor(rot: number): number {
   return ISO_AZIMUTH + rot * ROT_STEP;
 }
@@ -74,7 +74,7 @@ export function unitsPerPixel(camera: THREE.OrthographicCamera, viewportHeightPx
   return (camera.top - camera.bottom) / camera.zoom / Math.max(1, viewportHeightPx);
 }
 
-/** What the URL hash and the UI see: `rot` is the DESTINATION quarter turn, 0..3. */
+/** What the URL hash and the UI see: `rot` is the DESTINATION rotation, 0..3.5 in half steps. */
 export interface ViewState extends ViewTarget {
   rot: number;
 }
@@ -115,7 +115,7 @@ export class ViewRig {
   private x = 0;
   private z = 0;
   private zoom: number;
-  /** Quarter turns, UNWRAPPED (can be negative or above 3) so animations take the short way. */
+  /** Quarter turns, UNWRAPPED (can be negative or above 3.5) so animations take the short way. */
   private rotTarget = 0;
   private azimuth = azimuthFor(0);
   private anim: Animation | null = null;
@@ -205,10 +205,21 @@ export class ViewRig {
     this.commitIfChanged(before);
   }
 
-  /** One quarter turn: +1 turns the map clockwise as seen from above, -1 anticlockwise. */
+  /** One 45 degree step: +1 turns the map clockwise as seen from above, -1 anticlockwise. */
   rotate(dir: 1 | -1): void {
+    this.turnBy(dir * ROT_UNIT);
+  }
+
+  /** Turn by the shortest way to rotation `rot` (snapped to a 45 degree step), e.g. north-up. */
+  rotateTo(rot: number): void {
+    if (!Number.isFinite(rot)) return;
+    this.turnBy(shortestTurn(normalizeRot(this.rotTarget), normalizeRot(rot)));
+  }
+
+  private turnBy(delta: number): void {
     const before = this.signature();
-    this.rotTarget += dir;
+    if (delta === 0) return;
+    this.rotTarget += delta;
     if (this.options.reducedMotion()) {
       this.anim = null;
       this.azimuth = azimuthFor(this.rotTarget);
@@ -337,8 +348,11 @@ export class ViewRig {
   }
 }
 
-/** Signed quarter turns (-1, 0, 1 or 2) that take rotation `from` to `to`, both in 0..3. */
+/** Signed quarter turns (-1.5 .. 2, in half steps) that take rotation `from` to `to`, both in 0..3.5. */
 function shortestTurn(from: number, to: number): number {
   const diff = (((to - from) % 4) + 4) % 4;
-  return diff === 3 ? -1 : diff;
+  return diff > 2 ? diff - 4 : diff;
 }
+
+/** The rotation that puts north at the top of the screen (camera azimuth 0). */
+export const NORTH_UP_ROT = normalizeRot(-ISO_AZIMUTH / ROT_STEP);

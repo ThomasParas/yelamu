@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ISO_AZIMUTH, ISO_ELEVATION, isoOffset } from "./camera";
 import {
   CAMERA_DISTANCE,
+  NORTH_UP_ROT,
   ROT_STEP,
   ViewRig,
   azimuthFor,
@@ -351,19 +352,19 @@ describe("ViewRig.flyTo", () => {
 describe("ViewRig.rotate", () => {
   const norm = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-  it("turns a quarter turn over ~350ms and ends at the right rot", () => {
+  it("turns 45 degrees over ~350ms and ends at the right rot", () => {
     const { rig, run, step } = harness();
     rig.rotate(1);
     expect(rig.isAnimating()).toBe(true);
-    expect(rig.getState().rot).toBe(1); // rot is the destination
+    expect(rig.getState().rot).toBe(0.5); // rot is the destination
     run(400);
     step(16);
-    expect(rig.getState().rot).toBe(1);
-    expect(rig.getAzimuth()).toBeCloseTo(azimuthFor(1));
+    expect(rig.getState().rot).toBe(0.5);
+    expect(rig.getAzimuth()).toBeCloseTo(azimuthFor(0.5));
     expect(rig.isAnimating()).toBe(false);
   });
 
-  it("takes the shortest way: rot 0 -> 3 sweeps -90 degrees, never +270", () => {
+  it("takes the shortest way: rot 0 -> 3.5 sweeps -45 degrees, never +315", () => {
     const { rig, run } = harness();
     const seen: number[] = [rig.getAzimuth()];
     rig.onChange(() => seen.push(rig.getAzimuth()));
@@ -371,19 +372,19 @@ describe("ViewRig.rotate", () => {
     run(500);
     for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeLessThanOrEqual(seen[i - 1] + 1e-9);
     const total = norm(seen[seen.length - 1] - seen[0]);
-    expect(total).toBeCloseTo(-ROT_STEP);
-    expect(Math.abs(seen[seen.length - 1] - seen[0])).toBeCloseTo(ROT_STEP);
-    expect(rig.getState().rot).toBe(3);
+    expect(total).toBeCloseTo(-ROT_STEP / 2);
+    expect(Math.abs(seen[seen.length - 1] - seen[0])).toBeCloseTo(ROT_STEP / 2);
+    expect(rig.getState().rot).toBe(3.5);
   });
 
-  it("wraps 3 -> 0 forwards", () => {
+  it("wraps 3.5 -> 0 forwards", () => {
     const { rig, run } = harness();
-    rig.setState({ rot: 3 });
+    rig.setState({ rot: 3.5 });
     const start = rig.getAzimuth();
     rig.rotate(1);
     run(500);
     expect(rig.getState().rot).toBe(0);
-    expect(norm(rig.getAzimuth() - start)).toBeCloseTo(ROT_STEP);
+    expect(norm(rig.getAzimuth() - start)).toBeCloseTo(ROT_STEP / 2);
     // The camera really ended up at the rot-0 position.
     const expected = isoOffset(CAMERA_DISTANCE, azimuthFor(0), ISO_ELEVATION);
     expect(rig.camera.position.distanceTo(expected)).toBeLessThan(1e-3);
@@ -400,21 +401,21 @@ describe("ViewRig.rotate", () => {
   it("is instant under reduced motion", () => {
     const { rig, pending } = harness({ reduced: true });
     rig.rotate(1);
-    expect(rig.getState().rot).toBe(1);
+    expect(rig.getState().rot).toBe(0.5);
     expect(rig.isAnimating()).toBe(false);
     expect(pending()).toBe(0);
-    expect(norm(rig.getAzimuth() - azimuthFor(1))).toBeCloseTo(0);
+    expect(norm(rig.getAzimuth() - azimuthFor(0.5))).toBeCloseTo(0);
   });
 
-  it("presses made during a turn chain: two presses make a half turn", () => {
+  it("presses made during a turn chain: two presses make a quarter turn", () => {
     const { rig, run } = harness();
     rig.rotate(1);
     run(100);
     rig.rotate(1);
-    expect(rig.getState().rot).toBe(2);
+    expect(rig.getState().rot).toBe(1);
     run(1000);
-    expect(rig.getState().rot).toBe(2);
-    expect(norm(rig.getAzimuth() - azimuthFor(2))).toBeCloseTo(0);
+    expect(rig.getState().rot).toBe(1);
+    expect(norm(rig.getAzimuth() - azimuthFor(1))).toBeCloseTo(0);
     expect(rig.isAnimating()).toBe(false);
   });
 
@@ -424,7 +425,57 @@ describe("ViewRig.rotate", () => {
     run(100);
     rig.rotate(1);
     run(2000);
-    expect(rig.getState()).toEqual({ x: 400, z: 0, zoom: 6, rot: 1 });
+    expect(rig.getState()).toEqual({ x: 400, z: 0, zoom: 6, rot: 0.5 });
+  });
+
+  it("eight presses go all the way round", () => {
+    const { rig, run } = harness({ reduced: true });
+    const seen = new Set<number>();
+    for (let i = 0; i < 8; i++) {
+      rig.rotate(1);
+      seen.add(rig.getState().rot);
+    }
+    run(100);
+    expect(seen.size).toBe(8);
+    expect(rig.getState().rot).toBe(0);
+  });
+});
+
+describe("ViewRig.rotateTo (compass: north-up)", () => {
+  const norm = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+  it("NORTH_UP_ROT puts the camera due south, looking north", () => {
+    expect(NORTH_UP_ROT).toBe(3.5);
+    expect(norm(azimuthFor(NORTH_UP_ROT))).toBeCloseTo(0);
+  });
+
+  it("turns the short way to north-up and keeps the target and zoom", () => {
+    const { rig, run } = harness();
+    rig.setState({ x: 120, z: -40, zoom: 3, rot: 1 });
+    const start = rig.getAzimuth();
+    rig.rotateTo(NORTH_UP_ROT);
+    expect(rig.getState().rot).toBe(NORTH_UP_ROT);
+    run(600);
+    expect(norm(rig.getAzimuth())).toBeCloseTo(0);
+    expect(rig.getAzimuth() - start).toBeCloseTo(-1.5 * ROT_STEP); // -135 degrees, not +225
+    expect(rig.getState()).toMatchObject({ x: 120, z: -40, zoom: 3 });
+  });
+
+  it("does nothing when already north-up", () => {
+    const { rig, pending } = harness();
+    rig.setState({ rot: NORTH_UP_ROT });
+    let changes = 0;
+    rig.onChange(() => changes++);
+    rig.rotateTo(NORTH_UP_ROT);
+    expect(rig.isAnimating()).toBe(false);
+    expect(pending()).toBe(0);
+    expect(changes).toBe(0);
+  });
+
+  it("ignores a non-finite target", () => {
+    const { rig } = harness();
+    rig.rotateTo(Number.NaN);
+    expect(rig.getState().rot).toBe(0);
   });
 });
 
@@ -489,8 +540,8 @@ describe("ViewRig user input during a rotation", () => {
     rig.panBy(5, 0, 1);
     expect(rig.isAnimating()).toBe(true);
     run(1000);
-    expect(rig.getState().rot).toBe(1);
-    expect(rig.getAzimuth()).toBeCloseTo(azimuthFor(1));
+    expect(rig.getState().rot).toBe(0.5);
+    expect(rig.getAzimuth()).toBeCloseTo(azimuthFor(0.5));
     expect(rig.isAnimating()).toBe(false);
   });
 });

@@ -29,7 +29,7 @@ import { createShell } from "./ui/shell";
 import "./ui/ui.css";
 import { loadTreeModels } from "./vegetation/glb";
 import { VegetationLayer } from "./vegetation/layer";
-import { ViewRig, unitsPerPixel } from "./viewRig";
+import { NORTH_UP_ROT, ViewRig, unitsPerPixel } from "./viewRig";
 import { computeShoreField, dryMask } from "./water/shoreField";
 import { createWaterMaterial } from "./water/waterMaterial";
 import { SUN_DIRECTION, VERTICAL_EXAGGERATION, makeTerrainShade, shadeProblem, withShade } from "./terrainShade";
@@ -391,6 +391,10 @@ async function start() {
 
   shell.onReset(() => rig.reset());
   shell.onRotate((dir) => rig.rotate(dir));
+  shell.onNorthUp(() => rig.rotateTo(NORTH_UP_ROT));
+  const syncCompass = () => shell.setCompass(rig.getAzimuth());
+  syncCompass();
+  rig.onChange(syncCompass);
   shell.onZoom((dir) => rig.zoomBy(dir > 0 ? KEY_ZOOM_FACTOR : 1 / KEY_ZOOM_FACTOR));
   // Grey out a zoom button at its limit (a small tolerance: the limits are floats).
   const syncZoomButtons = () => {

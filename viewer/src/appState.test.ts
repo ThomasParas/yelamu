@@ -95,14 +95,26 @@ describe("decodeState", () => {
     expect(decodeState("x=-12.5&z=.5&k=2e0")).toEqual({ x: -12.5, z: 0.5, zoom: 2 });
   });
 
-  it("clamps r to an integer 0..3 (mod 4)", () => {
+  it("snaps r to a half step 0..3.5 (mod 4)", () => {
     expect(decodeState("r=0").rot).toBe(0);
     expect(decodeState("r=3").rot).toBe(3);
     expect(decodeState("r=4").rot).toBe(0);
     expect(decodeState("r=-1").rot).toBe(3);
     expect(decodeState("r=6").rot).toBe(2);
-    expect(decodeState("r=1.6").rot).toBe(2);
+    expect(decodeState("r=1.5").rot).toBe(1.5);
+    expect(decodeState("r=3.5").rot).toBe(3.5);
+    expect(decodeState("r=-0.5").rot).toBe(3.5);
+    expect(decodeState("r=1.6").rot).toBe(1.5);
+    expect(decodeState("r=1.8").rot).toBe(2);
     expect(decodeState("r=1e20").rot).toBe(0);
+  });
+
+  it("links shared before 8 views (r=0..3) open the same view", () => {
+    for (const r of [0, 1, 2, 3]) {
+      expect(decodeState(`r=${r}`).rot).toBe(r);
+      expect(encodeState({ x: 0, z: 0, zoom: 1, rot: r })).toContain(`r=${r}`);
+    }
+    expect(encodeState({ x: 0, z: 0, zoom: 1, rot: 2.5 })).toContain("r=2.5");
   });
 
   it("duplicate keys: the last valid value wins", () => {

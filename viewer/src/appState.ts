@@ -8,7 +8,7 @@ export interface AppState {
   z: number;
   /** Orthographic camera zoom. */
   zoom: number;
-  /** Quarter turns of the camera around the target, 0..3. */
+  /** Quarter turns of the camera around the target, in half steps: 0, 0.5, ... 3.5. */
   rot: number;
   /**
    * Ids of enabled optional layers, sorted. `undefined` means "not specified" (the app
@@ -28,10 +28,17 @@ const LAYER_ID = /^[a-z0-9-]+$/;
 const PLACE_ID = /^[a-z0-9][a-z0-9-]*$/;
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
 
-/** Wrap any integer (including negatives and huge values) into 0..3. */
+/** Turns per rotation step: a half quarter turn, so the view snaps every 45 degrees. */
+export const ROT_UNIT = 0.5;
+
+/**
+ * Snap to the nearest half quarter turn and wrap into 0..3.5 (negatives and huge values too).
+ * Whole numbers are the four diagonal views, as in links shared before 8 views existed.
+ */
 export function normalizeRot(n: number): number {
   if (!Number.isFinite(n)) return 0;
-  return (((Math.round(n) % 4) + 4) % 4) || 0;
+  const steps = Math.round(n / ROT_UNIT);
+  return (((steps % 8) + 8) % 8) * ROT_UNIT || 0;
 }
 
 /** Valid ids only, de-duplicated, at most MAX_LAYERS (first ones win), then sorted. */
@@ -86,7 +93,7 @@ function parseNumber(v: string): number | undefined {
 
 /**
  * Tolerant parse of a location hash. Accepts a leading '#', ignores unknown keys, drops
- * values that are not finite numbers, wraps r into 0..3 and filters layer ids. A repeated
+ * values that are not finite numbers, snaps r to 0..3.5 and filters layer ids. A repeated
  * key takes its last VALID value. Never throws; returns only what it could read.
  * `layers` is present (possibly `[]`) only when the hash has an `l` key.
  * Huge-but-finite numbers are returned as is: the view rig clamps them to the map.

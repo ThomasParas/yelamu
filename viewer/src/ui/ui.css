@@ -438,6 +438,42 @@ main {
 .zoom__btn--in {
   bottom: calc(var(--edge) + var(--safe-bottom) + var(--status-h, 0px) + var(--gap) + 112px);
 }
+/* Compass: above the turn-left button, mirroring the zoom stack. A ring and needle in the
+   same dark-on-white-halo style as the arrows; the north half is red. */
+.compass {
+  left: calc(var(--edge) + env(safe-area-inset-left, 0px));
+  bottom: calc(var(--edge) + var(--safe-bottom) + var(--status-h, 0px) + var(--gap) + 56px);
+}
+.compass__rose {
+  width: 40px;
+  height: 40px;
+  overflow: visible;
+  filter: drop-shadow(0 0 1.5px var(--label-halo)) drop-shadow(0 0 1.5px var(--label-halo));
+}
+.compass__ring {
+  fill: var(--label-halo);
+  fill-opacity: 0.55;
+  stroke: var(--label-fg);
+  stroke-width: 2;
+}
+.compass__north {
+  fill: #b3261e;
+}
+.compass__south {
+  fill: var(--label-fg);
+}
+.compass__letter {
+  fill: var(--label-fg);
+  font-size: 11px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: var(--label-halo);
+  stroke-width: 3px;
+}
+@media (forced-colors: active) {
+  .compass__ring { fill: Canvas; stroke: ButtonText; }
+  .compass__north, .compass__south, .compass__letter { fill: ButtonText; }
+}
 .turn__btn:disabled,
 .turn__btn:disabled:hover {
   opacity: 0.35;
