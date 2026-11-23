@@ -9,7 +9,7 @@ import { KEY_ZOOM_FACTOR, attachKeyboard, attachPointerControls } from "./contro
 import { GROUP_COLORS, buildPalette, makeColorAt, makeShadeFactorAt, paletteToLinear, seaClassIds, shadeByDepth } from "./habitat";
 import { createHabitatMaterial } from "./habitatMaterial";
 import { patternById } from "./habitatPatterns";
-import { loadHabitat, loadHeightmap, loadShadeBytes, type HeightmapMeta } from "./heightmap";
+import { loadHabitat, loadHeights, loadMeta, loadShadeBytes, type HeightmapMeta } from "./heightmap";
 import { datasetFromSearch } from "./dataset";
 import { loadFailureMessage } from "./loadError";
 import { createHashSync } from "./hashSync";
@@ -91,8 +91,11 @@ async function start() {
   sun.position.set(...SUN_DIRECTION); // the baked ground shading assumes this direction
   scene.add(sun);
 
-  const { meta, heights } = await loadHeightmap(ASSET_BASE);
-  const [habitat, shadeBytes, ringDoc] = await Promise.all([
+  // meta.json names every file; then all of them download side by side (the heights are
+  // the biggest by far, and the others used to wait for them).
+  const meta = await loadMeta(ASSET_BASE);
+  const [heights, habitat, shadeBytes, ringDoc] = await Promise.all([
+    loadHeights(ASSET_BASE, meta),
     loadHabitat(ASSET_BASE, meta),
     loadShadeBytes(ASSET_BASE, meta),
     // Only the small description, for the edge mist (contextModule loads the ring itself later).

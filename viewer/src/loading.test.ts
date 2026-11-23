@@ -19,3 +19,12 @@ describe("loading indicator", () => {
     expect(main).toMatch(/start\(\)\.catch\(\(err\) => \{[\s\S]*?hideLoading\(\);/);
   });
 });
+
+describe("data loading order", () => {
+  it("reads meta.json, then fetches the heights alongside habitat, shading and context", () => {
+    expect(main).toMatch(
+      /const meta = await loadMeta\(ASSET_BASE\);\s*const \[heights, habitat, shadeBytes, ringDoc\] = await Promise\.all\(\[\s*loadHeights\(ASSET_BASE, meta\),\s*loadHabitat\(/,
+    );
+    expect(main).not.toContain("loadHeightmap(");
+  });
+});

@@ -79,10 +79,16 @@ async function fetchChecked(url: string): Promise<Response> {
   return res;
 }
 
-export async function loadHeightmap(
-  baseUrl: string,
-): Promise<{ meta: HeightmapMeta; heights: Float32Array }> {
-  const meta: HeightmapMeta = await (await fetchChecked(`${baseUrl}/meta.json`)).json();
+/** The dataset description (meta.json): read first, it names every other file. */
+export async function loadMeta(baseUrl: string): Promise<HeightmapMeta> {
+  return (await fetchChecked(`${baseUrl}/meta.json`)).json();
+}
+
+/**
+ * Terrain heights in metres for `meta` (the largest file, so main.ts fetches it alongside the
+ * habitat, shading and context files rather than before them).
+ */
+export async function loadHeights(baseUrl: string, meta: HeightmapMeta): Promise<Float32Array> {
   if (meta.heights_format !== "uint16-le") {
     throw new Error(`unsupported heights_format ${JSON.stringify(meta.heights_format)}`);
   }
@@ -98,7 +104,7 @@ export async function loadHeightmap(
   const view = new DataView(buffer);
   const q = new Uint16Array(count);
   for (let i = 0; i < count; i++) q[i] = view.getUint16(i * 2, true);
-  return { meta, heights: decodeHeights(q, meta) };
+  return decodeHeights(q, meta);
 }
 
 /** Habitat class id per cell, or null when the dataset has no habitat raster. */
