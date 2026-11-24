@@ -711,7 +711,7 @@ def test_data_files_in_the_repo_are_valid():
     validate_hotspots(hotspots, region.bbox)
     validate_unique_ids(landmarks, hotspots)
     assert len(landmarks) == 47
-    assert 8 <= len(hotspots) <= 20  # ten curated hotspots plus the seven named creeks
+    assert 8 <= len(hotspots) <= 25  # curated hotspots plus the named creeks
 
 
 # ----------------------------------------------------------------------------- villages

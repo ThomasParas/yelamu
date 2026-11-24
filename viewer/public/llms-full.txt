@@ -42,7 +42,7 @@ Map: https://yelamu.thomasparas.com/
 - modelled_streams (Illustrative, 228): Stream channels computed by SFEI from a historical elevation model ('MYHL_HistoricStreams'), Strahler order 3 and up, left out within 100 m of a hand-mapped creek. Computed, not observed.
 - villages (Inferred, 5): General locations from SFEI's Hidden Nature SF story map 'Yelamu: the Native Peoples of San Francisco' (2026), after Milliken (1983, 1995) and the NPS (2009). Approximate. Not official.
 
-## Hotspots (20 landscape features with a card)
+## Hotspots (21 landscape features with a card)
 
 - Arroyo Dolores (creek; 37.7610, -122.4320; Documented). Link: https://yelamu.thomasparas.com/#p=creek-arroyo-dolores
   Arroyo Dolores, a historical creek as mapped by SFEI's Hidden Nature SF, after Hoadley 1855; Goddard 1869. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
@@ -56,6 +56,9 @@ Map: https://yelamu.thomasparas.com/
 - El Polin (creek; 37.7951, -122.4560; Inferred). Link: https://yelamu.thomasparas.com/#p=creek-el-polin
   El Polin, a historical creek as mapped by SFEI's Hidden Nature SF, after Hall 1870; Wheeler 1870. The line is approximate: creeks moved, and later streets and sewers buried or removed many of them.
   Sources: SFEI, San Francisco Historical Creeks (Hidden Nature SF) (https://www.arcgis.com/home/item.html?id=b09c42756dd84305a919bccf46b0e88b)
+- Hayes Creek (creek; 37.7766, -122.4263; Inferred). Link: https://yelamu.thomasparas.com/#p=hayes-creek
+  A creek, or mostly a flow of groundwater, that began in springs and seeps around Hayes Valley, on the slopes below Alamo Square. The Oakland Museum of California's creek guide has it sinking into the dune sand near today's City Hall and Market Street, and other accounts have it surfacing as a marsh near Mission and 7th Streets. No hand-mapped SFEI line runs through the valley, so none is drawn here, and where it ran is approximate.
+  Sources: Mission Creek Historical Topo (Guide to San Francisco Bay Area Creeks, Oakland Museum of California) (https://explore.museumca.org/creeks/1640-TopoMission.html); San Francisco's Clean Little Secret (Joel Pomerantz, FoundSF) (https://www.foundsf.org/San_Francisco%27s_Clean_Little_Secret)
 - Islais Creek estuary (creek; 37.7485, -122.3925; Documented). Link: https://yelamu.thomasparas.com/#p=islais-creek
   Fresh water from uphill springs flowed into saltwater marshlands on the bay's east shore, before the shoreline and creek were filled in and the creek channelized.
   Sources: Islais Creek (Port of San Francisco) (https://www.sfport.com/islaiscreek)

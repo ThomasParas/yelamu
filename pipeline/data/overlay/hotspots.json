@@ -219,6 +219,25 @@
     "confidence": "documented"
   },
   {
+    "id": "hayes-creek",
+    "name": "Hayes Creek",
+    "kind": "creek",
+    "lon": -122.4263,
+    "lat": 37.7766,
+    "description": "A creek, or mostly a flow of groundwater, that began in springs and seeps around Hayes Valley, on the slopes below Alamo Square. The Oakland Museum of California's creek guide has it sinking into the dune sand near today's City Hall and Market Street, and other accounts have it surfacing as a marsh near Mission and 7th Streets. No hand-mapped SFEI line runs through the valley, so none is drawn here, and where it ran is approximate.",
+    "sources": [
+      {
+        "title": "Mission Creek Historical Topo (Guide to San Francisco Bay Area Creeks, Oakland Museum of California)",
+        "url": "https://explore.museumca.org/creeks/1640-TopoMission.html"
+      },
+      {
+        "title": "San Francisco's Clean Little Secret (Joel Pomerantz, FoundSF)",
+        "url": "https://www.foundsf.org/San_Francisco%27s_Clean_Little_Secret"
+      }
+    ],
+    "confidence": "inferred"
+  },
+  {
     "id": "creek-arroyo-dolores",
     "name": "Arroyo Dolores",
     "kind": "creek",
